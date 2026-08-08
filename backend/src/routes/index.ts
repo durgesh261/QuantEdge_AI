@@ -35,6 +35,7 @@ import { portfolioRouter } from '../modules/portfolio/index.js';
 import { enterpriseApiRouter } from './api.js';
 import copilotRoutes from './copilot.routes.js';
 import healthRoutes from './health.routes.js';
+import orderBlockRoutes from './orderBlocks.routes.js';
 
 export const apiRouter = Router();
 
@@ -51,6 +52,7 @@ apiRouter.use('/paper-trading', paperTradingRouter);
 apiRouter.use('/live-trading', liveTradingRouter);
 apiRouter.use('/scanner', scannerRoutes);
 apiRouter.use('/copilot', copilotRoutes);
+apiRouter.use('/order-blocks', orderBlockRoutes);
 
 apiRouter.use('/journal', journalRouter);
 apiRouter.use('/analytics', analyticsRouter);

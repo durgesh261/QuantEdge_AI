@@ -10,7 +10,6 @@ export const ConnectionBanner: React.FC = () => {
     status,
     lastError,
     nextRetryIn,
-    retryCount,
     forceReconnect,
     isBackendReachable,
     isDeltaReachable,
