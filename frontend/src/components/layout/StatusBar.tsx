@@ -1,90 +1,87 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { deltaApi } from '../../services/api';
-import { useTerminalStore } from '../../store/useTerminalStore';
+import React from 'react';
+import { Radio, Zap } from 'lucide-react';
+import { useDeltaStore } from '../../store/useDeltaStore';
 import { useConnectionManager } from '../../hooks/useConnectionManager';
-import { nowIST } from '../../utils/time';
-import { Wifi, WifiOff, Clock, Cpu, Radio, Zap, ShieldCheck } from 'lucide-react';
 
 export const StatusBar: React.FC = () => {
-  const { activeTimeframe } = useTerminalStore();
-  const [istTime, setIstTime] = useState(nowIST());
-
   const { isBackendReachable } = useConnectionManager();
+  const { isDeltaEnabled, isConnected, connectionMode } = useDeltaStore();
 
-  const { data: deltaHealth } = useQuery({
-    queryKey: ['deltaHealth'],
-    queryFn: deltaApi.getHealth,
-    refetchInterval: 5000,
-    enabled: isBackendReachable,
-  });
+  // Unified Delta status derived from user toggle + connection
+  const deltaStatus = !isDeltaEnabled 
+    ? 'offline' 
+    : isConnected 
+      ? 'online' 
+      : 'connecting';
 
-  const isDeltaConnected = deltaHealth?.data?.connectionState === 'CONNECTED';
-
-  useEffect(() => {
-    const timer = setInterval(() => setIstTime(nowIST()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const getStatusColor = (ok: boolean) => ok ? 'text-[#00C896]' : 'text-[#F6465D]';
+  const getStatusBg = (ok: boolean) => ok ? 'bg-[#00C896]' : 'bg-[#F6465D]';
+  const getDotColor = (status: string) => {
+    switch (status) {
+      case 'online': return 'bg-[#00C896]';
+      case 'connecting': return 'bg-[#F59E0B] animate-pulse';
+      default: return 'bg-[#F6465D]';
+    }
+  };
 
   return (
-    <footer className="h-6 bg-[#0B0E14] border-t border-[#1E293B] flex items-center justify-between px-3 text-[10px] font-mono text-[#94A3B8] select-none z-20 overflow-x-auto whitespace-nowrap no-scrollbar">
-      <div className="flex items-center space-x-4">
-        {/* Frontend Status */}
-        <div className="flex items-center space-x-1 text-[#00C896] font-semibold">
-          <Cpu className="w-3 h-3 text-[#3B82F6]" />
-          <span>FE: ONLINE</span>
+    <div className="h-6 bg-[#0B0E14] border-t border-[#1E293B] flex items-center justify-between px-3 text-[9px] font-mono shrink-0 select-none">
+      
+      {/* LEFT SIDE */}
+      <div className="flex items-center space-x-3">
+        {/* Delta Exchange Status */}
+        <div className="flex items-center space-x-1.5">
+          <div className={`w-1.5 h-1.5 rounded-full ${getDotColor(deltaStatus)}`} />
+          <span className={deltaStatus === 'online' ? 'text-[#00C896]' : deltaStatus === 'connecting' ? 'text-[#F59E0B]' : 'text-[#F6465D]'}>
+            DELTA: {deltaStatus === 'online' ? 'ONLINE' : deltaStatus === 'connecting' ? 'CONNECTING' : 'OFFLINE'}
+          </span>
+          {connectionMode === 'polling' && deltaStatus === 'online' && (
+            <span className="text-[#64748B]">(POLL)</span>
+          )}
         </div>
 
-        <div className="h-3 w-px bg-[#1E293B]" />
+        <div className="w-px h-3 bg-[#1E293B]" />
 
         {/* Backend API */}
-        <div className={`flex items-center space-x-1 ${isBackendReachable ? 'text-[#F8FAFC]' : 'text-[#F6465D]'}`}>
-          {isBackendReachable
-            ? <Wifi className="w-3 h-3 text-[#00C896]" />
-            : <WifiOff className="w-3 h-3 text-[#F6465D]" />
-          }
-          <span>BE: {isBackendReachable ? 'ONLINE' : 'OFFLINE'}</span>
-        </div>
-
-        <div className="h-3 w-px bg-[#1E293B]" />
-
-        {/* Pipeline */}
-        <div className="flex items-center space-x-1 text-[#F8FAFC]">
-          <Zap className="w-3 h-3 text-[#F59E0B]" />
-          <span>
-            PIPELINE:{' '}
-            {isBackendReachable ? (
-              <span className="text-[#00C896]">9/9 STAGES OK</span>
-            ) : (
-              <span className="text-[#F6465D]">OFFLINE</span>
-            )}
+        <div className="flex items-center space-x-1">
+          <div className={`w-1.5 h-1.5 rounded-full ${getStatusBg(isBackendReachable)}`} />
+          <span className={getStatusColor(isBackendReachable)}>
+            BE: {isBackendReachable ? 'ONLINE' : 'OFFLINE'}
           </span>
         </div>
 
-        <div className="h-3 w-px bg-[#1E293B]" />
+        <div className="w-px h-3 bg-[#1E293B]" />
+
+        {/* Pipeline */}
+        <div className="flex items-center space-x-1">
+          <Zap className="w-2.5 h-2.5 text-[#00C896]" />
+          <span className="text-[#64748B]">PIPELINE:</span>
+          <span className={isBackendReachable ? 'text-[#00C896]' : 'text-[#F6465D]'}>
+            {isBackendReachable ? '9/9 STAGES OK' : 'DEGRADED'}
+          </span>
+        </div>
+
+        <div className="w-px h-3 bg-[#1E293B]" />
 
         {/* Stream */}
-        <div className="flex items-center space-x-1 text-[#3B82F6]">
-          <Radio className="w-3 h-3 text-[#3B82F6]" />
-          <span>STREAM: {activeTimeframe} CANDLES</span>
+        <div className="flex items-center space-x-1">
+          <Radio className="w-2.5 h-2.5 text-[#64748B]" />
+          <span className="text-[#64748B]">STREAM:</span>
+          <span className={deltaStatus === 'online' ? 'text-[#00C896]' : 'text-[#F6465D]'}>
+            {deltaStatus === 'online' ? 'LIVE' : deltaStatus === 'connecting' ? 'SYNCING' : 'DISCONNECTED'}
+          </span>
         </div>
       </div>
 
-      <div className="flex items-center space-x-4">
-        {/* Delta Mode */}
-        <div className={`flex items-center space-x-1 font-bold ${isDeltaConnected ? 'text-[#00C896]' : 'text-[#94A3B8]'}`}>
-          <ShieldCheck className={`w-3 h-3 ${isDeltaConnected ? 'text-[#00C896]' : 'text-[#94A3B8]'}`} />
-          <span>MODE: {isDeltaConnected ? 'DELTA EXCHANGE LIVE' : 'DELTA DISCONNECTED'}</span>
-        </div>
-
-        <div className="h-3 w-px bg-[#1E293B]" />
-
-        {/* Clock */}
-        <div className="flex items-center space-x-1 text-[#F8FAFC] font-mono-tabular">
-          <Clock className="w-3 h-3 text-[#3B82F6]" />
-          <span>{istTime}</span>
-        </div>
+      {/* RIGHT SIDE */}
+      <div className="flex items-center space-x-3">
+        <span className="text-[#64748B]">
+          MODE: {deltaStatus === 'online' ? 'DELTA CONNECTED' : deltaStatus === 'connecting' ? 'DELTA SYNCING' : 'DELTA DISCONNECTED'}
+        </span>
+        <span className="text-[#64748B]">
+          {new Date().toLocaleTimeString('en-IN', { hour12: false, timeZone: 'Asia/Kolkata' })} IST
+        </span>
       </div>
-    </footer>
+    </div>
   );
 };

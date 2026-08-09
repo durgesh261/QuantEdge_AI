@@ -294,15 +294,63 @@ model TradeLedger {
 }
 
 model ScannerState {
-  id           String    @id @default("default-scanner")
-  state        String    @default("IDLE")
-  activeSymbol String?   @map("active_symbol")
-  lastScanAt   DateTime? @map("last_scan_at")
-  lastTradeAt  DateTime? @map("last_trade_at")
-  tradesToday  Int       @default(0) @map("trades_today")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id            String   @id @default(cuid())
+  isRunning     Boolean  @default(true)   // Global engine on/off
+  isPaused      Boolean  @default(false)  // Global pause
+  ticksTotal    Int      @default(0)
+  signalsTotal  Int      @default(0)
+  tradesTotal   Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
 
-  @@map("scanner_states")
+  @@map("scanner_state")
+}
+
+model ScannerPair {
+  id              String   @id @default(cuid())
+  symbol          String   @unique
+  isActive        Boolean  @default(true)
+  isPaused        Boolean  @default(false)
+  status          String   @default("ENGINE") // ENGINE, PAUSED, STOPPED
+  livePrice       Float    @default(0)
+  priceChange24h  Float    @default(0)
+  activeOBs       Int      @default(0)
+  obWidthPct      Float?
+  aiScore         Float?
+  lastTickAt      DateTime @default(now())
+  lastSignalAt    DateTime?
+  ticksProcessed  Int      @default(0)
+  signalsTriggered Int     @default(0)
+  tradesExecuted  Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([symbol])
+  @@index([status])
+  @@map("scanner_pairs")
+}
+
+model ScannerTick {
+  id        String   @id @default(cuid())
+  symbol    String
+  price     Float
+  source    String   @default("delta")
+  timestamp DateTime @default(now())
+
+  @@index([symbol, timestamp])
+  @@map("scanner_ticks")
+}
+
+model ScannerSignal {
+  id        String   @id @default(cuid())
+  symbol    String
+  type      String   // OB_DETECTED, BREAKOUT, MITIGATION, etc.
+  aiScore   Float
+  metadata  String?  // JSON
+  createdAt DateTime @default(now())
+
+  @@index([symbol, createdAt])
+  @@map("scanner_signals")
 }
 
 model NewsEvent {

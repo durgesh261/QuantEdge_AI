@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient as api } from '../services/api';
 
 export interface OrderBlock {
@@ -16,30 +16,54 @@ export interface OrderBlock {
 
 export function useOrderBlocks(symbol: string) {
   const [blocks, setBlocks] = useState<OrderBlock[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lastSymbolRef = useRef(symbol);
 
-  const fetchBlocks = useCallback(async () => {
+  const fetchBlocks = useCallback(async (targetSymbol: string) => {
+    // Don't fetch if symbol is empty
+    if (!targetSymbol) return;
+    
+    setIsLoading(true);
+    setError(null);
+    lastSymbolRef.current = targetSymbol;
+
     try {
-      setIsLoading(true);
-      const res = await api.get('/order-blocks', { params: { symbol } });
-      if (res.data?.success) {
-        setBlocks(res.data.data || []);
-        setLastUpdated(new Date());
+      const res = await api.get('/order-blocks', { 
+        params: { symbol: targetSymbol },
+        timeout: 8000,
+      });
+      
+      // Only update if symbol hasn't changed since request started (race condition guard)
+      if (lastSymbolRef.current !== targetSymbol) return;
+
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setBlocks(res.data.data);
+      } else {
+        setBlocks([]);
       }
-    } catch (err) {
-      console.error('[useOrderBlocks] Failed to fetch:', err);
+    } catch (err: any) {
+      if (lastSymbolRef.current !== targetSymbol) return;
+      console.error(`[useOrderBlocks] Failed for ${targetSymbol}:`, err);
+      setError(err.message || 'Failed to load order blocks');
+      setBlocks([]); // Empty on error — never fake data
     } finally {
-      setIsLoading(false);
+      if (lastSymbolRef.current === targetSymbol) {
+        setIsLoading(false);
+      }
     }
-  }, [symbol]);
+  }, []);
 
   useEffect(() => {
-    fetchBlocks();
-    // Poll every 10s for live updates
-    const interval = setInterval(fetchBlocks, 10000);
-    return () => clearInterval(interval);
-  }, [fetchBlocks]);
+    // Reset blocks immediately when symbol changes (don't show old symbol's blocks)
+    setBlocks([]);
+    setError(null);
+    fetchBlocks(symbol);
 
-  return { blocks, isLoading, lastUpdated, refetch: fetchBlocks };
+    // Poll every 10 seconds for live updates from scanner engine
+    const interval = setInterval(() => fetchBlocks(symbol), 10000);
+    return () => clearInterval(interval);
+  }, [symbol, fetchBlocks]);
+
+  return { blocks, isLoading, error, refetch: () => fetchBlocks(symbol) };
 }

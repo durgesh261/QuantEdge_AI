@@ -36,12 +36,16 @@ import { enterpriseApiRouter } from './api.js';
 import copilotRoutes from './copilot.routes.js';
 import healthRoutes from './health.routes.js';
 import orderBlockRoutes from './orderBlocks.routes.js';
+import adminRoutes from './admin.routes.js';
+import ordersRoutes from './orders.routes.js';
 
 export const apiRouter = Router();
 
 import scannerRoutes from './scanner.routes.js';
 
 apiRouter.use('/health', healthRoutes);
+apiRouter.use('/admin', adminRoutes);
+apiRouter.use('/orders', ordersRoutes);
 apiRouter.use('/portfolio', portfolioRouter);
 apiRouter.use('/delta', deltaExchangeRouter);
 apiRouter.use('/news', newsRouter);

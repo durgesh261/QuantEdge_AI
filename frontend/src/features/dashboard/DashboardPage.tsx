@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { decisionApi } from '../../services/api';
 import { usePortfolioSummary } from '../../hooks/usePortfolioSummary';
 import { useOrders } from '../../hooks/useOrders';
+import { useOrderBlocks } from '../../hooks/useOrderBlocks';
+import { useResizable } from '../../hooks/useResizable';
 import { useTerminalStore } from '../../store/useTerminalStore';
 import { useToastStore } from '../../store/useToastStore';
 import { InteractiveTradingChart } from '../../components/charts/InteractiveTradingChart';
@@ -35,6 +37,8 @@ export const DashboardPage: React.FC = () => {
 
   // Tabbed Bottom Execution Dock
   const [bottomTab, setBottomTab] = useState<'POSITIONS' | 'ORDERS' | 'HISTORY'>('POSITIONS');
+
+  const { width: rightPanelWidth, startResizing } = useResizable(340, 260, 600, 'left');
 
   // Real Portfolio & Delta Data
   const { data: summary, isLoading: isSummaryLoading, refetch } = usePortfolioSummary();
@@ -87,7 +91,7 @@ export const DashboardPage: React.FC = () => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      className="space-y-4 max-w-[1920px] mx-auto pb-6 font-mono select-none"
+      className="space-y-4 max-w-[1920px] mx-auto pb-6 font-mono select-none min-w-0"
     >
       {/* Workstation Top Bar Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3 bg-slate-900/90 backdrop-blur p-4 rounded-xl shadow-sm">
@@ -142,14 +146,25 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* 4-PANE UNIFIED TRADING WORKSTATION LAYOUT */}
-      <div className="grid grid-cols-12 gap-4 h-[calc(100vh-210px)] min-h-[680px]">
-        {/* CENTER PANE: TRADINGVIEW CHART WORKSPACE (Cols 9) */}
-        <div className="col-span-12 lg:col-span-9 bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col">
+      <div className="flex flex-col xl:flex-row gap-2 h-auto xl:h-[calc(100vh-210px)] xl:min-h-[600px] min-w-0">
+        {/* CENTER PANE: TRADINGVIEW CHART WORKSPACE */}
+        <div className="flex-1 bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col min-w-0 min-h-[400px]">
           <InteractiveTradingChart initialSymbol={activeSymbol} initialTimeframe={activeTimeframe as '1H'} />
         </div>
 
-        {/* RIGHT PANE: DECISION PANEL & RISK SIZING (Cols 3) */}
-        <div className="col-span-12 lg:col-span-3 bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col justify-between shadow-sm space-y-3">
+        {/* RESIZER HANDLE */}
+        <div 
+          className="hidden xl:flex w-3 cursor-col-resize items-center justify-center hover:bg-slate-800/50 transition-colors z-10 shrink-0"
+          onMouseDown={startResizing}
+        >
+          <div className="w-0.5 h-12 bg-slate-700 rounded-full group-hover:bg-[#3B82F6] transition-colors" />
+        </div>
+
+        {/* RIGHT PANE: DECISION PANEL & RISK SIZING */}
+        <div 
+          className="w-full shrink-0 bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex flex-col justify-between shadow-sm space-y-3 min-w-0"
+          style={{ width: window.innerWidth >= 1280 ? rightPanelWidth : '100%' }}
+        >
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2">
               <div className="flex items-center space-x-2">
@@ -223,8 +238,8 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* BOTTOM PANE: TABBED EXECUTION DOCK */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-3 shadow-sm">
-        <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 text-xs">
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 space-y-3 shadow-sm min-w-0">
+        <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 text-xs overflow-x-auto no-scrollbar w-full">
           <button
             onClick={() => setBottomTab('POSITIONS')}
             className={`px-3 py-1 rounded font-bold transition-colors flex items-center gap-1.5 ${
@@ -256,8 +271,8 @@ export const DashboardPage: React.FC = () => {
 
         {/* Tab Contents */}
         {bottomTab === 'POSITIONS' && (
-          <div className="overflow-x-auto text-xs">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto text-xs w-full">
+            <table className="w-full text-left border-collapse min-w-[700px]">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-800 text-[11px]">
                   <th className="py-2 px-3">Symbol</th>
@@ -301,8 +316,8 @@ export const DashboardPage: React.FC = () => {
         )}
 
         {bottomTab === 'ORDERS' && (
-          <div className="overflow-x-auto text-xs">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto text-xs w-full">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-800 text-[11px]">
                   <th className="py-2 px-3">Order ID</th>
@@ -348,8 +363,8 @@ export const DashboardPage: React.FC = () => {
         )}
 
         {bottomTab === 'HISTORY' && (
-          <div className="overflow-x-auto text-xs">
-            <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto text-xs w-full">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead>
                 <tr className="text-slate-400 border-b border-slate-800 text-[11px]">
                   <th className="py-2 px-3">Timestamp</th>

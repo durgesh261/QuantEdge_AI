@@ -1,56 +1,79 @@
 import { Router } from 'express';
-import { MarketScannerService } from '../modules/live-trading/services/MarketScannerService.js';
-import { deltaSyncService } from '../modules/delta-exchange/index.js';
+import { ScannerEngine } from '../modules/scanner/services/scannerEngine.service.js';
+import { prisma } from '../db.js';
 
 const router = Router();
 
-router.get('/telemetry', (_req, res) => {
+// GET /api/v1/scanner/state — Global state + all pairs
+router.get('/state', async (_req, res) => {
+  const [state, pairs] = await Promise.all([
+    prisma.scannerState.findFirst(),
+    prisma.scannerPair.findMany({ orderBy: { symbol: 'asc' } }),
+  ]);
+
+  const signals = await prisma.scannerSignal.findMany({
+    where: { createdAt: { gte: new Date(Date.now() - 86400000) } }, // Last 24h
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+
   res.json({
     success: true,
-    data: MarketScannerService.getTelemetry(),
-    deltaConnected: deltaSyncService.isConnected?.() || false,
+    data: {
+      global: state,
+      pairs,
+      signals,
+    },
   });
 });
 
-router.get('/stats', (_req, res) => {
-  res.json({
-    success: true,
-    data: MarketScannerService.getStats(),
-  });
-});
+// POST /api/v1/scanner/control — Global controls
+router.post('/control', async (req, res) => {
+  const { action } = req.body; // PAUSE_ALL, RESUME_ALL, STOP_ALL, START_ALL
 
-router.get('/state', (_req, res) => {
-  res.json({
-    success: true,
-    state: MarketScannerService.getState(),
-  });
-});
-
-router.post('/control', (req, res) => {
-  const { action, symbol } = req.body; 
-  
-  if (symbol) {
-    if (action === 'start' || action === 'resume') MarketScannerService.setPairStatus(symbol, 'RUNNING');
-    if (action === 'pause') MarketScannerService.setPairStatus(symbol, 'PAUSED');
-    if (action === 'stop') MarketScannerService.setPairStatus(symbol, 'STOPPED');
-  } else {
-    switch (action) {
-      case 'start':
-        MarketScannerService.setState('RUNNING');
-        break;
-      case 'pause':
-        MarketScannerService.setState('PAUSED');
-        break;
-      case 'resume':
-        MarketScannerService.setState('RUNNING');
-        break;
-      case 'stop':
-        MarketScannerService.setState('STOPPED');
-        break;
-    }
+  switch (action) {
+    case 'PAUSE_ALL':
+      await ScannerEngine.globalPause();
+      break;
+    case 'RESUME_ALL':
+      await ScannerEngine.globalResume();
+      break;
+    case 'STOP_ALL':
+      await ScannerEngine.globalStop();
+      break;
+    case 'START_ALL':
+      await ScannerEngine.globalStart();
+      break;
+    default:
+      return res.status(400).json({ success: false, error: 'Invalid action' });
   }
-  
-  res.json({ success: true, state: MarketScannerService.getState() });
+
+  res.json({ success: true, action });
+});
+
+// POST /api/v1/scanner/pair/:symbol/control — Per-pair controls
+router.post('/pair/:symbol/control', async (req, res) => {
+  const { symbol } = req.params;
+  const { action } = req.body; // PAUSE, RESUME, STOP, INSPECT
+
+  switch (action) {
+    case 'PAUSE':
+      await ScannerEngine.pausePair(symbol);
+      break;
+    case 'RESUME':
+      await ScannerEngine.resumePair(symbol);
+      break;
+    case 'STOP':
+      await ScannerEngine.stopPair(symbol);
+      break;
+    case 'INSPECT':
+      await ScannerEngine.inspectPair(symbol);
+      break;
+    default:
+      return res.status(400).json({ success: false, error: 'Invalid action' });
+  }
+
+  res.json({ success: true, symbol, action });
 });
 
 export default router;

@@ -16,7 +16,7 @@ interface DesktopTerminalLayoutProps {
 
 export const DesktopTerminalLayout: React.FC<DesktopTerminalLayoutProps> = ({ children }) => {
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0B0E14] text-[#F8FAFC]">
+    <div className="flex flex-col h-[100dvh] w-full max-w-full overflow-hidden bg-[#0B0E14] text-[#F8FAFC]">
       <GlobalNewsNotifier />
       <TopMarketTicker />
       {/* Connection banner — only visible when offline/degraded */}
@@ -26,7 +26,7 @@ export const DesktopTerminalLayout: React.FC<DesktopTerminalLayoutProps> = ({ ch
       <div className="flex flex-1 overflow-hidden relative">
         <Sidebar />
         <MarketWatchPanel />
-        <main className="flex-1 min-w-0 bg-[#121722] overflow-y-auto overflow-x-hidden p-4 relative">
+        <main className="flex-1 min-w-0 min-h-0 bg-[#121722] overflow-y-auto overflow-x-hidden p-4 relative">
           {children}
         </main>
       </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { 
   Wallet, TrendingUp, AlertTriangle, 
   RefreshCw, Activity, Shield, Zap, BarChart3, 
@@ -7,50 +7,31 @@ import {
 } from 'lucide-react';
 import { useDeltaStore } from '../../store/useDeltaStore';
 import { useTerminalStore } from '../../store/useTerminalStore';
-import { apiClient as api } from '../../services/api';
-
-interface PortfolioStats {
-  totalEquity: number;
-  availableMargin: number;
-  usedMargin: number;
-  unrealizedPnL: number;
-  realizedPnL: number;
-  todayReturn: number;
-  marginUtilization: number;
-  totalFeesPaid: number;
-  estFunding24h: number;
-}
-
-interface RiskMetrics {
-  sharpeRatio: number | null;
-  sortinoRatio: number | null;
-  winRate: number | null;
-  profitFactor: number | null;
-  expectancy: number | null;
-  maxDrawdown: number | null;
-}
-
-interface PeriodPnL {
-  today: number;
-  thisWeek: number;
-  thisMonth: number;
-  allTime: number;
-  grossProfit: number;
-  grossLoss: number;
-}
+import { usePortfolioSummary } from '../../hooks/usePortfolioSummary';
 
 export const LivePortfolio: React.FC = () => {
   const { isConnected, status } = useDeltaStore();
   const connectionError = status === 'ERROR' ? 'Connection Error' : null;
-  const balances: any[] = [];
-  const positions: any[] = [];
   const { activeSymbol } = useTerminalStore();
   
-  const [stats, setStats] = useState<PortfolioStats | null>(null);
-  const [riskMetrics, setRiskMetrics] = useState<RiskMetrics | null>(null);
-  const [periodPnL, setPeriodPnL] = useState<PeriodPnL | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const { data: summary, isLoading, dataUpdatedAt } = usePortfolioSummary();
+
+  const stats = {
+    totalEquity: summary?.wallet?.totalEquity || 0,
+    availableMargin: summary?.wallet?.availableMargin || 0,
+    usedMargin: summary?.wallet?.totalEquity ? summary.wallet.totalEquity - summary.wallet.availableMargin : 0,
+    unrealizedPnL: summary?.positions?.totalUnrealizedPnl || 0,
+    realizedPnL: summary?.positions?.totalRealizedPnl || 0,
+    todayReturn: summary?.pnlBreakdown?.today || 0,
+    marginUtilization: summary?.wallet?.marginUtilizationPercent || 0,
+    totalFeesPaid: summary?.fundingAndFees?.totalFeesPaid || 0,
+    estFunding24h: summary?.fundingAndFees?.estimatedFunding24h || 0,
+  };
+
+  const riskMetrics = summary?.analytics || null;
+  const periodPnL = summary?.pnlBreakdown || null;
+  const positions = summary?.positions?.items || [];
+  const lastSync = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
 
   // Delta Exchange India Fee Structure
   const FEE_STRUCTURE = {
@@ -61,69 +42,9 @@ export const LivePortfolio: React.FC = () => {
     settlement: 0.01,                       // % (approximate)
   };
 
-  useEffect(() => {
-    fetchPortfolioData();
-    const interval = setInterval(fetchPortfolioData, 30000);
-    return () => clearInterval(interval);
-  }, [balances, positions]);
-
-  const fetchPortfolioData = async () => {
-    try {
-      setIsLoading(true);
-      
-      // Calculate from live Delta data
-      const usdtBalance = balances.find((b: any) => 
-        b.asset_symbol === 'USDT' || b.asset_symbol === 'USD' || b.asset_symbol === 'INR'
-      );
-      
-      const totalEquity = usdtBalance ? parseFloat(usdtBalance.balance || '0') : 0;
-      const availableMargin = usdtBalance ? parseFloat(usdtBalance.available_balance || '0') : 0;
-      const usedMargin = totalEquity - availableMargin;
-      
-      const unrealizedPnL = positions.reduce((sum: number, p: any) => 
-        sum + parseFloat(p.unrealized_pnl || '0'), 0
-      );
-      
-      // Fetch from backend ledger
-      const [statsRes, riskRes, pnlRes] = await Promise.allSettled([
-        api.get('/portfolio/stats'),
-        api.get('/portfolio/risk-metrics'),
-        api.get('/portfolio/pnl-breakdown'),
-      ]);
-
-      const backendStats = statsRes.status === 'fulfilled' ? statsRes.value.data?.data : null;
-      
-      setStats({
-        totalEquity,
-        availableMargin,
-        usedMargin,
-        unrealizedPnL,
-        realizedPnL: backendStats?.realizedPnL || 0,
-        todayReturn: backendStats?.todayReturn || unrealizedPnL,
-        marginUtilization: totalEquity > 0 ? (usedMargin / totalEquity) * 100 : 0,
-        totalFeesPaid: backendStats?.totalFeesPaid || 0,
-        estFunding24h: backendStats?.estFunding24h || 0,
-      });
-
-      if (riskRes.status === 'fulfilled') {
-        setRiskMetrics(riskRes.value.data?.data || null);
-      }
-
-      if (pnlRes.status === 'fulfilled') {
-        setPeriodPnL(pnlRes.value.data?.data || null);
-      }
-
-      setLastSync(new Date());
-    } catch (err) {
-      console.error('Portfolio sync error:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const formatCurrency = (val: number) => {
-    if (val === 0 || !isFinite(val)) return '₹0.00';
-    return `₹${val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    if (val === 0 || !isFinite(val)) return '$0.00';
+    return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
 
@@ -133,7 +54,7 @@ export const LivePortfolio: React.FC = () => {
   return (
     <div className="w-full h-full bg-[#0B0E14] text-[#F8FAFC] overflow-y-auto">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-[#1E293B] flex items-center justify-between">
+      <div className="px-6 py-4 border-b border-[#1E293B] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-[#3B82F6]/20 flex items-center justify-center">
@@ -148,7 +69,7 @@ export const LivePortfolio: React.FC = () => {
           </div>
         </div>
         
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-3 overflow-x-auto no-scrollbar w-full md:w-auto pb-1 md:pb-0">
           {/* Connection Status */}
           <div className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold border ${
             isConnected 
@@ -159,14 +80,9 @@ export const LivePortfolio: React.FC = () => {
             <span>DELTA: {isConnected ? 'ONLINE' : 'OFFLINE'}</span>
           </div>
           
-          <button 
-            onClick={fetchPortfolioData}
-            disabled={isLoading}
-            className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#1E293B] hover:bg-[#334155] border border-[#334155] rounded-lg text-[10px] font-bold text-[#94A3B8] transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>Refresh</span>
-          </button>
+          <button onClick={() => {}} className="p-1 hover:bg-[#1E293B] rounded transition-colors text-[#64748B] hover:text-white" title="Refresh portfolio">
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-[#00C896]' : ''}`} />
+            </button>
         </div>
       </div>
 
@@ -321,10 +237,10 @@ export const LivePortfolio: React.FC = () => {
             {[
               { label: 'Sharpe Ratio', value: riskMetrics?.sharpeRatio, color: 'text-[#3B82F6]' },
               { label: 'Sortino Ratio', value: riskMetrics?.sortinoRatio, color: 'text-[#3B82F6]' },
-              { label: 'Win Rate', value: riskMetrics?.winRate, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-[#00C896]' },
+              { label: 'Win Rate', value: riskMetrics?.winRatePercent, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-[#00C896]' },
               { label: 'Profit Factor', value: riskMetrics?.profitFactor, color: 'text-[#00C896]' },
               { label: 'Expectancy', value: riskMetrics?.expectancy, format: (v: number) => formatCurrency(v), color: 'text-[#F59E0B]' },
-              { label: 'Max Drawdown', value: riskMetrics?.maxDrawdown, format: (v: number) => `${v.toFixed(2)}%`, color: 'text-[#F6465D]' },
+              { label: 'Max Drawdown', value: riskMetrics?.maxDrawdownPercent, format: (v: number) => `${v.toFixed(2)}%`, color: 'text-[#F6465D]' },
             ].map((metric) => (
               <div key={metric.label} className="bg-[#0B0E14] border border-[#1E293B] rounded-lg p-3">
                 <div className="text-[9px] text-[#64748B] uppercase font-bold mb-1">{metric.label}</div>
@@ -513,12 +429,12 @@ export const LivePortfolio: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-[11px] font-mono text-[#F8FAFC] whitespace-nowrap">{size}</td>
-                        <td className="px-4 py-3 text-[11px] font-mono text-[#94A3B8] whitespace-nowrap">₹{entry.toLocaleString()}</td>
-                        <td className="px-4 py-3 text-[11px] font-mono text-[#F8FAFC] whitespace-nowrap">₹{mark.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-[11px] font-mono text-[#94A3B8] whitespace-nowrap">${entry.toLocaleString('en-US')}</td>
+                        <td className="px-4 py-3 text-[11px] font-mono text-[#F8FAFC] whitespace-nowrap">${mark.toLocaleString('en-US')}</td>
                         <td className="px-4 py-3 text-[11px] font-mono text-[#F6465D] whitespace-nowrap">{liq}</td>
-                        <td className="px-4 py-3 text-[11px] font-mono text-[#94A3B8] whitespace-nowrap">₹{margin.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-[11px] font-mono text-[#94A3B8] whitespace-nowrap">${margin.toFixed(2)}</td>
                         <td className={`px-4 py-3 text-[11px] font-mono font-bold whitespace-nowrap ${pnl >= 0 ? 'text-[#00C896]' : 'text-[#F6465D]'}`}>
-                          {pnl >= 0 ? '+' : ''}₹{pnl.toFixed(2)}
+                          {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
                         </td>
                         <td className={`px-4 py-3 text-[11px] font-mono font-bold whitespace-nowrap ${roe >= 0 ? 'text-[#00C896]' : 'text-[#F6465D]'}`}>
                           {roe >= 0 ? '+' : ''}{roe.toFixed(2)}%

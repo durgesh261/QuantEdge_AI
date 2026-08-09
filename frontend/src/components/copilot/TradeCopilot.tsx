@@ -91,7 +91,7 @@ export const TradeCopilot: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[#0E121A] w-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#1E293B]">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[#1E293B] shrink-0">
         <div className="flex items-center space-x-2">
           <div className="w-6 h-6 rounded-full bg-[#00C896]/20 flex items-center justify-center">
             <Sparkles className="w-3.5 h-3.5 text-[#00C896]" />
@@ -141,26 +141,10 @@ export const TradeCopilot: React.FC = () => {
         )}
       </div>
 
-      {/* Quick Questions */}
-      {messages.length < 3 && (
-        <div className="px-3 py-2 border-t border-[#1E293B]">
-          <p className="text-[9px] text-[#64748B] mb-1.5 uppercase font-bold">Quick Ask</p>
-          <div className="flex flex-wrap gap-1.5">
-            {quickQuestions.map(q => (
-              <button
-                key={q}
-                onClick={() => { setInput(q); setTimeout(() => sendMessage(), 50); }}
-                className="px-2 py-1 bg-[#1E293B] hover:bg-[#334155] text-[#94A3B8] hover:text-white rounded text-[9px] font-medium transition-colors"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+
 
       {/* Input */}
-      <form onSubmit={sendMessage} className="p-3 border-t border-[#1E293B]">
+      <form onSubmit={sendMessage} className="p-3 border-t border-[#1E293B] shrink-0">
         <div className="flex items-center space-x-2">
           <input
             type="text"
