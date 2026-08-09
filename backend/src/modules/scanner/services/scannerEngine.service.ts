@@ -4,7 +4,7 @@ import { OrderBlockService } from './orderBlock.service.js';
 import { Server } from 'socket.io';
 
 const SYMBOLS = ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'];
-const SCAN_INTERVAL_MS = 5000; // 5s tick
+const SCAN_INTERVAL_MS = 5000;
 const TIMEFRAME = '1H';
 
 interface TickerData {
@@ -27,29 +27,57 @@ export class ScannerEngine {
     });
   }
 
+  // ── Ensure DB rows exist (idempotent) ─────────────────
   private static async ensureState() {
-    const state = await prisma.scannerState.findFirst();
+    let state = await prisma.scannerState.findFirst();
     if (!state) {
-      await prisma.scannerState.create({ data: {} });
+      state = await prisma.scannerState.create({ data: {} });
+      logger.info('[ScannerEngine] Created default ScannerState');
     }
+
     for (const symbol of SYMBOLS) {
       const pair = await prisma.scannerPair.findUnique({ where: { symbol } });
       if (!pair) {
         await prisma.scannerPair.create({ data: { symbol } });
+        logger.info(`[ScannerEngine] Created default ScannerPair: ${symbol}`);
       }
     }
+    return state;
+  }
+
+  // ── Upsert helper: guarantees a row exists before update ──
+  private static async upsertGlobalState(data: {
+    isRunning?: boolean;
+    isPaused?: boolean;
+    ticksTotal?: any;
+    signalsTotal?: any;
+    tradesTotal?: any;
+  }) {
+    const existing = await prisma.scannerState.findFirst();
+    if (!existing) {
+      return prisma.scannerState.create({
+        data: {
+          isRunning: data.isRunning ?? true,
+          isPaused: data.isPaused ?? false,
+          ticksTotal: typeof data.ticksTotal === 'number' ? data.ticksTotal : 0,
+          signalsTotal: typeof data.signalsTotal === 'number' ? data.signalsTotal : 0,
+          tradesTotal: typeof data.tradesTotal === 'number' ? data.tradesTotal : 0,
+        },
+      });
+    }
+    return prisma.scannerState.updateMany({ data });
   }
 
   static start() {
     if (this.isRunning) return;
     this.isRunning = true;
     logger.info('[ScannerEngine] Started');
-
     this.timer = setInterval(() => this.tick(), SCAN_INTERVAL_MS);
   }
 
   static stop() {
     if (this.timer) clearInterval(this.timer);
+    this.timer = null;
     this.isRunning = false;
     logger.info('[ScannerEngine] Stopped');
   }
@@ -57,7 +85,15 @@ export class ScannerEngine {
   private static async tick() {
     try {
       const globalState = await prisma.scannerState.findFirst();
-      if (!globalState || !globalState.isRunning || globalState.isPaused) return;
+
+      // If state row is missing (e.g. after Kill Switch), recreate it
+      if (!globalState) {
+        logger.warn('[ScannerEngine] ScannerState missing — recreating');
+        await this.ensureState();
+        return;
+      }
+
+      if (!globalState.isRunning || globalState.isPaused) return;
 
       const pairs = await prisma.scannerPair.findMany({
         where: { isActive: true, isPaused: false, status: 'ENGINE' },
@@ -72,11 +108,9 @@ export class ScannerEngine {
   }
 
   private static async processPair(symbol: string) {
-    // 1. Fetch live price from Delta Exchange public API
     const ticker = await this.fetchDeltaTicker(symbol);
     if (!ticker) return;
 
-    // 2. Update pair with live price
     await prisma.scannerPair.update({
       where: { symbol },
       data: {
@@ -87,33 +121,22 @@ export class ScannerEngine {
       },
     });
 
-    // 3. Log tick
     await prisma.scannerTick.create({
-      data: {
-        symbol,
-        price: ticker.price,
-        source: 'delta',
-      },
+      data: { symbol, price: ticker.price, source: 'delta' },
     });
 
-    // 4. Fetch recent candles for OB detection
     const candles = await this.fetchCandles(symbol, TIMEFRAME);
-    
-    // 5. Detect order blocks
     const blocks = OrderBlockService.detectBlocks(symbol, candles);
-    const activeOBs = blocks.filter(b => b.isActive && b.aiScore >= 85);
+    const activeOBs = blocks.filter((b: any) => b.isActive && b.aiScore >= 85);
 
-    // 6. Calculate OB width %
     let obWidthPct: number | null = null;
     if (activeOBs.length > 0) {
-      const avgWidth = activeOBs.reduce((sum, b) => sum + (b.priceHigh - b.priceLow), 0) / activeOBs.length;
+      const avgWidth = activeOBs.reduce((sum: number, b: any) => sum + (b.priceHigh - b.priceLow), 0) / activeOBs.length;
       obWidthPct = (avgWidth / ticker.price) * 100;
     }
 
-    // 7. AI Score (best block score)
-    const bestScore = activeOBs.length > 0 ? Math.max(...activeOBs.map(b => b.aiScore)) : null;
+    const bestScore = activeOBs.length > 0 ? Math.max(...activeOBs.map((b: any) => b.aiScore)) : null;
 
-    // 8. Update pair stats
     const updatedPair = await prisma.scannerPair.update({
       where: { symbol },
       data: {
@@ -123,10 +146,9 @@ export class ScannerEngine {
       },
     });
 
-    // 9. Check for signal trigger (new high-score OB)
     if (activeOBs.length > 0 && bestScore && bestScore >= 85) {
       const recentSignal = await prisma.scannerSignal.findFirst({
-        where: { symbol, createdAt: { gte: new Date(Date.now() - 300000) } }, // 5 min debounce
+        where: { symbol, createdAt: { gte: new Date(Date.now() - 300000) } },
         orderBy: { createdAt: 'desc' },
       });
 
@@ -142,13 +164,9 @@ export class ScannerEngine {
 
         await prisma.scannerPair.update({
           where: { symbol },
-          data: {
-            signalsTriggered: { increment: 1 },
-            lastSignalAt: new Date(),
-          },
+          data: { signalsTriggered: { increment: 1 }, lastSignalAt: new Date() },
         });
 
-        // Emit signal event
         this.io?.of('/scanner').emit('signal', {
           symbol,
           type: 'OB_DETECTED',
@@ -159,12 +177,9 @@ export class ScannerEngine {
       }
     }
 
-    // 10. Update global stats
-    await prisma.scannerState.updateMany({
-      data: { ticksTotal: { increment: 1 } },
-    });
+    // Use upsert to safely increment — no crash if row was wiped
+    await this.upsertGlobalState({ ticksTotal: { increment: 1 } });
 
-    // 11. Broadcast update
     this.io?.of('/scanner').emit('tick', {
       symbol,
       price: ticker.price,
@@ -179,7 +194,6 @@ export class ScannerEngine {
 
   private static async fetchDeltaTicker(symbol: string): Promise<TickerData | null> {
     try {
-      // Delta Exchange public ticker endpoint
       const product = symbol.replace('.P', '');
       const res = await fetch(`https://api.delta.exchange/v2/tickers/${product}`, {
         signal: AbortSignal.timeout(5000),
@@ -187,7 +201,7 @@ export class ScannerEngine {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const result = json.result || json;
-      
+
       return {
         price: parseFloat(result.mark_price || result.price || 0),
         change_24h: parseFloat(result.change_24h || 0),
@@ -196,7 +210,6 @@ export class ScannerEngine {
         low_24h: parseFloat(result.low || 0),
       };
     } catch (err) {
-      // Fallback to mock if Delta API fails (for development)
       logger.warn(`[ScannerEngine] Delta API failed for ${symbol}, using fallback`);
       const fallbacks: Record<string, number> = {
         'BTCUSD.P': 64951.00,
@@ -225,7 +238,6 @@ export class ScannerEngine {
       const json = await res.json();
       return json.result || [];
     } catch {
-      // Generate synthetic candles for OB detection if API fails
       return this.generateSyntheticCandles(symbol);
     }
   }
@@ -238,33 +250,29 @@ export class ScannerEngine {
       const close = open + (Math.random() - 0.5) * base * 0.01;
       const high = Math.max(open, close) + Math.random() * base * 0.005;
       const low = Math.min(open, close) - Math.random() * base * 0.005;
-      candles.push({
-        time: Date.now() - (50 - i) * 3600000,
-        open, high, low, close,
-        volume: Math.random() * 1000,
-      });
+      candles.push({ time: Date.now() - (50 - i) * 3600000, open, high, low, close, volume: Math.random() * 1000 });
     }
     return candles;
   }
 
-  // ─── Controls ─────────────────────────────────────────
+  // ─── Controls (all use upsertGlobalState for safety) ──────────────────────
 
   static async globalPause() {
-    await prisma.scannerState.updateMany({ data: { isPaused: true } });
+    await this.upsertGlobalState({ isPaused: true });
     await prisma.scannerPair.updateMany({ data: { isPaused: true, status: 'PAUSED' } });
     this.io?.of('/scanner').emit('control', { action: 'PAUSE_ALL' });
     logger.info('[ScannerEngine] Global PAUSE');
   }
 
   static async globalResume() {
-    await prisma.scannerState.updateMany({ data: { isPaused: false } });
+    await this.upsertGlobalState({ isPaused: false });
     await prisma.scannerPair.updateMany({ data: { isPaused: false, status: 'ENGINE' } });
     this.io?.of('/scanner').emit('control', { action: 'RESUME_ALL' });
     logger.info('[ScannerEngine] Global RESUME');
   }
 
   static async globalStop() {
-    await prisma.scannerState.updateMany({ data: { isRunning: false, isPaused: false } });
+    await this.upsertGlobalState({ isRunning: false, isPaused: false });
     await prisma.scannerPair.updateMany({ data: { isActive: false, status: 'STOPPED' } });
     this.io?.of('/scanner').emit('control', { action: 'STOP_ALL' });
     this.stop();
@@ -272,7 +280,9 @@ export class ScannerEngine {
   }
 
   static async globalStart() {
-    await prisma.scannerState.updateMany({ data: { isRunning: true, isPaused: false } });
+    // CRITICAL: ensureState() FIRST — recreates DB row if it was wiped by Kill Switch
+    await this.ensureState();
+    await this.upsertGlobalState({ isRunning: true, isPaused: false });
     await prisma.scannerPair.updateMany({ data: { isActive: true, isPaused: false, status: 'ENGINE' } });
     this.io?.of('/scanner').emit('control', { action: 'START_ALL' });
     this.start();

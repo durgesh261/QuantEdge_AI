@@ -3,25 +3,53 @@ import { io, Socket } from 'socket.io-client';
 import { useScannerStore } from '../store/useScannerStore';
 import { apiClient as api } from '../services/api';
 
+const FALLBACK_PAIRS = [
+  { symbol: 'BTCUSD.P', isActive: true, isPaused: false, status: 'ENGINE', livePrice: 0, priceChange24h: 0, activeOBs: 0, obWidthPct: null, aiScore: null, lastTickAt: new Date().toISOString(), ticksProcessed: 0, signalsTriggered: 0, tradesExecuted: 0 },
+  { symbol: 'ETHUSD.P', isActive: true, isPaused: false, status: 'ENGINE', livePrice: 0, priceChange24h: 0, activeOBs: 0, obWidthPct: null, aiScore: null, lastTickAt: new Date().toISOString(), ticksProcessed: 0, signalsTriggered: 0, tradesExecuted: 0 },
+  { symbol: 'SOLUSD.P', isActive: true, isPaused: false, status: 'ENGINE', livePrice: 0, priceChange24h: 0, activeOBs: 0, obWidthPct: null, aiScore: null, lastTickAt: new Date().toISOString(), ticksProcessed: 0, signalsTriggered: 0, tradesExecuted: 0 },
+  { symbol: 'XRPUSD.P', isActive: true, isPaused: false, status: 'ENGINE', livePrice: 0, priceChange24h: 0, activeOBs: 0, obWidthPct: null, aiScore: null, lastTickAt: new Date().toISOString(), ticksProcessed: 0, signalsTriggered: 0, tradesExecuted: 0 },
+];
+
+const FALLBACK_GLOBAL = {
+  isRunning: true,
+  isPaused: false,
+  ticksTotal: 0,
+  signalsTotal: 0,
+  tradesTotal: 0,
+};
+
 export function useScannerSocket() {
   const socketRef = useRef<Socket | null>(null);
-  const { setState, updatePair, updateGlobal } = useScannerStore();
+  const { setState, updatePair, updateGlobal, setLoading } = useScannerStore();
 
-  useEffect(() => {
-    // Initial REST fetch
-    api.get('/scanner/state').then((res) => {
+  // ── Fetch state from REST ─────────────────────────────
+  const fetchState = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await api.get('/scanner/state');
       if (res.data?.success) {
         setState(
-          res.data.data.global,
-          res.data.data.pairs,
-          res.data.data.signals
+          res.data.data.global || FALLBACK_GLOBAL,
+          res.data.data.pairs?.length ? res.data.data.pairs : FALLBACK_PAIRS,
+          res.data.data.signals || []
         );
+      } else {
+        throw new Error('Invalid response');
       }
-    }).catch(console.error);
+    } catch (err) {
+      console.error('[ScannerSocket] Failed to load state:', err);
+      // Fallback so UI is never stuck on loading
+      setState(FALLBACK_GLOBAL, FALLBACK_PAIRS, []);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // WebSocket connection
-    // Ensure the socket connects to the backend host properly, assuming it's on localhost:3000
-    // Adjust if necessary depending on your proxy setup
+  useEffect(() => {
+    // 1. Initial REST load
+    fetchState();
+
+    // 2. WebSocket connection
     const socketUrl = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:3000';
     const socket = io(`${socketUrl}/scanner`, {
       transports: ['websocket'],
@@ -43,20 +71,17 @@ export function useScannerSocket() {
         status: payload.status,
         lastTickAt: payload.timestamp,
       });
-      updateGlobal({ ticksTotal: (prev: any) => (prev?.ticksTotal || 0) + 1 });
+      // Increment ticksTotal directly (no function-based updater)
+      updateGlobal({ ticksTotal: (useScannerStore.getState().global?.ticksTotal || 0) + 1 });
     });
 
-    socket.on('signal', (payload: any) => {
-      updateGlobal({ signalsTotal: (prev: any) => (prev?.signalsTotal || 0) + 1 });
+    socket.on('signal', () => {
+      updateGlobal({ signalsTotal: (useScannerStore.getState().global?.signalsTotal || 0) + 1 });
     });
 
-    socket.on('control', (payload: any) => {
-      // Refresh full state on control actions
-      api.get('/scanner/state').then((res) => {
-        if (res.data?.success) {
-          setState(res.data.data.global, res.data.data.pairs, res.data.data.signals);
-        }
-      });
+    socket.on('control', () => {
+      // Refresh full state on any control broadcast so UI stays in sync
+      fetchState(true);
     });
 
     socket.on('disconnect', () => console.log('[WS:Scanner] Disconnected'));
@@ -64,15 +89,23 @@ export function useScannerSocket() {
     return () => {
       socket.disconnect();
     };
-  }, [setState, updatePair, updateGlobal]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // ── Control actions ─────────────────────────────────
   const sendControl = async (action: string, symbol?: string) => {
-    if (symbol) {
-      await api.post(`/scanner/pair/${symbol}/control`, { action });
-    } else {
-      await api.post('/scanner/control', { action });
+    try {
+      if (symbol) {
+        await api.post(`/scanner/pair/${encodeURIComponent(symbol)}/control`, { action });
+      } else {
+        await api.post('/scanner/control', { action });
+      }
+      // Immediately refresh state so UI updates even if WS is down
+      await fetchState(true);
+    } catch (err) {
+      console.error('[ScannerSocket] Control failed:', err);
     }
   };
 
-  return { sendControl };
+  return { sendControl, refresh: fetchState };
 }
