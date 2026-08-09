@@ -17,7 +17,7 @@ router.get('/delta-state', (_req, res) => {
   res.json({ success: true, deltaEnabled });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', async (req, res): Promise<any> => {
   const { symbol, side, type, size, leverage, price, stop_loss, take_profit, source } = req.body;
 
   // Gate 1: Delta must be ON

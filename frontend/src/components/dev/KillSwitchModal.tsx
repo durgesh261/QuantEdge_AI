@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { AlertTriangle, X, Trash2, Loader2 } from 'lucide-react';
 import { apiClient as api } from '../../services/api';
 import { useDeltaStore } from '../../store/useDeltaStore';
-import { useTerminalStore } from '../../store/useTerminalStore';
 
 interface Props {
   isOpen: boolean;
@@ -15,8 +14,6 @@ export const KillSwitchModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const reset = useDeltaStore((s) => s.reset);
-  // Optional chaining in case setDevMode doesn't exist, though it should.
-  const setDevMode = useTerminalStore((s) => s.setDevMode || (() => {}));
 
   if (!isOpen) return null;
 

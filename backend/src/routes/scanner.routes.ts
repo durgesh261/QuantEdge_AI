@@ -39,7 +39,7 @@ router.get('/state', async (_req, res) => {
 });
 
 // POST /api/v1/scanner/control
-router.post('/control', async (req, res) => {
+router.post('/control', async (req, res): Promise<any> => {
   const { action } = req.body;
   try {
     switch (action) {
@@ -66,7 +66,7 @@ router.post('/control', async (req, res) => {
 });
 
 // POST /api/v1/scanner/pair/:symbol/control
-router.post('/pair/:symbol/control', async (req, res) => {
+router.post('/pair/:symbol/control', async (req, res): Promise<any> => {
   const { symbol } = req.params;
   const { action } = req.body;
   try {

@@ -80,14 +80,6 @@ export const TradeCopilot: React.FC = () => {
     ]);
   };
 
-  const quickQuestions = [
-    "Explain market structure",
-    "Why was last trade rejected?",
-    "Show active order blocks",
-    "What is my current risk?",
-    "Should I enter now?",
-  ];
-
   return (
     <div className="flex flex-col h-full bg-[#0E121A] w-full">
       {/* Header */}

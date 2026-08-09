@@ -5,13 +5,13 @@ import { useQuery } from '@tanstack/react-query';
 import { decisionApi } from '../../services/api';
 import { usePortfolioSummary } from '../../hooks/usePortfolioSummary';
 import { useOrders } from '../../hooks/useOrders';
-import { useOrderBlocks } from '../../hooks/useOrderBlocks';
 import { useResizable } from '../../hooks/useResizable';
 import { useTerminalStore } from '../../store/useTerminalStore';
 import { useToastStore } from '../../store/useToastStore';
 import { InteractiveTradingChart } from '../../components/charts/InteractiveTradingChart';
 import { ValueDisplay } from '../../components/ui/ValueDisplay';
 import { StatusBadge } from '../../components/ui/StatusBadge';
+import { PreTradeRiskModal } from '../../components/execution/PreTradeRiskModal';
 import { 
   LayoutDashboard, 
   ShieldCheck, 
@@ -439,40 +439,21 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* PRE-TRADE RISK CONFIRMATION MODAL */}
-      {showPreTradeModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 max-w-md w-full space-y-4 shadow-2xl font-mono">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-bold text-white uppercase">Pre-Trade Risk Confirmation</h3>
-              </div>
-              <button onClick={() => setShowPreTradeModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 p-3 rounded-lg space-y-2 text-xs">
-              <div className="flex justify-between"><span>Pair / Side:</span><span className="text-white font-bold">{activeSymbol} (LONG)</span></div>
-              <div className="flex justify-between"><span>Decision State:</span><span className="text-emerald-400 font-bold">{latestDecision?.decisionState ?? 'EXECUTE'}</span></div>
-              <div className="flex justify-between"><span>Confidence:</span><span className="text-indigo-400 font-bold">{latestDecision ? `${latestDecision.confidenceScore?.toFixed(1) || 92.5}%` : '92.5%'}</span></div>
-              <div className="flex justify-between"><span>Account Equity:</span><ValueDisplay value={wallet?.totalEquity} format="currency" size="sm" /></div>
-              <div className="flex justify-between border-t border-slate-800 pt-1">
-                <span>Available Margin:</span>
-                <ValueDisplay value={wallet?.availableMargin} format="currency" size="sm" neutralColor="text-emerald-400" />
-              </div>
-            </div>
-
-            <button
-              onClick={() => void handlePreTradeSubmit()}
-              disabled={isPlacing}
-              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-lg transition disabled:opacity-50"
-            >
-              {isPlacing ? 'TRANSMITTING TO DELTA...' : 'CONFIRM AND SUBMIT ORDER'}
-            </button>
-          </div>
-        </div>
-      )}
+      <PreTradeRiskModal
+        isOpen={showPreTradeModal}
+        onClose={() => setShowPreTradeModal(false)}
+        onConfirm={() => void handlePreTradeSubmit()}
+        tradeDetails={{
+          symbol: activeSymbol,
+          side: 'LONG',
+          decision: latestDecision?.decisionState ?? 'EXECUTE',
+          confidence: latestDecision?.confidenceScore ?? 92.5,
+          quantity: 1, // Defaulting to 1 for this static demo integration
+          marginRequired: 50, // Static demo value, could be fetched
+          notional: 5000,
+          riskPercent: 1.5,
+        }}
+      />
 
       {/* END-OF-DAY CLOSING REPORT MODAL */}
       {showEodReport && (

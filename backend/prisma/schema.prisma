@@ -1010,3 +1010,26 @@ model ApplicationVersion {
 
   @@map("application_versions")
 }
+
+model TradingAccount {
+  id            String   @id @default(uuid())
+  name          String   @default("Main Account")
+  accountType   String   @default("PAPER") // PAPER or LIVE
+  balance       Float    @default(10000)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Position {
+  id             String   @id @default(uuid())
+  symbol         String
+  side           String   // LONG or SHORT
+  quantity       Float
+  entryPrice     Float
+  marginUsed     Float    @default(0)
+  unrealizedPnl  Float    @default(0)
+  status         String   @default("OPEN") // OPEN or CLOSED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}

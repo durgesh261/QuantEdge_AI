@@ -8,7 +8,7 @@ const router = Router();
  * KILL SWITCH — Irreversible data wipe.
  * Requires X-Dev-Mode: true header.
  */
-router.post('/kill-switch', async (req, res) => {
+router.post('/kill-switch', async (req, res): Promise<any> => {
   const devMode = req.headers['x-dev-mode'] === 'true';
   if (!devMode) {
     return res.status(403).json({ 
@@ -22,25 +22,25 @@ router.post('/kill-switch', async (req, res) => {
 
     await prisma.$transaction([
       // Trading & Execution
-      prisma.executionJournal?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.tradeAccountingLedger?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.pendingOrder?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.position?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.orderHistory?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.tradeHistory?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.journalEntry?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).executionJournal?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).tradeAccountingLedger?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).pendingOrder?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).position?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).orderHistory?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).tradeHistory?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).journalEntry?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
       
       // News & Macro
-      prisma.newsArticle?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.macroEvent?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).newsArticle?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).macroEvent?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
       
       // Strategy & Analytics
-      prisma.strategyProfile?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.analyticsSnapshot?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
-      prisma.scannerLog?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).strategyProfile?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).analyticsSnapshot?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).scannerLog?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
       
       // Notifications
-      prisma.notification?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
+      (prisma as any).notification?.deleteMany() ?? prisma.$queryRaw`SELECT 1`,
     ].filter(Boolean));
 
     logger.warn('[KILL SWITCH] All application data wiped.');

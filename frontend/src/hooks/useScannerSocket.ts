@@ -27,11 +27,13 @@ export function useScannerSocket() {
     if (!silent) setLoading(true);
     try {
       const res = await api.get('/scanner/state');
-      if (res.data?.success) {
+      const payload = res.data;
+      if (payload?.success) {
+        const dataObj = payload.data || {};
         setState(
-          res.data.data.global || FALLBACK_GLOBAL,
-          res.data.data.pairs?.length ? res.data.data.pairs : FALLBACK_PAIRS,
-          res.data.data.signals || []
+          dataObj.global || FALLBACK_GLOBAL,
+          dataObj.pairs?.length ? dataObj.pairs : FALLBACK_PAIRS,
+          dataObj.signals || []
         );
       } else {
         throw new Error('Invalid response');
@@ -52,7 +54,7 @@ export function useScannerSocket() {
     const pollInterval = setInterval(() => fetchState(true), 3000);
 
     // 3. WebSocket (real-time enhancement)
-    const socketUrl = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:3000';
+    const socketUrl = (import.meta as any).env?.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:4000';
     const socket = io(`${socketUrl}/scanner`, {
       transports: ['websocket'],
       reconnection: true,

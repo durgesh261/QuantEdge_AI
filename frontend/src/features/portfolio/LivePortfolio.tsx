@@ -10,8 +10,8 @@ import { useTerminalStore } from '../../store/useTerminalStore';
 import { usePortfolioSummary } from '../../hooks/usePortfolioSummary';
 
 export const LivePortfolio: React.FC = () => {
-  const { isConnected, status } = useDeltaStore();
-  const connectionError = status === 'ERROR' ? 'Connection Error' : null;
+  const { isConnected } = useDeltaStore();
+  const connectionError: string | null = null;
   const { activeSymbol } = useTerminalStore();
   
   const { data: summary, isLoading, dataUpdatedAt } = usePortfolioSummary();

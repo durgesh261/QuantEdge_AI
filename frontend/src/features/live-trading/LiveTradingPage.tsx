@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Activity, Zap, Pause, Square, Bot, ChevronDown,
+  Activity, Zap, Pause, Square, ChevronDown,
   BarChart3, FileText, Layers, BookOpen, Send,
   Plus, BrainCircuit, RefreshCw, Play, Loader2,
   Lock, Wifi, WifiOff
@@ -124,7 +124,7 @@ const LiveTradingPageInner: React.FC = () => {
   const positions = summary?.positions?.items || useDeltaStore.getState().positions || [];
   const ticker = useDeltaStore.getState().ticker;
 
-  const [selectedTimeframe, setSelectedTimeframe] = useState(activeTimeframe || '1H');
+  const selectedTimeframe = activeTimeframe || '1H';
   const [orderSide, setOrderSide] = useState<'buy' | 'sell'>('buy');
   const [orderType, setOrderType] = useState<'MKT' | 'LMT'>('MKT');
   const [quantity, setQuantity] = useState('');
@@ -151,7 +151,6 @@ const LiveTradingPageInner: React.FC = () => {
   const todayPnl = summary?.pnlBreakdown?.today || 0;
 
   const currentPrice = safeNum(ticker?.price) || WATCHLIST.find(w => w.symbol === selectedSymbol)?.price || 64951.00;
-  const lotSize = 0.01;
   const fundsRequired = quantity ? (safeNum(quantity) * currentPrice) / leverage : 0;
 
   const handleQtyPercent = (pct: number) => {

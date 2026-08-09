@@ -13,7 +13,7 @@ import { KillSwitchModal } from '../dev/KillSwitchModal';
 export const Header: React.FC = () => {
   const {
     activeSymbol, setActiveSymbol, isAlgoRunning, toggleAlgo,
-    timeframe, setTimeframe, isDeveloperMode, toggleDeveloperMode,
+    isDeveloperMode, toggleDeveloperMode,
   } = useTerminalStore();
 
   const { isDeltaEnabled, isConnected, isConnecting } = useDeltaStore();
@@ -23,6 +23,7 @@ export const Header: React.FC = () => {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showKillSwitch, setShowKillSwitch] = useState(false);
+  const [timeframe, setTimeframe] = useState('1H');
   const searchRef = useRef<HTMLDivElement>(null);
 
   const SYMBOLS = ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'];
