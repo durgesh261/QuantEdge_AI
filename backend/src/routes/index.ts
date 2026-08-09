@@ -69,7 +69,6 @@ apiRouter.use('/rules', rulesRouter);
 apiRouter.use('/market-data', marketDataRouter);
 apiRouter.use('/replay', replayBacktestRouter);
 const combinedExecutionRouter = Router();
-console.log('Adapter routes:', executionAdapterRouter.stack.map(l => l.route?.path));
 combinedExecutionRouter.use(executionEngineRouter);
 combinedExecutionRouter.use(executionAdapterRouter);
 combinedExecutionRouter.use(manualExecutionRoutes);

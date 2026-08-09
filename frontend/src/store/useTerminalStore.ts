@@ -13,7 +13,7 @@ export interface WidgetVisibilityState {
   showSignals: boolean;
 }
 
-const STORAGE_KEY = 'algoapp_terminal_layout_v2';
+const STORAGE_KEY = 'quantedge_terminal_layout';
 
 const defaultWidgetState: WidgetVisibilityState = {
   showCurrentPair: true,
@@ -81,9 +81,9 @@ interface TerminalState {
 
 const savedWidths = (() => {
   try {
-    const mw = localStorage.getItem('algoapp_mw_width');
-    const ltc = localStorage.getItem('algoapp_ltc_width');
-    const rtc = localStorage.getItem('algoapp_rtc_width');
+    const mw = localStorage.getItem('quantedge_mw_width');
+    const ltc = localStorage.getItem('quantedge_ltc_width');
+    const rtc = localStorage.getItem('quantedge_rtc_width');
     return {
       mw: mw ? Number(mw) : 260,
       ltc: ltc ? Number(ltc) : 220,
@@ -124,21 +124,21 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const clamped = Math.min(Math.max(width, 180), 550);
     set({ marketWatchWidth: clamped });
     try {
-      localStorage.setItem('algoapp_mw_width', String(clamped));
+      localStorage.setItem('quantedge_mw_width', String(clamped));
     } catch {}
   },
   setLiveTradingLeftColWidth: (width) => {
     const clamped = Math.min(Math.max(width, 160), 450);
     set({ liveTradingLeftColWidth: clamped });
     try {
-      localStorage.setItem('algoapp_ltc_width', String(clamped));
+      localStorage.setItem('quantedge_ltc_width', String(clamped));
     } catch {}
   },
   setLiveTradingRightColWidth: (width) => {
     const clamped = Math.min(Math.max(width, 240), 550);
     set({ liveTradingRightColWidth: clamped });
     try {
-      localStorage.setItem('algoapp_rtc_width', String(clamped));
+      localStorage.setItem('quantedge_rtc_width', String(clamped));
     } catch {}
   },
   toggleCommandPalette: () => set((state) => ({ isCommandPaletteOpen: !state.isCommandPaletteOpen })),

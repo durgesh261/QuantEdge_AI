@@ -1,50 +1,41 @@
+﻿import { Server } from 'socket.io';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
-import { OrderBlockService } from './orderBlock.service.js';
-import { Server } from 'socket.io';
+import { CandleStoreService } from '../../market-data/services/candleStore.service.js';
+import { IndicatorEngineService } from '../../indicator-engine/services/indicatorEngine.service.js';
+import { deltaSyncService } from '../../delta-exchange/index.js';
+import { DecisionEngineService } from '../../decision/services/decisionEngine.service.js';
+import { executionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
+import { StrategySignalOutcome } from '@algoapp/shared';
 
-const SYMBOLS = ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'];
 const SCAN_INTERVAL_MS = 5000;
 const TIMEFRAME = '1H';
 
-interface TickerData {
-  price: number;
-  change_24h: number;
-  volume_24h: number;
-  high_24h: number;
-  low_24h: number;
-}
-
 export class ScannerEngine {
-  private static io: Server | null = null;
-  private static timer: ReturnType<typeof setInterval> | null = null;
+  private static timer: NodeJS.Timeout | null = null;
   private static isRunning = false;
-  private static isTicking = false; // Prevents overlapping ticks
+  private static isTicking = false;
+  private static io: Server | null = null;
 
   static initialize(io: Server) {
     this.io = io;
-    this.ensureState().then(() => {
-      this.start();
-      logger.info('[ScannerEngine] Initialized and started');
-    });
+    this.ensureState().catch((err) =>
+      logger.error('[ScannerEngine] Initial state creation failed', err)
+    );
   }
 
-  // ── Ensure DB rows exist (idempotent) ─────────────────
   private static async ensureState() {
-    let state = await prisma.scannerState.findFirst();
-    if (!state) {
-      state = await prisma.scannerState.create({ data: {} });
-      logger.info('[ScannerEngine] Created default ScannerState');
+    const count = await prisma.scannerState.count();
+    if (count === 0) {
+      await prisma.scannerState.create({
+        data: {
+          isRunning: false,
+          isPaused: false,
+          
+          
+        },
+      });
     }
-
-    for (const symbol of SYMBOLS) {
-      const pair = await prisma.scannerPair.findUnique({ where: { symbol } });
-      if (!pair) {
-        await prisma.scannerPair.create({ data: { symbol } });
-        logger.info(`[ScannerEngine] Created ScannerPair: ${symbol}`);
-      }
-    }
-    return state;
   }
 
   static start() {
@@ -64,7 +55,6 @@ export class ScannerEngine {
   }
 
   private static async tick() {
-    // CRITICAL: Prevent overlapping ticks. If previous tick still running, skip this one.
     if (this.isTicking) {
       logger.warn('[ScannerEngine] Previous tick still running — skipping');
       return;
@@ -89,14 +79,33 @@ export class ScannerEngine {
         return;
       }
 
-      // Process pairs concurrently (not sequentially) to fit inside 5s window
-      await Promise.all(
+      const results = await Promise.all(
         pairs.map((pair) =>
           this.processPair(pair.symbol).catch((err) => {
             logger.error(`[ScannerEngine] Pair ${pair.symbol} crashed:`, err);
+            return null;
           })
         )
       );
+
+      // Phase 3 Rule: Stop scanning for new entries if a trade is already open
+      const openPositionCount = deltaSyncService.getPositions().length;
+      if (openPositionCount > 0) {
+        return;
+      }
+
+      const signals = results
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .filter(r => r.activeOBs > 0 && r.bestScore && r.bestScore >= 85);
+
+      if (signals.length > 0) {
+        // Phase 3 Rule: Simultaneous Signals -> Compare confidence scores
+        signals.sort((a, b) => (b.bestScore || 0) - (a.bestScore || 0));
+        const topSignal = signals[0];
+
+        await this.triggerSignal(topSignal);
+      }
+
     } catch (err) {
       logger.error('[ScannerEngine] Tick error:', err);
     } finally {
@@ -104,15 +113,45 @@ export class ScannerEngine {
     }
   }
 
-  private static async processPair(symbol: string) {
-    // 1. Fetch live price (fast — single API call)
-    const ticker = await this.fetchDeltaTicker(symbol);
-    if (!ticker) {
-      logger.warn(`[ScannerEngine] No ticker for ${symbol}`);
-      return;
-    }
+  private static async triggerSignal(signal: any) {
+    const { symbol, ticker, bestScore, activeOBs, bestOB, indicators } = signal;
 
-    // 2. Update price IMMEDIATELY so UI has data even if OB detection fails
+    const recentSignal = await prisma.scannerSignal.findFirst({
+      where: { symbol, createdAt: { gte: new Date(Date.now() - 300000) } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!recentSignal) {
+      await prisma.scannerSignal.create({
+        data: {
+          symbol,
+          type: 'OB_DETECTED',
+          aiScore: bestScore,
+          metadata: JSON.stringify({ blocks: activeOBs, price: ticker.price }),
+        },
+      });
+
+      await prisma.scannerPair.update({
+        where: { symbol },
+        data: { signalsTriggered: { increment: 1 }, lastSignalAt: new Date() },
+      });
+
+      await this.feedStrategyEngine(symbol, ticker.price, bestScore, bestOB, indicators);
+
+      this.io?.of('/scanner').emit('signal', {
+        symbol,
+        type: 'OB_DETECTED',
+        aiScore: bestScore,
+        price: ticker.price,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  private static async processPair(symbol: string) {
+    const ticker = await this.fetchDeltaTicker(symbol);
+    if (!ticker) return null;
+
     await prisma.scannerPair.update({
       where: { symbol },
       data: {
@@ -123,78 +162,52 @@ export class ScannerEngine {
       },
     });
 
-    // 3. Log tick
     await prisma.scannerTick.create({
       data: { symbol, price: ticker.price, source: 'delta' },
     });
 
-    // 4. OB detection (isolated — failure here must NOT kill the price update)
     let activeOBs = 0;
     let obWidthPct: number | null = null;
     let bestScore: number | null = null;
+    let bestOB: any = null;
+    let indicators: any = null;
 
     try {
-      const candles = await this.fetchCandles(symbol, TIMEFRAME);
-      const blocks = OrderBlockService.detectBlocks(symbol, candles);
-      const validBlocks = blocks.filter((b: any) => b.isActive && b.aiScore >= 85);
-      activeOBs = validBlocks.length;
+      const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
+      if (candles.length >= 10) {
+        indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
-      if (activeOBs > 0) {
-        const avgWidth =
-          validBlocks.reduce((sum: number, b: any) => sum + (b.priceHigh - b.priceLow), 0) /
-          activeOBs;
-        obWidthPct = (avgWidth / ticker.price) * 100;
-        bestScore = Math.max(...validBlocks.map((b: any) => b.aiScore));
+        const validOBs = (indicators.orderBlocks || []).filter(
+          (ob: any) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
+        );
+        activeOBs = validOBs.length;
+
+        if (activeOBs > 0) {
+          const avgWidth = validOBs.reduce((sum: number, b: any) => sum + b.widthPercent, 0) / activeOBs;
+          obWidthPct = Number(avgWidth.toFixed(3));
+          
+          const result = validOBs.reduce((best: any, ob: any) => {
+            const score = indicators.zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
+                       ?? indicators.zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
+                       ?? 70;
+            return score > (best.score ?? 0) ? { ob, score } : best;
+          }, {} as { ob?: any; score?: number });
+          
+          bestScore = result.score ?? null;
+          bestOB = result.ob ?? null;
+        }
       }
     } catch (obErr) {
       logger.warn(`[ScannerEngine] OB detection failed for ${symbol}:`, obErr);
     }
 
-    // 5. Update pair stats (second update — safe because price is already in DB)
     const updatedPair = await prisma.scannerPair.update({
       where: { symbol },
       data: { activeOBs, obWidthPct, aiScore: bestScore },
     });
 
-    // 6. Signal trigger + Strategy/Algo integration
-    if (activeOBs > 0 && bestScore && bestScore >= 85) {
-      const recentSignal = await prisma.scannerSignal.findFirst({
-        where: { symbol, createdAt: { gte: new Date(Date.now() - 300000) } },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      if (!recentSignal) {
-        await prisma.scannerSignal.create({
-          data: {
-            symbol,
-            type: 'OB_DETECTED',
-            aiScore: bestScore,
-            metadata: JSON.stringify({ blocks: activeOBs, price: ticker.price }),
-          },
-        });
-
-        await prisma.scannerPair.update({
-          where: { symbol },
-          data: { signalsTriggered: { increment: 1 }, lastSignalAt: new Date() },
-        });
-
-        // ── STRATEGY / ALGO PIPELINE CONNECTION ──
-        await this.feedStrategyEngine(symbol, ticker.price, bestScore, activeOBs);
-
-        this.io?.of('/scanner').emit('signal', {
-          symbol,
-          type: 'OB_DETECTED',
-          aiScore: bestScore,
-          price: ticker.price,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
-
-    // 7. Increment global tick counter safely
     await this.incrementGlobalTicks();
 
-    // 8. Broadcast to frontend via WebSocket
     this.io?.of('/scanner').emit('tick', {
       symbol,
       price: ticker.price,
@@ -205,172 +218,94 @@ export class ScannerEngine {
       status: updatedPair.status,
       timestamp: new Date().toISOString(),
     });
+
+    return { symbol, ticker, bestScore, activeOBs, bestOB, indicators };
   }
 
-  // ── Strategy / Algo / AI Feed ─────────────────────────
   private static async feedStrategyEngine(
     symbol: string,
     price: number,
     aiScore: number,
-    blockCount: number
+    bestOB: any,
+    indicators: any
   ) {
     try {
-      // 1. Create a Strategy Signal Record for the Research & Algo engine
       await prisma.strategySignalRecord.create({
         data: {
           symbol,
           timeframe: TIMEFRAME,
           outcome: 'PENDING',
           price,
-          rationale: `Scanner OB_DETECTED — AI Score ${aiScore}/100 · ${blockCount} active blocks`,
+          rationale: `Scanner OB_DETECTED — AI Score ${aiScore}/100`,
           confidenceScore: aiScore / 100,
         },
       });
 
       logger.info(`[Scanner→Strategy/Algo] Signal fed for ${symbol} @ ${price} (score: ${aiScore})`);
+
+      if (!bestOB || !indicators) {
+        return;
+      }
+
+      // Step 2-4: CONFIDENCE_CHECK -> RISK_CHECK -> ENTRY_PENDING via Decision Engine
+      const decision = await DecisionEngineService.evaluateDecision({
+        symbol,
+        timeframe: '1H',
+        currentPrice: price,
+        indicators,
+        activeZone: bestOB,
+      });
+
+      if (decision.state === 'APPROVED' as any) {
+        logger.info(`[Scanner→Execution] Signal APPROVED for ${symbol}. Dispatching order.`);
+        
+        // Execute the trade (ENTRY_PENDING -> OPEN)
+        await executionEngineService.placeOrder({
+          symbol,
+          side: decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
+          orderType: 'market',
+          size: decision.positionSize ?? 0,
+          leverage: decision.leverage,
+          stopLossPrice: decision.stopLossPrice,
+          takeProfitPrice: decision.takeProfitPrice,
+        });
+
+        // Mark the OB as USED (Phase 2 rule)
+        const { OrderBlockWidthEngine } = await import('../../indicator-engine/engines/orderBlockWidthEngine.js');
+        OrderBlockWidthEngine.markUsed(bestOB.id);
+      } else {
+        logger.warn(`[Scanner→Execution] Signal REJECTED for ${symbol}. Reason: ${decision.reasonCodes.join(', ')}`);
+      }
+
     } catch (err) {
       logger.error('[Scanner→Strategy/Algo] Failed to feed signal:', err);
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────
-  private static async fetchDeltaTicker(symbol: string): Promise<TickerData | null> {
+  private static async fetchDeltaTicker(symbol: string) {
     try {
-      const product = symbol.replace('.P', '');
-      const res = await fetch(`https://api.delta.exchange/v2/tickers/${product}`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const result = json.result || json;
-
-      return {
-        price: parseFloat(result.mark_price || result.price || 0),
-        change_24h: parseFloat(result.change_24h || 0),
-        volume_24h: parseFloat(result.volume_24h || 0),
-        high_24h: parseFloat(result.high || 0),
-        low_24h: parseFloat(result.low || 0),
-      };
-    } catch (err) {
-      logger.warn(`[ScannerEngine] Delta API failed for ${symbol}, using fallback`);
-      const fallbacks: Record<string, number> = {
-        'BTCUSD.P': 64951.0,
-        'ETHUSD.P': 1915.9,
-        'SOLUSD.P': 74.73,
-        'XRPUSD.P': 1.04,
-      };
-      return {
-        price: fallbacks[symbol] || 100,
-        change_24h: 0.5,
-        volume_24h: 0,
-        high_24h: 0,
-        low_24h: 0,
-      };
-    }
-  }
-
-  private static async fetchCandles(symbol: string, tf: string): Promise<any[]> {
-    try {
-      const product = symbol.replace('.P', '');
-      const res = await fetch(
-        `https://api.delta.exchange/v2/history/candles?symbol=${product}&resolution=${tf}&limit=50`,
-        { signal: AbortSignal.timeout(8000) }
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      return json.result || [];
+      const restClient = deltaSyncService.getRestClient();
+      const product = restClient.getProduct(symbol);
+      if (!product) return null;
+      const tData = await restClient.getTicker(symbol);
+      return { price: parseFloat(tData.mark_price), change_24h: 0 };
     } catch {
-      return this.generateSyntheticCandles(symbol);
+      return null;
     }
-  }
-
-  private static generateSyntheticCandles(symbol: string): any[] {
-    const base =
-      { 'BTCUSD.P': 64951, 'ETHUSD.P': 1915, 'SOLUSD.P': 74, 'XRPUSD.P': 1.04 }[symbol] || 100;
-    const candles = [];
-    for (let i = 0; i < 50; i++) {
-      const open = base + (Math.random() - 0.5) * base * 0.02;
-      const close = open + (Math.random() - 0.5) * base * 0.01;
-      const high = Math.max(open, close) + Math.random() * base * 0.005;
-      const low = Math.min(open, close) - Math.random() * base * 0.005;
-      candles.push({
-        time: Date.now() - (50 - i) * 3600000,
-        open,
-        high,
-        low,
-        close,
-        volume: Math.random() * 1000,
-      });
-    }
-    return candles;
   }
 
   private static async incrementGlobalTicks() {
     try {
-      const state = await prisma.scannerState.findFirst();
-      if (!state) return;
-      await prisma.scannerState.update({
-        where: { id: state.id },
-        data: { ticksTotal: { increment: 1 } },
-      });
-    } catch (err) {
-      logger.error('[ScannerEngine] incrementGlobalTicks failed:', err);
+      const globalState = await prisma.scannerState.findFirst();
+      if (globalState) {
+        await prisma.scannerState.update({
+          where: { id: globalState.id },
+          data: {},
+        });
+      }
+    } catch (e) {
+      // ignore
     }
-  }
-
-  // ─── Controls ─────────────────────────────────────────
-
-  static async globalPause() {
-    const state = await prisma.scannerState.findFirst();
-    if (state) {
-      await prisma.scannerState.update({ where: { id: state.id }, data: { isPaused: true } });
-    }
-    await prisma.scannerPair.updateMany({ data: { isPaused: true, status: 'PAUSED' } });
-    this.io?.of('/scanner').emit('control', { action: 'PAUSE_ALL' });
-    logger.info('[ScannerEngine] Global PAUSE');
-  }
-
-  static async globalResume() {
-    const state = await prisma.scannerState.findFirst();
-    if (state) {
-      await prisma.scannerState.update({ where: { id: state.id }, data: { isPaused: false } });
-    }
-    await prisma.scannerPair.updateMany({ data: { isPaused: false, status: 'ENGINE' } });
-    this.io?.of('/scanner').emit('control', { action: 'RESUME_ALL' });
-    logger.info('[ScannerEngine] Global RESUME');
-  }
-
-  static async globalStop() {
-    const state = await prisma.scannerState.findFirst();
-    if (state) {
-      await prisma.scannerState.update({
-        where: { id: state.id },
-        data: { isRunning: false, isPaused: false },
-      });
-    }
-    await prisma.scannerPair.updateMany({ data: { isActive: false, status: 'STOPPED' } });
-    this.io?.of('/scanner').emit('control', { action: 'STOP_ALL' });
-    this.stop();
-    logger.info('[ScannerEngine] Global STOP');
-  }
-
-  static async globalStart() {
-    await this.ensureState();
-    const state = await prisma.scannerState.findFirst();
-    if (state) {
-      await prisma.scannerState.update({
-        where: { id: state.id },
-        data: { isRunning: true, isPaused: false },
-      });
-    } else {
-      await prisma.scannerState.create({ data: { isRunning: true, isPaused: false } });
-    }
-    await prisma.scannerPair.updateMany({
-      data: { isActive: true, isPaused: false, status: 'ENGINE' },
-    });
-    this.io?.of('/scanner').emit('control', { action: 'START_ALL' });
-    this.start();
-    logger.info('[ScannerEngine] Global START');
   }
 
   static async pausePair(symbol: string) {
@@ -389,7 +324,7 @@ export class ScannerEngine {
     this.io?.of('/scanner').emit('control', { action: 'RESUME_PAIR', symbol });
   }
 
-  static async stopPair(symbol: string) {
+  static async globalPause() { await prisma.scannerState.updateMany({ data: { isPaused: true } }); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_PAUSE' }); } static async globalResume() { await prisma.scannerState.updateMany({ data: { isPaused: false } }); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_RESUME' }); } static async globalStop() { await prisma.scannerState.updateMany({ data: { isRunning: false } }); this.stop(); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_STOP' }); } static async globalStart() { await prisma.scannerState.updateMany({ data: { isRunning: true } }); this.start(); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_START' }); } static async stopPair(symbol: string) {
     await prisma.scannerPair.update({
       where: { symbol },
       data: { isActive: false, status: 'STOPPED' },
@@ -399,12 +334,9 @@ export class ScannerEngine {
 
   static async inspectPair(symbol: string) {
     const pair = await prisma.scannerPair.findUnique({ where: { symbol } });
-    let blocks: any[] = [];
-    try {
-      blocks = OrderBlockService.getBlocksForSymbol(symbol);
-    } catch (e) {
-      logger.warn(`[ScannerEngine] inspectPair OB fetch failed for ${symbol}`);
-    }
+    const blocks: any[] = [];
     this.io?.of('/scanner').emit('inspect', { symbol, pair, blocks });
   }
 }
+
+

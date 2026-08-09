@@ -23,3 +23,21 @@ export const evaluateIndicator = async (req: Request, res: Response): Promise<vo
 
   res.json(response);
 };
+
+export const getOrderBlocks = async (req: Request, res: Response): Promise<void> => {
+  const symbol = (req.query.symbol as string) || 'BTCUSD.P';
+  const timeframe = ((req.query.timeframe as string) || '1H') as TradingTimeframe;
+
+  const data = await engineService.evaluateSymbol(symbol, timeframe);
+
+  const response: ApiResponse<typeof data.orderBlocks> = {
+    success: true,
+    data: data.orderBlocks,
+    meta: {
+      requestId: (req as any).correlationId || 'req-indicator-order-blocks',
+      timestamp: new Date().toISOString(),
+    },
+  };
+
+  res.json(response);
+};

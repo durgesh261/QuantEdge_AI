@@ -51,7 +51,6 @@ export function PreTradeRiskModal({
   const insufficientMargin = !loading && availableMargin < marginRequired && marginRequired > 0;
   const highRisk           = tradeDetails.riskPercent > 2;
   const noData             = !loading && !error && equity === 0 && balances.length === 0;
-  const isConnected        = !error && !loading;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -70,9 +69,9 @@ export function PreTradeRiskModal({
             {loading ? (
               <RefreshCw className="w-3 h-3 text-[#64748B] animate-spin" />
             ) : error ? (
-              <WifiOff className="w-3 h-3 text-[#F6465D]" title="Delta not connected" />
+              <WifiOff className="w-3 h-3 text-[#F6465D]" aria-label="Delta not connected" />
             ) : (
-              <Wifi className="w-3 h-3 text-[#00C896]" title="Delta connected" />
+              <Wifi className="w-3 h-3 text-[#00C896]" aria-label="Delta connected" />
             )}
             <button onClick={onClose} className="text-[#64748B] hover:text-[#F8FAFC] transition-colors">
               <X className="w-4 h-4" />

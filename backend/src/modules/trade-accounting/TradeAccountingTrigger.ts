@@ -1,7 +1,9 @@
-import { prisma } from '../../db.js';
+﻿import { prisma } from '../../db.js';
 import { eventBus } from '../../services/EventBus.js';
 import { tradeSyncService } from './services/tradeSync.service.js';
 import { ExecutionMode, TradingTimeframe } from '@algoapp/shared';
+import { deltaSyncService } from '../delta-exchange/index.js';
+import { logger } from '../../logger/index.js';
 
 export interface PositionCloseEventData {
   symbol: string;
@@ -42,6 +44,46 @@ export interface TradeAccountedResult {
 }
 
 export class TradeAccountingTrigger {
+  private lastPositions = new Map<string, any>();
+  private isInitialized = false;
+
+  public initialize() {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+
+    eventBus.on('delta:synced', (data: any) => {
+      const currentPositions = data.positions || [];
+      const currentMap = new Map<string, any>(currentPositions.map((p: any) => [p.product_symbol, p]));
+
+      // Compare previous known positions with current positions
+      for (const [symbol, oldPos] of this.lastPositions) {
+        if (!currentMap.has(symbol)) {
+          logger.info(`[TradeAccounting] Detected closed position for ${symbol}`);
+          
+          // Try to find the trade in history for exact exit price
+          const history = deltaSyncService.getHistory();
+          const relatedFills = history.filter((h: any) => h.product_symbol === symbol && h.size === Math.abs(oldPos.size));
+          let exitPrice = parseFloat(oldPos.mark_price || '0');
+          
+          if (relatedFills.length > 0) {
+            exitPrice = parseFloat(relatedFills[0].price);
+          }
+
+          this.onPositionClose({
+            symbol,
+            side: parseFloat(oldPos.size) > 0 ? 'LONG' : 'SHORT',
+            size: Math.abs(parseFloat(oldPos.size)),
+            entryPrice: parseFloat(oldPos.entry_price),
+            exitPrice,
+            leverage: parseFloat(oldPos.margin || '0') > 0 ? (parseFloat(oldPos.entry_price) * Math.abs(parseFloat(oldPos.size))) / parseFloat(oldPos.margin) : 10,
+          }).catch(err => logger.error(`[TradeAccounting] Error accounting trade:`, err));
+        }
+      }
+
+      this.lastPositions = currentMap;
+    });
+  }
+
   public async onPositionClose(data: PositionCloseEventData): Promise<TradeAccountedResult> {
     const normalizedSide: 'LONG' | 'SHORT' =
       data.side.toLowerCase() === 'buy' || data.side.toUpperCase() === 'LONG' ? 'LONG' : 'SHORT';
@@ -50,7 +92,6 @@ export class TradeAccountingTrigger {
     const openedAt = data.openedAt || new Date(Date.now() - 3600000).toISOString();
     const closedAt = data.closedAt || new Date().toISOString();
 
-    // 1. Sync through the canonical institutional TradeSyncService
     const ledgerEntry = await tradeSyncService.syncTradeFromExchange({
       symbol: data.symbol,
       side: normalizedSide,
@@ -78,7 +119,6 @@ export class TradeAccountingTrigger {
     let journalNoteId: string | undefined;
     let reviewId: string | undefined;
 
-    // 2. Auto-record Journal Note
     try {
       if ((prisma as any).tradeJournalNote?.create) {
         const note = await (prisma as any).tradeJournalNote.create({
@@ -100,7 +140,6 @@ export class TradeAccountingTrigger {
       // Non-blocking fallback
     }
 
-    // 3. Auto-record Trade Review
     try {
       if ((prisma as any).tradeReview?.create) {
         const review = await (prisma as any).tradeReview.create({
@@ -135,11 +174,13 @@ export class TradeAccountingTrigger {
     };
 
     eventBus.emit('trade:accounted', result);
+    logger.info(`[TradeAccounting] Processed closed trade for ${result.symbol}. Net PnL: ${result.netPnL}`);
     return result;
   }
   public async recordExecution(_result: any): Promise<void> {
-    // Stub
+    // Stub for now. We can log order executions here if needed.
   }
 }
 
 export const tradeAccountingTrigger = new TradeAccountingTrigger();
+

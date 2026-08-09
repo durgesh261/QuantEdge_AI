@@ -126,4 +126,14 @@ export class OrderBlockWidthEngine {
   public static resetUsed(): void {
     usedOrderBlockIds.clear();
   }
+
+  /**
+   * Stub for loading used OBs from DB.
+   * Currently in-memory only per user decision to avoid Prisma migration lock.
+   */
+  public static async loadUsedFromDb(): Promise<void> {
+    // No-op for now. If DB is added later:
+    // const used = await prisma.usedOrderBlock.findMany();
+    // used.forEach(u => usedOrderBlockIds.add(u.id));
+  }
 }

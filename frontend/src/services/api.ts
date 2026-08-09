@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import {
   ApiResponse,
   IndicatorEngineOutput,
@@ -82,6 +82,7 @@ import {
   ChallengeSimulationDto,
   StabilityMatrixItemDto,
   ProductionReadinessScoreDto,
+  OrderBlockDto,
 } from '@algoapp/shared';
 
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api/v1';
@@ -211,6 +212,17 @@ export const strategyApi = {
   },
   evaluateSignal: async (input: EvaluateStrategySignalInput): Promise<ApiResponse<StrategySignalDto>> => {
     const res = await apiClient.post('/strategy/evaluate', input);
+    return res.data;
+  },
+};
+
+export const indicatorApi = {
+  evaluate: async (symbol?: string, timeframe?: string): Promise<ApiResponse<IndicatorEngineOutput>> => {
+    const res = await apiClient.get('/indicators/evaluate', { params: { symbol, timeframe } });
+    return res.data;
+  },
+  getOrderBlocks: async (symbol: string): Promise<ApiResponse<OrderBlockDto[]>> => {
+    const res = await apiClient.get('/indicators/order-blocks', { params: { symbol } });
     return res.data;
   },
 };
@@ -808,15 +820,9 @@ export const newsApi = {
   },
 };
 
-export const indicatorApi = {
-  evaluate: async (
-    symbol: string = 'BTCUSD.P',
-    timeframe: '15M' | '1H' = '1H'
-  ): Promise<ApiResponse<IndicatorEngineOutput>> => {
-    const res = await apiClient.get(`/indicator/evaluate?symbol=${symbol}&timeframe=${timeframe}`);
-    return res.data;
-  },
-};
+
+
+
 
 
 

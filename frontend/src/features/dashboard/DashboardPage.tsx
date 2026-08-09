@@ -14,7 +14,6 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { PreTradeRiskModal } from '../../components/execution/PreTradeRiskModal';
 import { 
   LayoutDashboard, 
-  ShieldCheck, 
   Brain, 
   CheckCircle2, 
   FileText,
@@ -23,9 +22,13 @@ import {
   Sun,
   Layers,
   Clock,
-  History
+  History,
+  Activity
 } from 'lucide-react';
 import { TradeCopilot } from '../../components/copilot/TradeCopilot';
+import { useScannerSocket } from '../../hooks/useScannerSocket';
+import { useScannerStore } from '../../store/useScannerStore';
+import { chartWebSocketService } from '../../services/ChartWebSocketService';
 
 export const DashboardPage: React.FC = () => {
   const { activeSymbol, activeTimeframe } = useTerminalStore();
@@ -42,7 +45,9 @@ export const DashboardPage: React.FC = () => {
 
   // Real Portfolio & Delta Data
   const { data: summary, isLoading: isSummaryLoading, refetch } = usePortfolioSummary();
-  const { placeOrder, isPlacing } = useOrders();
+  const { placeOrder } = useOrders();
+  const { sendControl } = useScannerSocket();
+  const { global } = useScannerStore();
 
   const wallet = summary?.wallet;
   const positions = summary?.positions?.items || [];
@@ -58,6 +63,38 @@ export const DashboardPage: React.FC = () => {
 
   const decisions = decisionsData?.data || [];
   const latestDecision = decisions[0];
+
+  React.useEffect(() => {
+    const onSignal = (data: any) => {
+      addToast('Trade Executed', `Scanner triggered ${data.side} on ${data.symbol}`, 'info');
+      void refetch();
+    };
+
+    const onTradeClosed = (data: any) => {
+      const isProfit = data.realizedPnl >= 0;
+      addToast(
+        'Trade Closed',
+        `${data.symbol} closed ${isProfit ? 'in profit' : 'in loss'}: $${data.realizedPnl?.toFixed(2)}`,
+        isProfit ? 'success' : 'danger'
+      );
+      void refetch();
+    };
+
+    const onPortfolioUpdate = () => {
+      // Re-fetch REST or update cache on WS emit
+      void refetch();
+    };
+
+    chartWebSocketService.on('signal', onSignal);
+    chartWebSocketService.on('trade_closed', onTradeClosed);
+    chartWebSocketService.on('portfolio', onPortfolioUpdate);
+
+    return () => {
+      chartWebSocketService.off('signal', onSignal);
+      chartWebSocketService.off('trade_closed', onTradeClosed);
+      chartWebSocketService.off('portfolio', onPortfolioUpdate);
+    };
+  }, [addToast, refetch]);
 
   // Morning Checklist Items
   const checklistItems = [
@@ -127,6 +164,20 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* Action Modals */}
+          <button
+            onClick={() => {
+              if (global?.isRunning) {
+                sendControl('STOP_ALL');
+              } else {
+                sendControl('START_ALL');
+              }
+            }}
+            className={`px-3 py-2 rounded-lg font-bold flex items-center space-x-1.5 transition ${global?.isRunning ? 'bg-red-600 hover:bg-red-500 text-white' : 'bg-[#00C896] hover:bg-[#00A87D] text-black'}`}
+          >
+            <Activity className="w-4 h-4" />
+            <span>{global?.isRunning ? 'STOP SCANNER' : 'START SCANNER'}</span>
+          </button>
+
           <button
             onClick={() => setShowMorningChecklist(true)}
             className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold flex items-center space-x-1.5 transition"

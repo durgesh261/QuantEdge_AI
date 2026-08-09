@@ -14,10 +14,14 @@ class ChartWebSocketService {
   private url = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:4000/ws';
   private state: WebSocketState = 'DISCONNECTED';
   private currentSymbol: string | null = null;
-  private listeners: Record<'stateChange' | 'ticker' | 'candle', EventCallback[]> = {
+  private listeners: Record<'stateChange' | 'ticker' | 'candle' | 'signal' | 'trade_closed' | 'portfolio' | 'zones', EventCallback[]> = {
     stateChange: [],
     ticker: [],
     candle: [],
+    signal: [],
+    trade_closed: [],
+    portfolio: [],
+    zones: [],
   };
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -74,12 +78,12 @@ class ChartWebSocketService {
     this.setState('DISCONNECTED');
   }
 
-  public on(event: 'stateChange' | 'ticker' | 'candle', callback: EventCallback) {
+  public on(event: 'stateChange' | 'ticker' | 'candle' | 'signal' | 'trade_closed' | 'portfolio' | 'zones', callback: EventCallback) {
     this.listeners[event].push(callback);
     if (event === 'stateChange') callback(this.state);
   }
 
-  public off(event: 'stateChange' | 'ticker' | 'candle', callback: EventCallback) {
+  public off(event: 'stateChange' | 'ticker' | 'candle' | 'signal' | 'trade_closed' | 'portfolio' | 'zones', callback: EventCallback) {
     this.listeners[event] = this.listeners[event].filter(cb => cb !== callback);
   }
 
@@ -88,7 +92,7 @@ class ChartWebSocketService {
     this.emit('stateChange', newState);
   }
 
-  private emit(event: 'stateChange' | 'ticker' | 'candle', data: any) {
+  private emit(event: 'stateChange' | 'ticker' | 'candle' | 'signal' | 'trade_closed' | 'portfolio' | 'zones', data: any) {
     (this.listeners[event] || []).forEach(cb => cb(data));
   }
 
@@ -96,7 +100,7 @@ class ChartWebSocketService {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(JSON.stringify({
       type: 'subscribe',
-      channel: 'ticker',
+      channel: 'all',
       symbols: [symbol],
     }));
   }
@@ -118,6 +122,19 @@ class ChartWebSocketService {
 
       if (data.type === 'candle' && data.symbol) {
         this.emit('candle', data);
+      }
+      
+      if (data.type === 'signal') {
+        this.emit('signal', data);
+      }
+      if (data.type === 'trade_closed') {
+        this.emit('trade_closed', data);
+      }
+      if (data.type === 'portfolio') {
+        this.emit('portfolio', data);
+      }
+      if (data.type === 'zones') {
+        this.emit('zones', data);
       }
 
     } catch (e) {
@@ -153,3 +170,5 @@ class ChartWebSocketService {
 }
 
 export const chartWebSocketService = new ChartWebSocketService();
+
+

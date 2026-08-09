@@ -138,10 +138,13 @@ export class WebSocketServer {
     });
 
     // Trade closed
-    eventBus.on('scanner:trade:closed', (data: any) => {
+    eventBus.on('trade:accounted', (data: any) => {
       this.broadcast('trades', {
         type: 'trade_closed',
-        ...data,
+        symbol: data.symbol,
+        realizedPnl: data.netPnL,
+        tradeId: data.tradeId,
+        timestamp: Date.now(),
       });
     });
 

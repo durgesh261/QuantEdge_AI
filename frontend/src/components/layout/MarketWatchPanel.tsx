@@ -64,7 +64,7 @@ export const MarketWatchPanel: React.FC = () => {
 
   if (!isMarketWatchOpen) {
     return (
-      <div className="bg-[#161D2A] border-r border-[#1E293B] flex flex-col items-center py-3 px-1 z-10 shrink-0 select-none">
+      <div className="hidden md:flex bg-[#161D2A] border-r border-[#1E293B] flex-col items-center py-3 px-1 z-10 shrink-0 select-none">
         <button
           onClick={toggleMarketWatch}
           className="p-1.5 text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#1E2638] rounded-md transition-colors"
@@ -82,7 +82,7 @@ export const MarketWatchPanel: React.FC = () => {
   return (
     <aside 
       style={{ width: `${marketWatchWidth}px` }} 
-      className="relative bg-[#161D2A] border-r border-[#1E293B] flex flex-col z-10 select-none shrink-0 overflow-hidden"
+      className="hidden md:flex relative bg-[#161D2A] border-r border-[#1E293B] flex-col z-10 select-none shrink-0 overflow-hidden"
     >
       {/* Draggable Vertical Column Resizer (Red Line Splitter) */}
       <div

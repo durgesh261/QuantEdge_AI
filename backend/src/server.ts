@@ -8,6 +8,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { setupNewsWebSocket } from './modules/news/services/wsNews.service.js';
 import { NewsAggregatorService } from './modules/news/services/newsAggregator.service.js';
 import { ScannerEngine } from './modules/scanner/services/scannerEngine.service.js';
+import { tradeAccountingTrigger } from './modules/trade-accounting/TradeAccountingTrigger.js';
 const app = createApp();
 
 JournalAutomationService.initialize();
@@ -64,6 +65,7 @@ const io = new SocketIOServer(server, {
 });
 setupNewsWebSocket(io);
 ScannerEngine.initialize(io);
+tradeAccountingTrigger.initialize();
 
 // Start News Aggregator
 NewsAggregatorService.start();

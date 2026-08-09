@@ -81,8 +81,8 @@ export class DecisionEngineService {
       reasonCodes.push(sessionResult.reasonCode);
     }
 
-    // 2. Market Regime & Volatility Filter
-    const marketResult = MarketFilterEngine.evaluateMarket(indicators);
+    // 2. Market Regime & Volatility Filter (allowRanging=false blocks choppy/ranging markets)
+    const marketResult = MarketFilterEngine.evaluateMarket(indicators, false);
     if (!marketResult.allowed && marketResult.reasonCode) {
       reasonCodes.push(marketResult.reasonCode);
     }
@@ -113,6 +113,31 @@ export class DecisionEngineService {
     const zoneResult = ZoneValidator.validate(activeZone);
     if (zoneResult.reasonCode && !reasonCodes.includes(zoneResult.reasonCode)) {
       reasonCodes.push(zoneResult.reasonCode);
+    }
+
+    // 4a. Used-OB guard — reject if this OB has already generated a trade
+    if (activeZone && (activeZone as any).id) {
+      const { OrderBlockWidthEngine } = await import('../../indicator-engine/engines/orderBlockWidthEngine.js');
+      if (OrderBlockWidthEngine.isUsed((activeZone as any).id)) {
+        const usedDecision: DecisionDto = {
+          id: `DEC-${Date.now()}`,
+          symbol, timeframe,
+          state: DecisionState.SKIP,
+          outcome,
+          entryPrice: currentPrice, stopLossPrice: currentPrice, takeProfitPrice: currentPrice,
+          positionSize: 0, leverage: 0, riskPercent: 0, confidenceScore: 0,
+          reasonCodes: ['OB_ALREADY_USED' as any, ...reasonCodes],
+          inputSnapshotHash: '',
+          createdAt: new Date().toISOString(),
+        };
+        decisionLogs.unshift(usedDecision);
+        return usedDecision;
+      }
+    }
+
+    // 4b. First-touch tracking — add reason code so downstream knows this is a fresh entry
+    if (activeZone && (activeZone.touchCount === 0 || (activeZone as any).status === 'FIRST_TOUCH' || (activeZone as any).status === 'NEW')) {
+      reasonCodes.push('FIRST_TOUCH_ENTRY' as any);
     }
 
     // 5. Market Structure Validator (BOS / CHoCH)
@@ -206,11 +231,26 @@ export class DecisionEngineService {
     entryPrice = Number(entryPrice.toFixed(4));
     stopLossPrice = Number(stopLossPrice.toFixed(4));
 
-    // 7. Risk Validator — Strategy §16-18: 35% risk, 100% balance, max 100x leverage
+    // 7. Position Sizing — 35% risk, max 100x leverage
+    const sizingResult = PositionSizingEngine.calculatePositionSize({
+      symbol,
+      accountBalance,
+      entryPrice,
+      stopLossPrice,
+      takeProfitPrice: entryPrice, // Temporary, will be ignored
+      riskPercent: 35.0,
+      maxLeverageCap: 100,
+    } as any);
+    reasonCodes.push(DecisionReasonCode.POSITION_SIZE_CALCULATED);
+
+    // Calculate TP based on 60% account profit target (Strategy §19)
+    let takeProfitPrice = sizingResult.takeProfitPrice || currentPrice;
+
+    // 8. Risk Validator — Strategy §16-18: 35% risk, 100% balance, max 100x leverage
     const riskResult = RiskValidator.validate({
       entryPrice,
       stopLossPrice,
-      takeProfitPrice: entryPrice, // placeholder, recalculated below
+      takeProfitPrice,
       accountBalance,
       availableMargin,
       estimatedMarginRequired: accountBalance, // 100% margin utilization
@@ -220,26 +260,6 @@ export class DecisionEngineService {
     for (const code of riskResult.reasonCodes) {
       if (!reasonCodes.includes(code)) reasonCodes.push(code);
     }
-
-    // 8. Position Sizing — 35% risk, max 100x leverage
-    const sizingResult = PositionSizingEngine.calculatePositionSize({
-      symbol,
-      accountBalance,
-      entryPrice,
-      stopLossPrice,
-      takeProfitPrice: entryPrice,
-      riskPercent: 35.0,
-      maxLeverageCap: 100,
-    } as any);
-    reasonCodes.push(DecisionReasonCode.POSITION_SIZE_CALCULATED);
-
-    // Calculate TP based on 60% account profit target (Strategy §19)
-    // TP price is derived from: (TP - Entry) * Size = 0.60 * AccountBalance
-    const tpProfitNeeded = accountBalance * 0.60;
-    const priceMoveNeeded = tpProfitNeeded / sizingResult.positionSize;
-    const takeProfitPrice = outcome === StrategySignalOutcome.BUY
-      ? Number((entryPrice + priceMoveNeeded).toFixed(4))
-      : Number((entryPrice - priceMoveNeeded).toFixed(4));
 
     // 9. AI Confirmation — minimum 85% confidence (Strategy §20)
     const aiResult = AIDecisionCenterService.confirmDecision({

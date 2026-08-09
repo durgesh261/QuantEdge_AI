@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { strategyApi, indicatorApi } from '../../services/api';
 import { useTerminalStore } from '../../store/useTerminalStore';
 import { Maximize2, Minimize2, TrendingUp, TrendingDown } from 'lucide-react';
-import { ZoneStatus } from '@algoapp/shared';
+import { useOrderBlocksChart } from '../../hooks/useOrderBlocksChart';
 
 // Strategy §2: ONLY these 4 pairs
 const DELTA_SYMBOL_MAP: Record<string, string> = {
@@ -69,13 +69,6 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
   }, [currentSymbol]);
 
   // ── Live Zones & Signals from BACKEND (not TradingView) ──
-  const { data: zonesData } = useQuery({
-    queryKey: ['zones', currentSymbol],
-    queryFn: () => strategyApi.getZones(currentSymbol),
-    staleTime: 30_000,
-    refetchInterval: 10_000,
-  });
-
   const { data: signalsData } = useQuery({
     queryKey: ['signals', currentSymbol],
     queryFn: () => strategyApi.getSignals(),
@@ -93,9 +86,9 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
   const indicators = indicatorRes?.data;
   const marketStructure = indicators?.marketStructure;
 
-  const activeZones = zonesData?.data?.filter(
-    (z) => z.symbol === currentSymbol && z.status !== ZoneStatus.CONSUMED && z.status !== ZoneStatus.BROKEN
-  ) ?? [];
+  const { activeBullishOBs, activeBearishOBs, mitigatedOBs, loading: obsLoading } = useOrderBlocksChart(currentSymbol);
+  
+  const allDisplayOBs = [...activeBullishOBs, ...activeBearishOBs, ...mitigatedOBs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const latestSignal = signalsData?.data?.filter((s) => s.symbol === currentSymbol)[0] ?? null;
 
@@ -182,35 +175,64 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
       </div>
 
       {/* ── Zone Overlay Panel ── */}
-      <div className="h-28 bg-[#0E121A] border-t border-[#1E293B] px-3 py-2 overflow-y-auto shrink-0">
-        <div className="text-[10px] text-[#94A3B8] uppercase font-bold mb-1.5">
-          Live Order Blocks ({activeZones.length}) — Backend Native Engine
+      <div className="h-32 bg-[#0E121A] border-t border-[#1E293B] px-3 py-2 overflow-y-auto shrink-0">
+        <div className="text-[10px] text-[#94A3B8] uppercase font-bold mb-1.5 flex justify-between">
+          <span>Live Order Blocks — Backend Native Engine</span>
+          {obsLoading && <span className="text-emerald-500 animate-pulse">Syncing...</span>}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          {activeZones.map((zone) => (
-            <div
-              key={zone.id}
-              className={`p-2 rounded border text-[10px] ${
-                zone.type === 'DEMAND'
-                  ? 'bg-emerald-500/5 border-emerald-500/20'
-                  : 'bg-red-500/5 border-red-500/20'
-              }`}
-            >
-              <div className="flex justify-between">
-                <span className="font-bold">{zone.type}</span>
-                <span className="text-[#94A3B8]">{zone.freshness?.toFixed(0)}% fresh</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          {allDisplayOBs.map((ob) => {
+            const isBullish = ob.type === 'BULLISH';
+            const isActive = !ob.isMitigated && !ob.isUsed;
+            const bgClass = !isActive 
+              ? 'bg-gray-500/10 border-gray-500/30 opacity-60' 
+              : isBullish 
+                ? 'bg-emerald-500/10 border-emerald-500/30' 
+                : 'bg-red-500/10 border-red-500/30';
+            
+            return (
+              <div key={ob.id} className={`p-2 rounded border text-[10px] ${bgClass}`}>
+                <div className="flex justify-between items-center mb-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className={`font-bold ${!isActive ? 'text-gray-400' : isBullish ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {ob.type} OB
+                    </span>
+                    <span className="bg-[#1E293B] text-[#94A3B8] px-1 rounded text-[9px]">{ob.source}</span>
+                  </div>
+                  {!isActive && (
+                    <span className="text-amber-500 font-semibold">{ob.isUsed ? 'USED' : 'MITIGATED'}</span>
+                  )}
+                  {isActive && (
+                    <span className="text-[#94A3B8] font-semibold">{ob.widthPercent}% wide</span>
+                  )}
+                </div>
+                
+                <div className="font-mono-tabular flex justify-between text-[#94A3B8] mb-0.5">
+                  <span>Zone: {ob.lowerPrice.toFixed(2)} - {ob.upperPrice.toFixed(2)}</span>
+                  <span>Leverage: {ob.calculatedLeverage}x</span>
+                </div>
+                
+                <div className="font-mono-tabular grid grid-cols-3 gap-1 mt-1.5 pt-1.5 border-t border-[#1E293B]/50">
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">ENTRY</div>
+                    <div className={isBullish ? 'text-emerald-300' : 'text-red-300'}>{ob.entryPrice.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">STOP</div>
+                    <div className="text-rose-400">{ob.stopLossPrice.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">TARGET</div>
+                    <div className="text-emerald-400">{ob.takeProfitPrice.toFixed(2)}</div>
+                  </div>
+                </div>
               </div>
-              <div className="font-mono-tabular mt-0.5">
-                {zone.lowerPrice?.toFixed(2)} — {zone.upperPrice?.toFixed(2)}
-              </div>
-              <div className="text-[#94A3B8] mt-0.5">
-                Strength: {zone.strength} | Touches: {zone.touchCount}
-              </div>
-            </div>
-          ))}
-          {activeZones.length === 0 && (
-            <div className="col-span-full text-[10px] text-[#94A3B8] italic">
-              No active Order Blocks detected. Scanner running...
+            );
+          })}
+          
+          {!obsLoading && allDisplayOBs.length === 0 && (
+            <div className="col-span-full text-[10px] text-[#94A3B8] italic p-2 border border-dashed border-[#1E293B] rounded text-center">
+              No recent Order Blocks found for {currentSymbol}. Waiting for market structure...
             </div>
           )}
         </div>
