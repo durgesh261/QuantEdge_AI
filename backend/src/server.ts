@@ -9,10 +9,20 @@ import { setupNewsWebSocket } from './modules/news/services/wsNews.service.js';
 import { NewsAggregatorService } from './modules/news/services/newsAggregator.service.js';
 import { ScannerEngine } from './modules/scanner/services/scannerEngine.service.js';
 import { tradeAccountingTrigger } from './modules/trade-accounting/TradeAccountingTrigger.js';
+import { OrderBlockWidthEngine } from './modules/indicator-engine/engines/orderBlockWidthEngine.js';
+
 const app = createApp();
 
 JournalAutomationService.initialize();
 MarketScannerService.initialize();
+
+// Load persisted used OB IDs from DB into in-memory cache on every startup
+// This ensures restarted backend doesn't treat previously-consumed OBs as fresh
+OrderBlockWidthEngine.loadUsedFromDb().then(() => {
+  logger.info('[Boot] Used OB IDs loaded from DB into in-memory cache');
+}).catch((err) => {
+  logger.warn({ err }, '[Boot] Could not load used OB IDs from DB — proceeding with empty cache');
+});
 
 import { prisma } from './db.js';
 import { deltaSyncService } from './modules/delta-exchange/index.js';

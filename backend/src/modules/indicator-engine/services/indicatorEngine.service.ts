@@ -1,4 +1,4 @@
-﻿import {
+import {
   CandleDto,
   DemandZone,
   IndicatorEngineOutput,
@@ -19,6 +19,7 @@ import { ZoneScoreEngine } from "../engines/zoneScoreEngine.js";
 import { PremiumDiscountEngine } from "../engines/premiumDiscountEngine.js";
 import { FvgEngine } from "../engines/fvgEngine.js";
 import { OrderBlockWidthEngine } from "../engines/orderBlockWidthEngine.js";
+import { OrderBlockMergeEngine } from "../engines/orderBlockMergeEngine.js";
 import { CandleStoreService } from "../../market-data/services/candleStore.service.js";
 
 export class IndicatorEngineService {
@@ -50,26 +51,38 @@ export class IndicatorEngineService {
     // 3. FVG disabled per strategy (FVG_ENABLED=false in fvgEngine.ts)
     const fairValueGaps = FvgEngine.detectFvgs(symbol, candles, timeframe);
 
-    // 4. Combine OBs from both sources, preserve SMC/PAT source labels
-    const allRawOBs = [...smcResult.orderBlocks, ...patResult.orderBlocks];
+    // 4. Combine OBs from both sources and run through canonical merge pipeline
+    const { merged: canonicalMergedOBs } = OrderBlockMergeEngine.merge(
+      smcResult.orderBlocks,
+      patResult.orderBlocks,
+    );
 
-    // Re-enrich through OrderBlockWidthEngine (applies 0.6% rule, single-use tracking)
-    const allOrderBlocks = allRawOBs.map((ob) =>
-      OrderBlockWidthEngine.enrichOrderBlock(
+    // Apply used state from in-memory cache (populated from DB on startup)
+    const allOrderBlocks = canonicalMergedOBs.map((ob) => {
+      return OrderBlockWidthEngine.enrichOrderBlock(
         ob.id, ob.symbol, ob.timeframe, ob.type,
         ob.upperPrice, ob.lowerPrice,
         ob.baseCandleIndex, ob.breakCandleIndex,
         (ob as any).isMitigated ?? false,
         (ob as any).isInvalidated ?? false,
         (ob as any).touchCount ?? 0,
-        ob.source, ob.createdAt,
+        (ob as any).source ?? 'SMC', ob.createdAt,
         (ob as any).mitigatedAtIndex,
-      )
+      );
+    }).map(ob => ({
+      ...ob,
+      // Ensure isUsed reflects DB-persisted state too
+      isUsed: OrderBlockWidthEngine.isUsed(ob.id),
+    }));
+
+    // Canonical active OBs (non-used, non-mitigated, non-invalidated)
+    const canonicalActiveOBs = allOrderBlocks.filter(
+      (ob) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
     );
 
-    // 5. Build Supply/Demand zones from active (non-mitigated, non-used) OBs
-    const supplyZonesRaw: SupplyZone[] = allOrderBlocks
-      .filter((ob) => ob.type === "BEARISH" && !ob.isMitigated && !ob.isInvalidated && !ob.isUsed)
+    // 5. Build Supply/Demand zones from canonical active OBs
+    const supplyZonesRaw: SupplyZone[] = canonicalActiveOBs
+      .filter((ob) => ob.type === "BEARISH")
       .map((ob) => ({
         id: `ZONE-SUP-${ob.id}`,
         symbol, timeframe,
@@ -90,8 +103,8 @@ export class IndicatorEngineService {
         updatedAt: ob.createdAt,
       }));
 
-    const demandZonesRaw: DemandZone[] = allOrderBlocks
-      .filter((ob) => ob.type === "BULLISH" && !ob.isMitigated && !ob.isInvalidated && !ob.isUsed)
+    const demandZonesRaw: DemandZone[] = canonicalActiveOBs
+      .filter((ob) => ob.type === "BULLISH")
       .map((ob) => ({
         id: `ZONE-DEM-${ob.id}`,
         symbol, timeframe,
@@ -161,7 +174,8 @@ export class IndicatorEngineService {
       pivotsSwing:     smcResult.pivotsSwing,
       zigzagLegs:      patResult.zigzagLegs,
       structureEvents: smcResult.structureEvents,
-      orderBlocks:     allOrderBlocks,
+      // CANONICAL: merged, used-filtered, deduplicated OBs — used by scanner/decision/chart
+      orderBlocks:     canonicalActiveOBs,
       liquiditySweeps: patResult.liquiditySweeps,
       fairValueGaps,
       equalHighLows:   smcResult.equalHighLows,

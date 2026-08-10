@@ -166,6 +166,21 @@ export class WebSocketServer {
         ...data,
       });
     });
+
+    // Order Block first-touch — immediately remove from active chart/scanner
+    eventBus.on('ob:touched', (data: any) => {
+      this.broadcast('zones', {
+        type: 'ob_touched',
+        symbol:        data.symbol,
+        orderBlockId:  data.orderBlockId,
+        touchPrice:    data.touchPrice,
+        obType:        data.type,
+        upperPrice:    data.upperPrice,
+        lowerPrice:    data.lowerPrice,
+        isUsed:        true,
+        timestamp:     data.timestamp,
+      });
+    });
   }
 
   private broadcast(channel: string, payload: any): void {

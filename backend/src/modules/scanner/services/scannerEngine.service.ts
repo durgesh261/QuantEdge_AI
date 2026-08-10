@@ -7,7 +7,9 @@ import { IndicatorEngineService } from '../../indicator-engine/services/indicato
 import { deltaSyncService } from '../../delta-exchange/index.js';
 import { DecisionEngineService } from '../../decision/services/decisionEngine.service.js';
 import { executionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
+import { OrderBlockWidthEngine } from '../../indicator-engine/engines/orderBlockWidthEngine.js';
 import { StrategySignalOutcome } from '@algoapp/shared';
+import { eventBus } from '../../../services/EventBus.js';
 
 const SCAN_INTERVAL_MS = 5000;
 const TIMEFRAME = '1H';
@@ -192,25 +194,79 @@ export class ScannerEngine {
       if (candles.length >= 10) {
         indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
-        const validOBs = (indicators.orderBlocks || []).filter(
-          (ob: any) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
-        );
+        // Canonical active OBs (already merged, used-filtered by indicatorEngine)
+        const validOBs = (indicators.orderBlocks || []);
         activeOBs = validOBs.length;
 
         if (activeOBs > 0) {
-          OrderBlockService.syncFromIndicators(symbol, validOBs, indicators.zoneScores);
-          const avgWidth = validOBs.reduce((sum: number, b: any) => sum + (b.widthPercent || 0.25), 0) / activeOBs;
+          // ── LIVE PRICE TOUCH DETECTION ──────────────────────────────────────
+          // Use real-time Delta price to check if price has entered any active OB.
+          // This is the authoritative first-touch event (not candle-close based).
+          const livePrice = ticker.price;
+          for (const ob of validOBs) {
+            if (OrderBlockWidthEngine.isUsed(ob.id)) continue; // already consumed
+
+            const isBullish = ob.type === 'BULLISH';
+            const wasPriceInside = isBullish
+              ? (livePrice <= ob.upperPrice && livePrice >= ob.lowerPrice)
+              : (livePrice >= ob.lowerPrice && livePrice <= ob.upperPrice);
+
+            if (wasPriceInside) {
+              // FIRST TOUCH — mark this OB consumed immediately
+              logger.info(`[ScannerEngine] OB FIRST-TOUCH ${ob.id} @ ${livePrice} (${ob.type} ${ob.upperPrice}→${ob.lowerPrice})`);
+              OrderBlockWidthEngine.markUsedWithMeta(
+                ob.id, symbol, ob.type as 'BULLISH' | 'BEARISH',
+                ob.upperPrice, ob.lowerPrice, ob.widthPercent, ob.id,
+              );
+
+              // Emit real-time WS event so frontend removes OB immediately
+              eventBus.emit('ob:touched', {
+                symbol,
+                orderBlockId: ob.id,
+                touchPrice:   livePrice,
+                type:         ob.type,
+                upperPrice:   ob.upperPrice,
+                lowerPrice:   ob.lowerPrice,
+                isUsed:       true,
+                timestamp:    new Date().toISOString(),
+              });
+
+              // Remove from best-OB candidates immediately
+              // The decision engine will still evaluate this touch below
+            }
+          }
+          // ────────────────────────────────────────────────────────────────────
+
+          // Re-filter: only truly active (untouched) OBs remain for display
+          const activeOBsForDisplay = validOBs.filter((ob: any) => !OrderBlockWidthEngine.isUsed(ob.id));
+          activeOBs = activeOBsForDisplay.length;
+
+          OrderBlockService.syncFromIndicators(symbol, activeOBsForDisplay, indicators.zoneScores);
+          const avgWidth = activeOBsForDisplay.reduce((sum: number, b: any) => sum + (b.widthPercent || 0.25), 0) / Math.max(1, activeOBs);
           obWidthPct = Number(avgWidth.toFixed(3));
-          
-          const result = validOBs.reduce((best: any, ob: any) => {
-            const score = indicators.zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
-                       ?? indicators.zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
-                       ?? 78;
-            return score > (best.score ?? 0) ? { ob, score } : best;
-          }, {} as { ob?: any; score?: number });
-          
-          bestScore = result.score ?? null;
-          bestOB = result.ob ?? null;
+
+          // Best OB for decision engine: pick the first-touched OB this tick (if any),
+          // or fall back to the highest-scoring active OB.
+          const touchedThisTick = validOBs.find((ob: any) => OrderBlockWidthEngine.isUsed(ob.id));
+
+          if (touchedThisTick) {
+            // A first-touch just happened — feed decision engine with this OB
+            const score = indicators.zoneScores?.[`ZONE-SUP-${touchedThisTick.id}`]?.totalScore
+                       ?? indicators.zoneScores?.[`ZONE-DEM-${touchedThisTick.id}`]?.totalScore
+                       ?? 80;
+            bestScore = score;
+            bestOB    = touchedThisTick;
+          } else {
+            const result = activeOBsForDisplay.reduce((best: any, ob: any) => {
+              const score = indicators.zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
+                         ?? indicators.zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
+                         ?? 78;
+              return score > (best.score ?? 0) ? { ob, score } : best;
+            }, {} as { ob?: any; score?: number });
+
+            bestScore = result.score ?? null;
+            bestOB    = result.ob   ?? null;
+          }
         } else {
           OrderBlockService.setBlocks(symbol, []);
         }
@@ -312,11 +368,11 @@ export class ScannerEngine {
           data: { tradesExecuted: { increment: 1 } },
         });
 
-        // Mark the OB as USED (Phase 2 rule)
-        const { OrderBlockWidthEngine } = await import('../../indicator-engine/engines/orderBlockWidthEngine.js');
-        OrderBlockWidthEngine.markUsed(bestOB.id);
+        // NOTE: OB is already marked used on first-touch above.
+        // markUsed is NOT called here again — touch already consumed the OB.
       } else {
         logger.warn(`[Scanner→Execution] Signal REJECTED for ${symbol}. Reason: ${decision.reasonCodes.join(', ')}`);
+        // OB was already consumed on first-touch above. No re-entry possible.
       }
 
     } catch (err) {

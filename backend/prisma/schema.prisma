@@ -88,10 +88,15 @@ model OrderBlock {
   touchCount   Int      @default(0) @map("touch_count")
   status       String   @default("FRESH")
   isTraded     Boolean  @default(false) @map("is_traded")
+  isUsed       Boolean  @default(false) @map("is_used")
+  canonicalId  String   @default("") @map("canonical_id")
+  usedAt       DateTime? @map("used_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([symbol, status, isTraded])
+  @@index([symbol, isUsed])
+  @@index([canonicalId])
   @@index([symbol, timeframe, createdAt])
   @@map("order_blocks")
 }

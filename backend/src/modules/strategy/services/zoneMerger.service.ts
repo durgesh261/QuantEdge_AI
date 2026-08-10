@@ -12,13 +12,14 @@ interface MergeCandidate {
 
 /**
  * Zone Merger Service
- * 
- * Merges overlapping Order Blocks from LuxAlgo + UAlgo engines.
- * If two zones overlap by >70%, they are merged into one with averaged strength.
+ *
+ * Merges overlapping Supply/Demand zones from LuxAlgo + UAlgo engines.
+ * If two zones of the SAME direction overlap at all in price, they merge into one.
  * This prevents duplicate DEMAND/SUPPLY boxes at the same price level.
  */
 export class ZoneMergerService {
-  private static readonly OVERLAP_THRESHOLD = 0.70; // 70% overlap = merge
+  // Any physical overlap = merge (strategy requirement: overlapping OBs = one zone)
+  private static readonly OVERLAP_THRESHOLD = 0;
 
   public static detectAndMergeZones(zones: BaseZone[]): BaseZone[] {
     if (!zones || zones.length === 0) return [];
@@ -104,8 +105,12 @@ export class ZoneMergerService {
       const isFresh = sourceZones.some(z => z.status === 'NEW');
       const touchCount = Math.max(...sourceZones.map(z => z.touchCount || 0));
 
+      // Build deterministic ID from sorted source zone IDs
+      const sourceIds = sourceZones.map(z => z.id).sort();
+      const mergedId  = `ZON-MERGED-${candidate.symbol}-${candidate.type}-${sourceIds.join('_')}`;
+
       const mergedZone: BaseZone = {
-        id: `ZON-MERGED-${candidate.symbol}-${candidate.type}-${Date.now()}-${i}`,
+        id: mergedId,
         symbol: candidate.symbol,
         type: candidate.type,
         timeframe: '1H',

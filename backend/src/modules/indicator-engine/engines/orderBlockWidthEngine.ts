@@ -1,6 +1,7 @@
 import { OrderBlockDto, TradingTimeframe } from '@algoapp/shared';
+import { prisma } from '../../../db.js';
 
-// In-memory set of used order blocks for single-use lifetime enforcement
+// In-memory cache (populated from DB on startup via loadUsedFromDb)
 const usedOrderBlockIds = new Set<string>();
 
 export class OrderBlockWidthEngine {
@@ -107,33 +108,108 @@ export class OrderBlockWidthEngine {
   }
 
   /**
-   * Marks an order block as USED. Once used, it can never trigger another trade.
+   * Marks an order block as USED (in memory + DB for persistence across restarts).
+   * Once marked used, this OB cannot trigger another trade — ever.
    */
   public static markUsed(orderBlockId: string): void {
     usedOrderBlockIds.add(orderBlockId);
+    // Persist to DB asynchronously (fire-and-forget, non-blocking)
+    prisma.orderBlock.upsert({
+      where: { id: orderBlockId },
+      create: {
+        id:          orderBlockId,
+        canonicalId: orderBlockId,
+        symbol:      'UNKNOWN',   // will be overwritten by markUsedWithMeta()
+        type:        'BULLISH',
+        upperPrice:  0,
+        lowerPrice:  0,
+        strength:    0,
+        width:       0,
+        widthPercent:0,
+        isUsed:      true,
+        isTraded:    true,
+        usedAt:      new Date(),
+        status:      'USED',
+      },
+      update: {
+        isUsed:   true,
+        isTraded: true,
+        usedAt:   new Date(),
+        status:   'USED',
+      },
+    }).catch(() => { /* ignore DB errors — in-memory still enforces the rule */ });
   }
 
   /**
-   * Checks if an order block is already used
+   * Marks an OB used with full context — preferred over markUsed() when metadata is available.
+   */
+  public static markUsedWithMeta(
+    orderBlockId: string,
+    symbol: string,
+    type: 'BULLISH' | 'BEARISH',
+    upper: number,
+    lower: number,
+    widthPct: number,
+    canonicalId: string,
+  ): void {
+    usedOrderBlockIds.add(orderBlockId);
+    prisma.orderBlock.upsert({
+      where: { id: orderBlockId },
+      create: {
+        id:          orderBlockId,
+        canonicalId: canonicalId || orderBlockId,
+        symbol,
+        type,
+        upperPrice:  upper,
+        lowerPrice:  lower,
+        strength:    0,
+        width:       upper - lower,
+        widthPercent: widthPct,
+        isUsed:      true,
+        isTraded:    true,
+        usedAt:      new Date(),
+        status:      'USED',
+      },
+      update: {
+        isUsed:      true,
+        isTraded:    true,
+        usedAt:      new Date(),
+        status:      'USED',
+        canonicalId: canonicalId || orderBlockId,
+      },
+    }).catch(() => { /* ignore */ });
+  }
+
+  /**
+   * Checks if an order block is already used (fast in-memory lookup).
    */
   public static isUsed(orderBlockId: string): boolean {
     return usedOrderBlockIds.has(orderBlockId);
   }
 
   /**
-   * Resets used order blocks (for backtesting / restart)
+   * Resets used order blocks (for backtesting only — not for production).
    */
   public static resetUsed(): void {
     usedOrderBlockIds.clear();
   }
 
   /**
-   * Stub for loading used OBs from DB.
-   * Currently in-memory only per user decision to avoid Prisma migration lock.
+   * Load used OB IDs from DB into the in-memory cache on startup.
+   * Called once at application boot so that restarts don't resurrect consumed OBs.
    */
   public static async loadUsedFromDb(): Promise<void> {
-    // No-op for now. If DB is added later:
-    // const used = await prisma.usedOrderBlock.findMany();
-    // used.forEach(u => usedOrderBlockIds.add(u.id));
+    try {
+      const usedRecords = await prisma.orderBlock.findMany({
+        where: { isUsed: true },
+        select: { id: true, canonicalId: true },
+      });
+      for (const rec of usedRecords) {
+        usedOrderBlockIds.add(rec.id);
+        if (rec.canonicalId) usedOrderBlockIds.add(rec.canonicalId);
+      }
+    } catch {
+      // DB may not be ready yet — ignore; in-memory cache will be empty until populated
+    }
   }
 }

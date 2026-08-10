@@ -1,7 +1,7 @@
 import { OrderBlockDto } from '@algoapp/shared';
 
 // ============================================================================
-// Order Block Merge Engine — Q2
+// Order Block Merge Engine — Canonical Implementation
 //
 // Merges overlapping Order Blocks from two independent sources:
 //   - LuxAlgo SMC engine  (source = 'SMC')
@@ -9,19 +9,11 @@ import { OrderBlockDto } from '@algoapp/shared';
 //
 // Rules:
 //   1. Only merge OBs of the same direction (both BULLISH or both BEARISH).
-//   2. Two OBs overlap when their price ranges intersect:
+//   2. Two OBs overlap when their price ranges physically intersect:
 //        overlap = max(lower1, lower2) < min(upper1, upper2)
-//   3. Merged OB:
-//        upper = max(upper1, upper2)
-//        lower = min(lower1, lower2)
-//        source = 'SMC'  (SMC takes precedence; PAT reinforces)
-//        isMitigated = either is mitigated
-//        touchCount  = sum of both
-//   4. Non-overlapping OBs are kept individually under their original source.
-//   5. Greedy O(n²) merge is sufficient for the expected OB count per symbol.
-//
-// The merged list is the sole input to the AI Decision Engine.
-// Individual (pre-merge) OBs are preserved in the analytics debug payload.
+//   3. Transitive overlap: A overlaps B, B overlaps C → all three merge (connected-components).
+//   4. Merged OB: upper = max, lower = min, width/entry/SL/TP/leverage recalculated.
+//   5. ID = deterministic: "OB-MERGED-{type}-{sorted source ids}" — same zone = same ID always.
 // ============================================================================
 
 export interface OrderBlockWithMeta extends OrderBlockDto {
@@ -33,26 +25,20 @@ export interface OrderBlockWithMeta extends OrderBlockDto {
 
 export class OrderBlockMergeEngine {
 
-  // ============================================================
-  // Main entry point
-  // ============================================================
   public static merge(
-    smcBlocks: OrderBlockDto[], // from SmcLegEngine (LuxAlgo)
-    patBlocks: OrderBlockDto[]  // from PatLegEngine  (UAlgo)
+    smcBlocks: OrderBlockDto[],
+    patBlocks: OrderBlockDto[]
   ): {
-    merged:    OrderBlockWithMeta[]; // unified list for AI decisions
-    analytics: OrderBlockWithMeta[]; // full detail list for debugging
+    merged:    OrderBlockWithMeta[];
+    analytics: OrderBlockWithMeta[];
   } {
-    // Tag each block with its origin before merging
     const tagged: OrderBlockWithMeta[] = [
       ...smcBlocks.map(ob => ({ ...ob, mergeSource: 'SMC' as const, mergedFromIds: [] })),
       ...patBlocks.map(ob => ({ ...ob, mergeSource: 'PAT' as const, mergedFromIds: [] })),
     ];
 
-    // Build analytics list (all individual OBs before any merging)
     const analytics: OrderBlockWithMeta[] = tagged.map(ob => ({ ...ob }));
 
-    // Merge by direction independently
     const bullishTagged = tagged.filter(ob => ob.type === 'BULLISH');
     const bearishTagged = tagged.filter(ob => ob.type === 'BEARISH');
 
@@ -65,75 +51,112 @@ export class OrderBlockMergeEngine {
     return { merged, analytics };
   }
 
-  // ============================================================
-  // Greedy overlap merge for a single-direction group
-  // ============================================================
+  // Connected-components transitive overlap merge for one direction
   private static mergeGroup(blocks: OrderBlockWithMeta[]): OrderBlockWithMeta[] {
     if (blocks.length === 0) return [];
+    if (blocks.length === 1) return [{ ...blocks[0]!, mergedFromIds: [] }];
 
-    // Sort by lowerPrice ascending for stable merge
-    const sorted = [...blocks].sort((a, b) => a.lowerPrice - b.lowerPrice);
+    const n = blocks.length;
+    const parent = Array.from({ length: n }, (_, i) => i);
 
-    const result: OrderBlockWithMeta[] = [];
-    let current: OrderBlockWithMeta = { ...sorted[0]!, mergedFromIds: [] };
+    const find = (i: number): number => {
+      while (parent[i] !== i) {
+        parent[i] = parent[parent[i]!]!;
+        i = parent[i]!;
+      }
+      return i;
+    };
 
-    for (let i = 1; i < sorted.length; i++) {
-      const next = sorted[i]!;
+    const union = (i: number, j: number) => {
+      parent[find(i)] = find(j);
+    };
 
-      // Overlap condition: ranges intersect
-      const overlapLow  = Math.max(current.lowerPrice, next.lowerPrice);
-      const overlapHigh = Math.min(current.upperPrice, next.upperPrice);
-
-      if (overlapLow < overlapHigh) {
-        // Merge: expand range to cover both OBs
-        const mergedFromIds = [
-          ...current.mergedFromIds,
-          ...(current.mergedFromIds.length === 0 ? [current.id] : []),
-          next.id,
-        ];
-        current = {
-          ...current,
-          id:           `OB-MERGED-${current.type}-${current.baseCandleIndex}-${next.baseCandleIndex}`,
-          upperPrice:   Math.max(current.upperPrice, next.upperPrice),
-          lowerPrice:   Math.min(current.lowerPrice, next.lowerPrice),
-          isMitigated:  current.isMitigated || next.isMitigated,
-          touchCount:   current.touchCount + next.touchCount,
-          // Recalculate width
-          widthPercent: Number(
-            (
-              (Math.max(current.upperPrice, next.upperPrice) - Math.min(current.lowerPrice, next.lowerPrice)) /
-              Math.max(current.upperPrice, next.upperPrice) * 100
-            ).toFixed(4)
-          ),
-          // SMC source takes precedence; mark as MERGED for analytics
-          source:       'SMC',
-          mergeSource:  'MERGED',
-          mergedFromIds,
-          // Use earlier formation time
-          createdAt:    current.baseCandleIndex <= next.baseCandleIndex ? current.createdAt : next.createdAt,
-          // Recalculate entry price using the merged zone width
-          entryPrice:   this.calcEntryPrice(
-            current.type,
-            Math.max(current.upperPrice, next.upperPrice),
-            Math.min(current.lowerPrice, next.lowerPrice)
-          ),
-        };
-      } else {
-        result.push(current);
-        current = { ...next, mergedFromIds: [] };
+    // Union any two blocks whose price ranges physically overlap
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        const a = blocks[i]!;
+        const b = blocks[j]!;
+        const overlapLow  = Math.max(a.lowerPrice, b.lowerPrice);
+        const overlapHigh = Math.min(a.upperPrice, b.upperPrice);
+        if (overlapLow < overlapHigh) {
+          union(i, j);
+        }
       }
     }
-    result.push(current);
+
+    // Group by connected component
+    const groups = new Map<number, OrderBlockWithMeta[]>();
+    for (let i = 0; i < n; i++) {
+      const root = find(i);
+      if (!groups.has(root)) groups.set(root, []);
+      groups.get(root)!.push(blocks[i]!);
+    }
+
+    const result: OrderBlockWithMeta[] = [];
+
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        result.push({ ...group[0]!, mergedFromIds: [] });
+        continue;
+      }
+
+      const upper = Math.max(...group.map(ob => ob.upperPrice));
+      const lower = Math.min(...group.map(ob => ob.lowerPrice));
+      const type  = group[0]!.type;
+
+      // Deterministic stable ID from sorted source IDs
+      const sortedIds = [...group.map(ob => ob.id)].sort();
+      const mergedId  = `OB-MERGED-${type}-${sortedIds.join('_')}`;
+
+      const rawWidth   = Math.max(0.0001, upper - lower);
+      const widthPct   = Number(((rawWidth / Math.max(0.0001, upper)) * 100).toFixed(4));
+      const entryPrice = this.calcEntryPrice(type, upper, lower);
+      const stopLossPrice = type === 'BULLISH' ? lower : upper;
+      const slDistPct  = Math.max(0.01, Math.abs(entryPrice - stopLossPrice) / entryPrice * 100);
+      const leverage   = Math.min(100, Math.max(1, Math.round(35 / slDistPct)));
+      const tpDist     = 60 / leverage;
+      const takeProfitPrice = type === 'BULLISH'
+        ? Number((entryPrice * (1 + tpDist / 100)).toFixed(4))
+        : Number((entryPrice * (1 - tpDist / 100)).toFixed(4));
+
+      const createdAt     = group.reduce((earliest, ob) =>
+        ob.createdAt < earliest ? ob.createdAt : earliest, group[0]!.createdAt);
+      const isMitigated   = group.some(ob => ob.isMitigated);
+      const isInvalidated = group.some(ob => ob.isInvalidated);
+      const isUsed        = group.some(ob => ob.isUsed);
+      const touchCount    = Math.max(...group.map(ob => ob.touchCount ?? 0));
+      const baseCandleIndex  = Math.min(...group.map(ob => ob.baseCandleIndex));
+      const breakCandleIndex = Math.min(...group.map(ob => ob.breakCandleIndex));
+
+      result.push({
+        id:                 mergedId,
+        symbol:             group[0]!.symbol,
+        timeframe:          group[0]!.timeframe,
+        type,
+        upperPrice:         Number(upper.toFixed(4)),
+        lowerPrice:         Number(lower.toFixed(4)),
+        widthPercent:       widthPct,
+        entryPrice:         Number(entryPrice.toFixed(4)),
+        stopLossPrice:      Number(stopLossPrice.toFixed(4)),
+        takeProfitPrice:    Number(takeProfitPrice.toFixed(4)),
+        calculatedLeverage: leverage,
+        baseCandleIndex,
+        breakCandleIndex,
+        isMitigated,
+        isInvalidated,
+        isUsed,
+        touchCount,
+        source:             'SMC',
+        createdAt,
+        mergeSource:        'MERGED',
+        mergedFromIds:      sortedIds,
+      });
+    }
 
     return result;
   }
 
-  // ============================================================
-  // Recalculate entry price after merge using the same OB width rule:
-  //   width% = ((upper - lower) / upper) * 100
-  //   if width% <= 0.6% → enter at first edge
-  //   if width% >  0.6% → enter 25% inside
-  // ============================================================
+  // Entry price using 0.6% width rule
   private static calcEntryPrice(
     type:  'BULLISH' | 'BEARISH',
     upper: number,
@@ -143,17 +166,9 @@ export class OrderBlockMergeEngine {
     const widthPct = (rawWidth / Math.max(0.0001, upper)) * 100;
 
     if (type === 'BULLISH') {
-      // Bullish OB: price approaches from above -> first edge = upperPrice
-      // If width <= 0.6% -> enter at edge (upperPrice)
-      // If width > 0.6% -> enter 25% inside from top: upperPrice - 0.25 * rawWidth
-      // Example: Upper=100, Lower=99, Width=1% -> Entry = 99.75, SL = 99
       if (widthPct <= 0.6) return Number(upper.toFixed(4));
       return Number((upper - 0.25 * rawWidth).toFixed(4));
     } else {
-      // Bearish OB: price approaches from below -> first edge = lowerPrice
-      // If width <= 0.6% -> enter at edge (lowerPrice)
-      // If width > 0.6% -> enter 25% inside from bottom: lowerPrice + 0.25 * rawWidth
-      // Example: Upper=100, Lower=99, Width=1% -> Entry = 99.25, SL = 100
       if (widthPct <= 0.6) return Number(lower.toFixed(4));
       return Number((lower + 0.25 * rawWidth).toFixed(4));
     }
