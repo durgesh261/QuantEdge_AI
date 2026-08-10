@@ -1,4 +1,4 @@
-import { LuxAlgoOrderBlock } from '../engines/LuxAlgoSMCEngine.js';
+import { OrderBlockDto } from '@algoapp/shared';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
 
@@ -31,7 +31,7 @@ export interface CanonicalOBEntry {
 export class CanonicalOBRegistry {
   private static registry = new Map<string, CanonicalOBEntry[]>();
 
-  public static syncFromIndicator(symbol: string, activeOBs: LuxAlgoOrderBlock[]): void {
+  public static syncFromIndicator(symbol: string, activeOBs: OrderBlockDto[]): void {
     const existing = this.registry.get(symbol) || [];
     const activeIds = new Set(activeOBs.map((ob) => ob.id));
 
@@ -39,17 +39,18 @@ export class CanonicalOBRegistry {
     for (const ob of activeOBs) {
       let entry = existing.find((e) => e.id === ob.id);
       if (!entry) {
+        const isInternal = ob.id.includes('INT') || ob.id.includes('INTERNAL');
         const newEntry: CanonicalOBEntry = {
           id: ob.id,
           symbol,
           timeframe: ob.timeframe || '1H',
           direction: ob.type,
-          sourceType: ob.sourceType,
+          sourceType: isInternal ? 'INTERNAL' : 'SWING',
           upperPrice: ob.upperPrice,
           lowerPrice: ob.lowerPrice,
-          barHigh: ob.barHigh,
-          barLow: ob.barLow,
-          barTime: ob.barTime,
+          barHigh: ob.upperPrice,
+          barLow: ob.lowerPrice,
+          barTime: ob.createdAt,
           baseCandleIndex: ob.baseCandleIndex,
           breakCandleIndex: ob.breakCandleIndex,
           createdAt: ob.createdAt,
@@ -57,9 +58,9 @@ export class CanonicalOBRegistry {
           touched: false,
           traded: false,
           status: 'ACTIVE',
-          sourceBarTime: ob.barTime,
+          sourceBarTime: ob.createdAt,
           createdFromStructure: 'BOS',
-          structureType: ob.sourceType,
+          structureType: isInternal ? 'INTERNAL' : 'SWING',
         };
         existing.push(newEntry);
 

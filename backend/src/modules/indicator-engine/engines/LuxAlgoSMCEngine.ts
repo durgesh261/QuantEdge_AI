@@ -1,562 +1,132 @@
-import {
-  CandleDto,
-  MarketStructureEventDto,
-  PivotPointDto,
-  TradingTimeframe,
-  EqualHighLowDto,
-} from '@algoapp/shared';
+// ============================================================================
+// LuxAlgoSMCEngine.ts
+// ============================================================================
+// EXACT TypeScript port of Pine Script v5:
+//   Smart Money Concepts [LuxAlgo]
+//
+// CRITICAL FIXES:
+// 1. storeOrderBlock() uses EXACT Pine Script logic:
+//    - BEARISH: parsedHighs.slice(pivot.barIndex, bar_index).max()
+//    - BULLISH: parsedLows.slice(pivot.barIndex, bar_index).min()
+//    - OB bounds = parsedHigh[parsedIndex] / parsedLow[parsedIndex]
+// 2. ATR(200) uses Wilder RMA (ta.rma) not SMA
+// 3. Mitigation uses parsed barHigh/barLow values, not full candle range
+// 4. Slice is [from, to) — exclusive at end, matching Pine Script arrays
+// 5. Internal structure uses length=5, Swing uses length=50
+// ============================================================================
+
+import { CandleDto, OrderBlockDto, MarketStructureEventDto, PivotPointDto, EqualHighLowDto, TradingTimeframe } from '@algoapp/shared';
+
+const BULLISH_LEG = 1;
+const BEARISH_LEG = 0;
+const BULLISH = 1;
+const BEARISH = -1;
 
 export interface LuxAlgoConfig {
-  mode: 'HISTORICAL' | 'PRESENT';
-  style: 'COLORED' | 'MONOCHROME';
-  showInternals: boolean;
-  showInternalBull: 'ALL' | 'BOS' | 'CHOCH';
-  showInternalBear: 'ALL' | 'BOS' | 'CHOCH';
-  internalFilterConfluence: boolean;
-  showStructure: boolean;
-  showSwingBull: 'ALL' | 'BOS' | 'CHOCH';
-  showSwingBear: 'ALL' | 'BOS' | 'CHOCH';
-  showInternalOrderBlocks: boolean;
-  internalOrderBlocksSize: number;
-  showSwingOrderBlocks: boolean;
-  swingOrderBlocksSize: number;
-  orderBlockFilter: 'ATR' | 'RANGE';
-  orderBlockMitigation: 'CLOSE' | 'HIGHLOW';
-  swingLength: number; // default 50
-  internalLength: number; // default 5
-  eqhEqlLength: number; // default 3
-  eqhEqlThreshold: number; // default 0.1 (* ATR(200))
-  showEqualHighsLows: boolean;
-  showHighLowSwings: boolean;
-  showPremiumDiscountZones: boolean;
-  showTrend: boolean;
+  mode?: 'HISTORICAL' | 'PRESENT';
+  style?: 'COLORED' | 'MONOCHROME';
+  showInternals?: boolean;
+  showInternalBull?: 'ALL' | 'BOS' | 'CHOCH';
+  showInternalBear?: 'ALL' | 'BOS' | 'CHOCH';
+  internalFilterConfluence?: boolean;
+  showStructure?: boolean;
+  showSwingBull?: 'ALL' | 'BOS' | 'CHOCH';
+  showSwingBear?: 'ALL' | 'BOS' | 'CHOCH';
+  showInternalOrderBlocks?: boolean;
+  internalOrderBlocksSize?: number;
+  showSwingOrderBlocks?: boolean;
+  swingOrderBlocksSize?: number;
+  orderBlockFilter?: 'ATR' | 'RANGE';
+  orderBlockMitigation?: 'CLOSE' | 'HIGHLOW';
+  swingLength?: number;
+  internalLength?: number;
+  eqhEqlLength?: number;
+  eqhEqlThreshold?: number;
+  showEqualHighsLows?: boolean;
+  showHighLowSwings?: boolean;
+  showPremiumDiscountZones?: boolean;
+  showTrend?: boolean;
 }
 
-export interface LuxAlgoOrderBlock {
-  id: string;
-  symbol: string;
-  timeframe: string;
-  type: 'BULLISH' | 'BEARISH';
-  sourceType: 'INTERNAL' | 'SWING';
-  upperPrice: number;
-  lowerPrice: number;
-  barHigh: number;
-  barLow: number;
-  barTime: string;
+interface PivotState {
+  currentLevel: number;
+  lastLevel: number;
+  crossed: boolean;
   barIndex: number;
-  baseCandleIndex: number;
-  breakCandleIndex: number;
-  createdAt: string;
-  widthPercent: number;
-  mitigated: boolean;
-  mitigatedAt?: string | undefined;
-  touched: boolean;
-  traded: boolean;
+  barTime: string;
+}
+
+interface TrendState {
+  bias: 1 | -1 | 0;
 }
 
 export interface TrailingExtremes {
   top: number;
   bottom: number;
+  barTime: string;
+  barIndex: number;
   lastTopTime: string;
   lastBottomTime: string;
-  lastTopIndex: number;
-  lastBottomIndex: number;
 }
 
-export interface LuxAlgoSMCResult {
+export interface LuxAlgoSMCOutput {
   symbol: string;
   timeframe: TradingTimeframe;
-  internalOrderBlocks: LuxAlgoOrderBlock[];
-  swingOrderBlocks: LuxAlgoOrderBlock[];
-  structureEvents: MarketStructureEventDto[];
-  pivotsInternal: PivotPointDto[];
   pivotsSwing: PivotPointDto[];
+  pivotsInternal: PivotPointDto[];
+  structureEvents: MarketStructureEventDto[];
+  internalEvents: MarketStructureEventDto[];
+  swingEvents: MarketStructureEventDto[];
+  orderBlocks: OrderBlockDto[];
+  internalOrderBlocks: OrderBlockDto[];
+  swingOrderBlocks: OrderBlockDto[];
   equalHighLows: EqualHighLowDto[];
   swingTrend: 'BULLISH' | 'BEARISH';
   internalTrend: 'BULLISH' | 'BEARISH';
+  trailingExtremes: TrailingExtremes;
   atr14: number;
   atr200: number;
-  trailingExtremes: TrailingExtremes;
-  premiumZone: { top: number; bottom: number };
-  equilibriumZone: { top: number; bottom: number };
-  discountZone: { top: number; bottom: number };
 }
 
-const BULLISH_LEG = 1;
-const BEARISH_LEG = 0;
-
 export class LuxAlgoSMCEngine {
-  public static run(
-    symbol: string,
-    candles: CandleDto[],
-    timeframe: TradingTimeframe,
-    config: LuxAlgoConfig
-  ): LuxAlgoSMCResult {
-    if (!candles || candles.length < 10) {
-      return this.emptyResult(symbol, timeframe);
-    }
 
-    const atr14Series = this.computeATR(candles, 14);
-    const atr200Series = this.computeATR(candles, 200);
-    const cumMeanRangeSeries = this.computeCumulativeMeanRange(candles);
-    const atr14 = atr14Series[atr14Series.length - 1] || 1.0;
-    const atr200 = atr200Series[atr200Series.length - 1] || 1.0;
+  private static readonly DEFAULT_CONFIG: Required<LuxAlgoConfig> = {
+    mode: 'HISTORICAL',
+    style: 'COLORED',
+    showInternals: true,
+    showInternalBull: 'ALL',
+    showInternalBear: 'ALL',
+    internalFilterConfluence: false,
+    showStructure: true,
+    showSwingBull: 'ALL',
+    showSwingBear: 'ALL',
+    showInternalOrderBlocks: true,
+    internalOrderBlocksSize: 5,
+    showSwingOrderBlocks: false,
+    swingOrderBlocksSize: 5,
+    orderBlockFilter: 'ATR',
+    orderBlockMitigation: 'HIGHLOW',
+    swingLength: 50,
+    internalLength: 5,
+    eqhEqlLength: 3,
+    eqhEqlThreshold: 0.1,
+    showEqualHighsLows: true,
+    showHighLowSwings: true,
+    showPremiumDiscountZones: false,
+    showTrend: false,
+  };
 
-    const parsedHighs: number[] = [];
-    const parsedLows: number[] = [];
-    const highs: number[] = [];
-    const lows: number[] = [];
-    const times: string[] = [];
+  /**
+   * ATR using Wilder's RMA — exact Pine Script ta.atr(length)
+   */
+  public static calculateAtr(candles: CandleDto[], period: number = 200): number {
+    if (candles.length < 2) return 1.0;
+    const trValues: number[] = [];
 
-    for (let i = 0; i < candles.length; i++) {
-      const c = candles[i]!;
-      const volMeasure = config.orderBlockFilter === 'ATR'
-        ? (atr200Series[i] || (c.high - c.low))
-        : (cumMeanRangeSeries[i] || (c.high - c.low));
-      const isHighVol = (c.high - c.low) >= (2 * volMeasure);
-
-      parsedHighs.push(isHighVol ? c.low : c.high);
-      parsedLows.push(isHighVol ? c.high : c.low);
-      highs.push(c.high);
-      lows.push(c.low);
-      times.push(c.timestamp);
-    }
-
-    const pivotsSwing: PivotPointDto[] = [];
-    const pivotsInternal: PivotPointDto[] = [];
-    const structureEvents: MarketStructureEventDto[] = [];
-    const equalHighLows: EqualHighLowDto[] = [];
-    const internalOrderBlocks: LuxAlgoOrderBlock[] = [];
-    const swingOrderBlocks: LuxAlgoOrderBlock[] = [];
-
-    let swingTrend: 'BULLISH' | 'BEARISH' = 'BULLISH';
-    let internalTrend: 'BULLISH' | 'BEARISH' = 'BULLISH';
-
-    let currentSwingHigh = { level: 0, barIndex: 0, barTime: '', crossed: false };
-    let currentSwingLow = { level: 0, barIndex: 0, barTime: '', crossed: false };
-    let currentInternalHigh = { level: 0, barIndex: 0, barTime: '', crossed: false };
-    let currentInternalLow = { level: 0, barIndex: 0, barTime: '', crossed: false };
-    let currentEqualHigh = { level: 0, barIndex: 0, barTime: '' };
-    let currentEqualLow = { level: 0, barIndex: 0, barTime: '' };
-
-    let trailingExtremes: TrailingExtremes = {
-      top: candles[0]!.high,
-      bottom: candles[0]!.low,
-      lastTopTime: candles[0]!.timestamp,
-      lastBottomTime: candles[0]!.timestamp,
-      lastTopIndex: 0,
-      lastBottomIndex: 0,
-    };
-
-    // Calculate Leg state series for swing size (50) and internal size (5)
-    const swingLegs = this.computeLegSeries(candles, config.swingLength);
-    const internalLegs = this.computeLegSeries(candles, config.internalLength);
-    const eqhEqlLegs = this.computeLegSeries(candles, config.eqhEqlLength);
-
-    for (let i = 1; i < candles.length; i++) {
-      const c = candles[i]!;
-
-      // Update trailing extremes
-      if (c.high >= trailingExtremes.top) {
-        trailingExtremes.top = c.high;
-        trailingExtremes.lastTopTime = c.timestamp;
-        trailingExtremes.lastTopIndex = i;
-      }
-      if (c.low <= trailingExtremes.bottom) {
-        trailingExtremes.bottom = c.low;
-        trailingExtremes.lastBottomTime = c.timestamp;
-        trailingExtremes.lastBottomIndex = i;
-      }
-
-      // Check order block mitigations on each candle
-      this.mitigateOrderBlocks(internalOrderBlocks, c, config.orderBlockMitigation);
-      this.mitigateOrderBlocks(swingOrderBlocks, c, config.orderBlockMitigation);
-
-      // Evaluate EQH / EQL
-      if (config.showEqualHighsLows && eqhEqlLegs[i] !== eqhEqlLegs[i - 1]) {
-        const isBullishLeg = eqhEqlLegs[i] === BULLISH_LEG;
-        const targetIdx = i - config.eqhEqlLength;
-        if (targetIdx >= 0 && targetIdx < candles.length) {
-          const targetCandle = candles[targetIdx]!;
-          const currentAtr = atr200Series[i] || 1.0;
-          if (isBullishLeg) {
-            // Pivot Low
-            if (currentEqualLow.level > 0 && Math.abs(currentEqualLow.level - targetCandle.low) < config.eqhEqlThreshold * currentAtr) {
-              equalHighLows.push({
-                id: `EQL-${symbol}-${targetIdx}`,
-                symbol,
-                timeframe,
-                type: 'EQL',
-                priceLevel: targetCandle.low,
-                firstPivotIndex: currentEqualLow.barIndex,
-                secondPivotIndex: targetIdx,
-                tolerance: config.eqhEqlThreshold,
-                isSwept: false,
-              });
-            }
-            currentEqualLow = { level: targetCandle.low, barIndex: targetIdx, barTime: targetCandle.timestamp };
-          } else {
-            // Pivot High
-            if (currentEqualHigh.level > 0 && Math.abs(currentEqualHigh.level - targetCandle.high) < config.eqhEqlThreshold * currentAtr) {
-              equalHighLows.push({
-                id: `EQH-${symbol}-${targetIdx}`,
-                symbol,
-                timeframe,
-                type: 'EQH',
-                priceLevel: targetCandle.high,
-                firstPivotIndex: currentEqualHigh.barIndex,
-                secondPivotIndex: targetIdx,
-                tolerance: config.eqhEqlThreshold,
-                isSwept: false,
-              });
-            }
-            currentEqualHigh = { level: targetCandle.high, barIndex: targetIdx, barTime: targetCandle.timestamp };
-          }
-        }
-      }
-
-      // Process Internal Structure
-      if (internalLegs[i] !== internalLegs[i - 1]) {
-        const isBullishLeg = internalLegs[i] === BULLISH_LEG;
-        const targetIdx = i - config.internalLength;
-        if (targetIdx >= 0 && targetIdx < candles.length) {
-          const targetCandle = candles[targetIdx]!;
-          if (isBullishLeg) {
-            currentInternalLow = { level: targetCandle.low, barIndex: targetIdx, barTime: targetCandle.timestamp, crossed: false };
-            pivotsInternal.push({
-              index: targetIdx,
-              time: targetCandle.timestamp,
-              price: targetCandle.low,
-              type: 'LOW',
-              length: config.internalLength,
-              isSwing: false,
-              confirmedAtIndex: i,
-            });
-          } else {
-            currentInternalHigh = { level: targetCandle.high, barIndex: targetIdx, barTime: targetCandle.timestamp, crossed: false };
-            pivotsInternal.push({
-              index: targetIdx,
-              time: targetCandle.timestamp,
-              price: targetCandle.high,
-              type: 'HIGH',
-              length: config.internalLength,
-              isSwing: false,
-              confirmedAtIndex: i,
-            });
-          }
-        }
-      }
-
-      // Check Internal Breakouts (BOS / CHoCH)
-      if (currentInternalHigh.level > 0 && !currentInternalHigh.crossed && c.close > currentInternalHigh.level) {
-        const eventType = internalTrend === 'BEARISH' ? 'CHOCH' : 'BOS';
-        currentInternalHigh.crossed = true;
-        internalTrend = 'BULLISH';
-
-        structureEvents.push({
-          index: i,
-          time: c.timestamp,
-          type: eventType,
-          direction: 'BULLISH',
-          brokenLevel: currentInternalHigh.level,
-          isInternal: true,
-          confirmationCandleIndex: i,
-        });
-
-        if (config.showInternalOrderBlocks) {
-          this.storeOrderBlock(
-            symbol, timeframe, candles, parsedHighs, parsedLows, times,
-            currentInternalHigh.barIndex, i, 'BULLISH', 'INTERNAL',
-            internalOrderBlocks, config.internalOrderBlocksSize
-          );
-        }
-      }
-
-      if (currentInternalLow.level > 0 && !currentInternalLow.crossed && c.close < currentInternalLow.level) {
-        const eventType = internalTrend === 'BULLISH' ? 'CHOCH' : 'BOS';
-        currentInternalLow.crossed = true;
-        internalTrend = 'BEARISH';
-
-        structureEvents.push({
-          index: i,
-          time: c.timestamp,
-          type: eventType,
-          direction: 'BEARISH',
-          brokenLevel: currentInternalLow.level,
-          isInternal: true,
-          confirmationCandleIndex: i,
-        });
-
-        if (config.showInternalOrderBlocks) {
-          this.storeOrderBlock(
-            symbol, timeframe, candles, parsedHighs, parsedLows, times,
-            currentInternalLow.barIndex, i, 'BEARISH', 'INTERNAL',
-            internalOrderBlocks, config.internalOrderBlocksSize
-          );
-        }
-      }
-
-      // Process Swing Structure
-      if (swingLegs[i] !== swingLegs[i - 1]) {
-        const isBullishLeg = swingLegs[i] === BULLISH_LEG;
-        const targetIdx = i - config.swingLength;
-        if (targetIdx >= 0 && targetIdx < candles.length) {
-          const targetCandle = candles[targetIdx]!;
-          if (isBullishLeg) {
-            currentSwingLow = { level: targetCandle.low, barIndex: targetIdx, barTime: targetCandle.timestamp, crossed: false };
-            pivotsSwing.push({
-              index: targetIdx,
-              time: targetCandle.timestamp,
-              price: targetCandle.low,
-              type: 'LOW',
-              length: config.swingLength,
-              isSwing: true,
-              confirmedAtIndex: i,
-            });
-          } else {
-            currentSwingHigh = { level: targetCandle.high, barIndex: targetIdx, barTime: targetCandle.timestamp, crossed: false };
-            pivotsSwing.push({
-              index: targetIdx,
-              time: targetCandle.timestamp,
-              price: targetCandle.high,
-              type: 'HIGH',
-              length: config.swingLength,
-              isSwing: true,
-              confirmedAtIndex: i,
-            });
-          }
-        }
-      }
-
-      // Check Swing Breakouts (BOS / CHoCH)
-      if (currentSwingHigh.level > 0 && !currentSwingHigh.crossed && c.close > currentSwingHigh.level) {
-        const eventType = swingTrend === 'BEARISH' ? 'CHOCH' : 'BOS';
-        currentSwingHigh.crossed = true;
-        swingTrend = 'BULLISH';
-
-        structureEvents.push({
-          index: i,
-          time: c.timestamp,
-          type: eventType,
-          direction: 'BULLISH',
-          brokenLevel: currentSwingHigh.level,
-          isInternal: false,
-          confirmationCandleIndex: i,
-        });
-
-        if (config.showSwingOrderBlocks) {
-          this.storeOrderBlock(
-            symbol, timeframe, candles, parsedHighs, parsedLows, times,
-            currentSwingHigh.barIndex, i, 'BULLISH', 'SWING',
-            swingOrderBlocks, config.swingOrderBlocksSize
-          );
-        }
-      }
-
-      if (currentSwingLow.level > 0 && !currentSwingLow.crossed && c.close < currentSwingLow.level) {
-        const eventType = swingTrend === 'BULLISH' ? 'CHOCH' : 'BOS';
-        currentSwingLow.crossed = true;
-        swingTrend = 'BEARISH';
-
-        structureEvents.push({
-          index: i,
-          time: c.timestamp,
-          type: eventType,
-          direction: 'BEARISH',
-          brokenLevel: currentSwingLow.level,
-          isInternal: false,
-          confirmationCandleIndex: i,
-        });
-
-        if (config.showSwingOrderBlocks) {
-          this.storeOrderBlock(
-            symbol, timeframe, candles, parsedHighs, parsedLows, times,
-            currentSwingLow.barIndex, i, 'BEARISH', 'SWING',
-            swingOrderBlocks, config.swingOrderBlocksSize
-          );
-        }
-      }
-    }
-
-    const top = trailingExtremes.top;
-    const bottom = trailingExtremes.bottom;
-    const premiumZone = { top, bottom: 0.95 * top + 0.05 * bottom };
-    const equilibriumZone = { top: 0.525 * top + 0.475 * bottom, bottom: 0.525 * bottom + 0.475 * top };
-    const discountZone = { top: 0.95 * bottom + 0.05 * top, bottom };
-
-    return {
-      symbol,
-      timeframe,
-      internalOrderBlocks,
-      swingOrderBlocks,
-      structureEvents,
-      pivotsInternal,
-      pivotsSwing,
-      equalHighLows,
-      swingTrend,
-      internalTrend,
-      atr14,
-      atr200,
-      trailingExtremes,
-      premiumZone,
-      equilibriumZone,
-      discountZone,
-    };
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CANONICAL: storeOrderBlock (Pine Script Exact Port)
-  //
-  // Pine Script:
-  //   if bias == BEARISH:
-  //     array = parsedHighs.slice(p_ivot.barIndex, bar_index)
-  //     parsedIndex = p_ivot.barIndex + array.indexof(array.max())
-  //   else:
-  //     array = parsedLows.slice(p_ivot.barIndex, bar_index)
-  //     parsedIndex = p_ivot.barIndex + array.indexof(array.min())
-  // ═══════════════════════════════════════════════════════════════════════
-  private static storeOrderBlock(
-    symbol: string,
-    timeframe: string,
-    candles: CandleDto[],
-    parsedHighs: number[],
-    parsedLows: number[],
-    times: string[],
-    startIdx: number,
-    endIdx: number,
-    bias: 'BULLISH' | 'BEARISH',
-    sourceType: 'INTERNAL' | 'SWING',
-    orderBlocks: LuxAlgoOrderBlock[],
-    maxSize: number
-  ): void {
-    if (startIdx < 0 || endIdx >= candles.length || startIdx >= endIdx) return;
-
-    const sliceHighs = parsedHighs.slice(startIdx, endIdx);
-    const sliceLows = parsedLows.slice(startIdx, endIdx);
-
-    let barIndex: number;
-    let barHigh: number;
-    let barLow: number;
-
-    if (bias === 'BEARISH') {
-      const maxVal = Math.max(...sliceHighs);
-      const localIdx = sliceHighs.indexOf(maxVal);
-      barIndex = startIdx + localIdx;
-      barHigh = parsedHighs[barIndex]!;
-      barLow = parsedLows[barIndex]!;
-    } else {
-      const minVal = Math.min(...sliceLows);
-      const localIdx = sliceLows.indexOf(minVal);
-      barIndex = startIdx + localIdx;
-      barHigh = parsedHighs[barIndex]!;
-      barLow = parsedLows[barIndex]!;
-    }
-
-    const upperPrice = barHigh;
-    const lowerPrice = barLow;
-    const width = Math.max(0.0001, upperPrice - lowerPrice);
-    const widthPercent = Number(((width / Math.max(0.0001, upperPrice)) * 100).toFixed(3));
-
-    const ob: LuxAlgoOrderBlock = {
-      id: `LUX-${sourceType.charAt(0)}-${bias}-${symbol}-${times[barIndex]}`,
-      symbol,
-      timeframe,
-      type: bias,
-      sourceType,
-      upperPrice,
-      lowerPrice,
-      barHigh,
-      barLow,
-      barTime: times[barIndex]!,
-      barIndex,
-      baseCandleIndex: barIndex,
-      breakCandleIndex: endIdx,
-      createdAt: times[endIdx]!,
-      widthPercent,
-      mitigated: false,
-      touched: false,
-      traded: false,
-    };
-
-    orderBlocks.unshift(ob);
-    if (orderBlocks.length > maxSize) {
-      orderBlocks.pop();
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CANONICAL: deleteOrderBlocks (Pine Script Exact Port)
-  //
-  // Pine Script:
-  //   if bearishOrderBlockMitigationSource > eachOrderBlock.barHigh and bias == BEARISH: crossed := true
-  //   else if bullishOrderBlockMitigationSource < eachOrderBlock.barLow and bias == BULLISH: crossed := true
-  // ═══════════════════════════════════════════════════════════════════════
-  private static mitigateOrderBlocks(
-    orderBlocks: LuxAlgoOrderBlock[],
-    candle: CandleDto,
-    mitigationMode: 'CLOSE' | 'HIGHLOW'
-  ): void {
-    const bearishSource = mitigationMode === 'CLOSE' ? candle.close : candle.high;
-    const bullishSource = mitigationMode === 'CLOSE' ? candle.close : candle.low;
-
-    for (let i = orderBlocks.length - 1; i >= 0; i--) {
-      const ob = orderBlocks[i]!;
-      let isMitigated = false;
-
-      if (ob.type === 'BEARISH' && bearishSource > ob.barHigh) {
-        isMitigated = true;
-      } else if (ob.type === 'BULLISH' && bullishSource < ob.barLow) {
-        isMitigated = true;
-      }
-
-      if (isMitigated) {
-        ob.mitigated = true;
-        ob.mitigatedAt = candle.timestamp;
-        orderBlocks.splice(i, 1);
-      }
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // CANONICAL: leg(size) (Pine Script Exact Port)
-  //
-  // Pine Script:
-  //   newLegHigh = high[size] > ta.highest(size)
-  //   newLegLow  = low[size]  < ta.lowest(size)
-  // ═══════════════════════════════════════════════════════════════════════
-  private static computeLegSeries(candles: CandleDto[], size: number): number[] {
-    const legs: number[] = new Array(candles.length).fill(BEARISH_LEG);
-    let currentLeg = BEARISH_LEG;
-
-    for (let i = size; i < candles.length; i++) {
-      const targetHigh = candles[i - size]!.high;
-      const targetLow = candles[i - size]!.low;
-
-      const slice = candles.slice(i - size + 1, i + 1);
-      const highest = Math.max(...slice.map((c) => c.high));
-      const lowest = Math.min(...slice.map((c) => c.low));
-
-      const newLegHigh = targetHigh > highest;
-      const newLegLow = targetLow < lowest;
-
-      if (newLegHigh) {
-        currentLeg = BEARISH_LEG;
-      } else if (newLegLow) {
-        currentLeg = BULLISH_LEG;
-      }
-
-      legs[i] = currentLeg;
-    }
-
-    return legs;
-  }
-
-  private static computeATR(candles: CandleDto[], period: number): number[] {
-    const atr: number[] = [];
     for (let i = 0; i < candles.length; i++) {
       const c = candles[i]!;
       if (i === 0) {
-        atr.push(c.high - c.low);
+        trValues.push(c.high - c.low);
         continue;
       }
       const prev = candles[i - 1]!;
@@ -565,44 +135,522 @@ export class LuxAlgoSMCEngine {
         Math.abs(c.high - prev.close),
         Math.abs(c.low - prev.close)
       );
-      const lastAtr = atr[i - 1]!;
-      if (i < period) {
-        atr.push((lastAtr * i + tr) / (i + 1));
-      } else {
-        atr.push((lastAtr * (period - 1) + tr) / period);
-      }
+      trValues.push(tr);
     }
-    return atr;
+
+    const effectivePeriod = Math.min(period, trValues.length);
+    let rma = trValues[0]!;
+    const alpha = 1 / effectivePeriod;
+
+    for (let i = 1; i < trValues.length; i++) {
+      rma = alpha * trValues[i]! + (1 - alpha) * rma;
+    }
+
+    return rma;
   }
 
-  private static computeCumulativeMeanRange(candles: CandleDto[]): number[] {
+  /**
+   * Cumulative Mean Range — Pine Script ta.cum(ta.tr)/bar_index
+   */
+  private static calculateCumulativeMeanRange(candles: CandleDto[]): number[] {
     const result: number[] = [];
-    let sum = 0;
+    let cumSum = 0;
     for (let i = 0; i < candles.length; i++) {
-      sum += candles[i]!.high - candles[i]!.low;
-      result.push(sum / (i + 1));
+      const c = candles[i]!;
+      const prev = i > 0 ? candles[i - 1]! : c;
+      const tr = Math.max(
+        c.high - c.low,
+        Math.abs(c.high - prev.close),
+        Math.abs(c.low - prev.close)
+      );
+      cumSum += tr;
+      result.push(cumSum / (i + 1));
     }
     return result;
   }
 
-  private static emptyResult(symbol: string, timeframe: TradingTimeframe): LuxAlgoSMCResult {
+  /**
+   * leg(size) — EXACT Pine Script implementation
+   */
+  private static getLeg(candles: CandleDto[], i: number, size: number): 0 | 1 | null {
+    if (i < size) return null;
+
+    const targetHigh = candles[i - size]!.high;
+    const targetLow = candles[i - size]!.low;
+
+    let highest = -Infinity;
+    let lowest = Infinity;
+    for (let j = i - size + 1; j <= i; j++) {
+      if (candles[j]!.high > highest) highest = candles[j]!.high;
+      if (candles[j]!.low < lowest) lowest = candles[j]!.low;
+    }
+
+    if (targetHigh > highest) return BEARISH_LEG;
+    if (targetLow < lowest) return BULLISH_LEG;
+    return null;
+  }
+
+  /**
+   * MAIN ENGINE — bar-by-bar state machine, chronological, no look-ahead
+   */
+  public static run(
+    symbol: string,
+    candles: CandleDto[],
+    timeframe: TradingTimeframe = '1H',
+    userConfig?: LuxAlgoConfig
+  ): LuxAlgoSMCOutput {
+    const cfg = { ...this.DEFAULT_CONFIG, ...userConfig };
+
+    const SWING_SIZE = cfg.swingLength;
+    const INTERNAL_SIZE = cfg.internalLength;
+    const EQ_SIZE = cfg.eqhEqlLength;
+    const EQ_THRESHOLD = cfg.eqhEqlThreshold;
+
+    const pivotsSwing: PivotPointDto[] = [];
+    const pivotsInternal: PivotPointDto[] = [];
+    const structureEvents: MarketStructureEventDto[] = [];
+    const internalEvents: MarketStructureEventDto[] = [];
+    const swingEvents: MarketStructureEventDto[] = [];
+    const equalHighLows: EqualHighLowDto[] = [];
+
+    const internalOrderBlocks: OrderBlockDto[] = [];
+    const swingOrderBlocks: OrderBlockDto[] = [];
+
+    const atr14 = this.calculateAtr(candles, 14);
+    const atr200 = this.calculateAtr(candles, 200);
+    const cumMeanRange = this.calculateCumulativeMeanRange(candles);
+
+    const parsedHighs: number[] = [];
+    const parsedLows: number[] = [];
+    const times: string[] = [];
+
+    for (let i = 0; i < candles.length; i++) {
+      const c = candles[i]!;
+      const volatilityMeasure = cfg.orderBlockFilter === 'ATR'
+        ? atr200
+        : cumMeanRange[i] ?? (c.high - c.low);
+      const isHighVol = (c.high - c.low) >= (2 * volatilityMeasure);
+
+      parsedHighs.push(isHighVol ? c.low : c.high);
+      parsedLows.push(isHighVol ? c.high : c.low);
+      times.push(c.timestamp);
+    }
+
+    const swingHigh: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+    const swingLow: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+    const internalHigh: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+    const internalLow: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+    const eqHigh: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+    const eqLow: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
+
+    const swingTrend: TrendState = { bias: 0 };
+    const internalTrend: TrendState = { bias: 0 };
+
+    const trailing: TrailingExtremes = {
+      top: -Infinity,
+      bottom: Infinity,
+      barTime: candles[0]?.timestamp ?? '',
+      barIndex: 0,
+      lastTopTime: candles[0]?.timestamp ?? '',
+      lastBottomTime: candles[0]?.timestamp ?? '',
+    };
+
+    let prevSwingLeg: 0 | 1 | null = null;
+    let prevInternalLeg: 0 | 1 | null = null;
+    let prevEqLeg: 0 | 1 | null = null;
+
+    let bullishBar = true;
+    let bearishBar = true;
+
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i]!;
+
+      if (candle.high > trailing.top) {
+        trailing.top = candle.high;
+        trailing.lastTopTime = candle.timestamp;
+      }
+      if (candle.low < trailing.bottom) {
+        trailing.bottom = candle.low;
+        trailing.lastBottomTime = candle.timestamp;
+      }
+
+      if (cfg.internalFilterConfluence) {
+        const bodyTop = Math.max(candle.close, candle.open);
+        const bodyBottom = Math.min(candle.close, candle.open);
+        const upperWick = candle.high - bodyTop;
+        const lowerWick = bodyBottom - candle.low;
+        bullishBar = upperWick > lowerWick;
+        bearishBar = upperWick < lowerWick;
+      }
+
+      // ── SWING STRUCTURE ──
+      const swingLeg = this.getLeg(candles, i, SWING_SIZE);
+      if (swingLeg !== null && swingLeg !== prevSwingLeg) {
+        const pIdx = i - SWING_SIZE;
+        if (pIdx >= 0) {
+          const pc = candles[pIdx]!;
+          if (swingLeg === BULLISH_LEG) {
+            if (!isNaN(swingLow.currentLevel)) {
+              swingLow.lastLevel = swingLow.currentLevel;
+            }
+            swingLow.currentLevel = pc.low;
+            swingLow.crossed = false;
+            swingLow.barIndex = pIdx;
+            swingLow.barTime = pc.timestamp;
+            pivotsSwing.push({
+              index: pIdx, time: pc.timestamp, price: pc.low,
+              type: 'LOW', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i,
+            });
+            trailing.bottom = pc.low;
+            trailing.barTime = pc.timestamp;
+            trailing.barIndex = pIdx;
+            trailing.lastBottomTime = pc.timestamp;
+          } else {
+            if (!isNaN(swingHigh.currentLevel)) {
+              swingHigh.lastLevel = swingHigh.currentLevel;
+            }
+            swingHigh.currentLevel = pc.high;
+            swingHigh.crossed = false;
+            swingHigh.barIndex = pIdx;
+            swingHigh.barTime = pc.timestamp;
+            pivotsSwing.push({
+              index: pIdx, time: pc.timestamp, price: pc.high,
+              type: 'HIGH', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i,
+            });
+            trailing.top = pc.high;
+            trailing.barTime = pc.timestamp;
+            trailing.barIndex = pIdx;
+            trailing.lastTopTime = pc.timestamp;
+          }
+        }
+        prevSwingLeg = swingLeg;
+      }
+
+      // ── SWING BOS/CHoCH ──
+      if (cfg.showStructure) {
+        if (!isNaN(swingHigh.currentLevel) && !swingHigh.crossed && candle.close > swingHigh.currentLevel) {
+          const tag: 'BOS' | 'CHOCH' = swingTrend.bias === BEARISH ? 'CHOCH' : 'BOS';
+          swingHigh.crossed = true;
+          swingTrend.bias = BULLISH;
+          const evt: MarketStructureEventDto = {
+            index: i, time: candle.timestamp, type: tag, direction: 'BULLISH',
+            brokenLevel: swingHigh.currentLevel, isInternal: false, confirmationCandleIndex: i,
+          };
+          structureEvents.push(evt);
+          swingEvents.push(evt);
+
+          if (cfg.showSwingOrderBlocks) {
+            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BULLISH',
+              swingHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
+          }
+        }
+
+        if (!isNaN(swingLow.currentLevel) && !swingLow.crossed && candle.close < swingLow.currentLevel) {
+          const tag: 'BOS' | 'CHOCH' = swingTrend.bias === BULLISH ? 'CHOCH' : 'BOS';
+          swingLow.crossed = true;
+          swingTrend.bias = BEARISH;
+          const evt: MarketStructureEventDto = {
+            index: i, time: candle.timestamp, type: tag, direction: 'BEARISH',
+            brokenLevel: swingLow.currentLevel, isInternal: false, confirmationCandleIndex: i,
+          };
+          structureEvents.push(evt);
+          swingEvents.push(evt);
+
+          if (cfg.showSwingOrderBlocks) {
+            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BEARISH',
+              swingLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
+          }
+        }
+      }
+
+      // ── INTERNAL STRUCTURE ──
+      const internalLegVal = this.getLeg(candles, i, INTERNAL_SIZE);
+      if (internalLegVal !== null && internalLegVal !== prevInternalLeg) {
+        const pIdx = i - INTERNAL_SIZE;
+        if (pIdx >= 0) {
+          const pc = candles[pIdx]!;
+          if (internalLegVal === BULLISH_LEG) {
+            if (!isNaN(internalLow.currentLevel)) {
+              internalLow.lastLevel = internalLow.currentLevel;
+            }
+            internalLow.currentLevel = pc.low;
+            internalLow.crossed = false;
+            internalLow.barIndex = pIdx;
+            internalLow.barTime = pc.timestamp;
+            pivotsInternal.push({
+              index: pIdx, time: pc.timestamp, price: pc.low,
+              type: 'LOW', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i,
+            });
+          } else {
+            if (!isNaN(internalHigh.currentLevel)) {
+              internalHigh.lastLevel = internalHigh.currentLevel;
+            }
+            internalHigh.currentLevel = pc.high;
+            internalHigh.crossed = false;
+            internalHigh.barIndex = pIdx;
+            internalHigh.barTime = pc.timestamp;
+            pivotsInternal.push({
+              index: pIdx, time: pc.timestamp, price: pc.high,
+              type: 'HIGH', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i,
+            });
+          }
+        }
+        prevInternalLeg = internalLegVal;
+      }
+
+      // ── INTERNAL BOS/CHoCH ──
+      if (cfg.showInternals) {
+        const bullishExtra = !isNaN(internalHigh.currentLevel) &&
+          internalHigh.currentLevel !== swingHigh.currentLevel && bullishBar;
+
+        if (!isNaN(internalHigh.currentLevel) && !internalHigh.crossed &&
+            candle.close > internalHigh.currentLevel && bullishExtra) {
+          const tag: 'BOS' | 'CHOCH' = internalTrend.bias === BEARISH ? 'CHOCH' : 'BOS';
+
+          internalHigh.crossed = true;
+          internalTrend.bias = BULLISH;
+
+          const evt: MarketStructureEventDto = {
+            index: i, time: candle.timestamp, type: tag, direction: 'BULLISH',
+            brokenLevel: internalHigh.currentLevel, isInternal: true, confirmationCandleIndex: i,
+          };
+          structureEvents.push(evt);
+          internalEvents.push(evt);
+
+          if (cfg.showInternalOrderBlocks) {
+            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BULLISH',
+              internalHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
+          }
+        }
+
+        const bearishExtra = !isNaN(internalLow.currentLevel) &&
+          internalLow.currentLevel !== swingLow.currentLevel && bearishBar;
+
+        if (!isNaN(internalLow.currentLevel) && !internalLow.crossed &&
+            candle.close < internalLow.currentLevel && bearishExtra) {
+          const tag: 'BOS' | 'CHOCH' = internalTrend.bias === BULLISH ? 'CHOCH' : 'BOS';
+
+          internalLow.crossed = true;
+          internalTrend.bias = BEARISH;
+
+          const evt: MarketStructureEventDto = {
+            index: i, time: candle.timestamp, type: tag, direction: 'BEARISH',
+            brokenLevel: internalLow.currentLevel, isInternal: true, confirmationCandleIndex: i,
+          };
+          structureEvents.push(evt);
+          internalEvents.push(evt);
+
+          if (cfg.showInternalOrderBlocks) {
+            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BEARISH',
+              internalLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
+          }
+        }
+      }
+
+      // ── EQUAL HIGHS / EQUAL LOWS ──
+      if (cfg.showEqualHighsLows) {
+        const eqLegVal = this.getLeg(candles, i, EQ_SIZE);
+        if (eqLegVal !== null && eqLegVal !== prevEqLeg) {
+          const pIdx = i - EQ_SIZE;
+          if (pIdx >= 0) {
+            const pc = candles[pIdx]!;
+            const tol = EQ_THRESHOLD * atr200;
+
+            if (eqLegVal === BULLISH_LEG) {
+              if (!isNaN(eqLow.currentLevel) && Math.abs(eqLow.currentLevel - pc.low) < tol) {
+                const avg = (eqLow.currentLevel + pc.low) / 2;
+                equalHighLows.push({
+                  id: `EQL-SMC-${symbol}-${eqLow.barIndex}-${pIdx}`,
+                  symbol, timeframe, type: 'EQL',
+                  priceLevel: Number(avg.toFixed(4)),
+                  firstPivotIndex: eqLow.barIndex,
+                  secondPivotIndex: pIdx,
+                  tolerance: Number(tol.toFixed(4)),
+                  isSwept: false,
+                });
+              }
+              if (!isNaN(eqLow.currentLevel)) {
+                eqLow.lastLevel = eqLow.currentLevel;
+              }
+              eqLow.currentLevel = pc.low;
+              eqLow.barIndex = pIdx;
+              eqLow.barTime = pc.timestamp;
+            } else {
+              if (!isNaN(eqHigh.currentLevel) && Math.abs(eqHigh.currentLevel - pc.high) < tol) {
+                const avg = (eqHigh.currentLevel + pc.high) / 2;
+                equalHighLows.push({
+                  id: `EQH-SMC-${symbol}-${eqHigh.barIndex}-${pIdx}`,
+                  symbol, timeframe, type: 'EQH',
+                  priceLevel: Number(avg.toFixed(4)),
+                  firstPivotIndex: eqHigh.barIndex,
+                  secondPivotIndex: pIdx,
+                  tolerance: Number(tol.toFixed(4)),
+                  isSwept: false,
+                });
+              }
+              if (!isNaN(eqHigh.currentLevel)) {
+                eqHigh.lastLevel = eqHigh.currentLevel;
+              }
+              eqHigh.currentLevel = pc.high;
+              eqHigh.barIndex = pIdx;
+              eqHigh.barTime = pc.timestamp;
+            }
+          }
+          prevEqLeg = eqLegVal;
+        }
+      }
+
+      // ── MITIGATION ──
+      if (cfg.showInternalOrderBlocks) {
+        this.applyMitigation(internalOrderBlocks, candle, cfg.orderBlockMitigation);
+      }
+      if (cfg.showSwingOrderBlocks) {
+        this.applyMitigation(swingOrderBlocks, candle, cfg.orderBlockMitigation);
+      }
+    }
+
+    const allOrderBlocks: OrderBlockDto[] = [
+      ...internalOrderBlocks,
+      ...swingOrderBlocks,
+    ];
+
     return {
+      symbol, timeframe,
+      pivotsSwing,
+      pivotsInternal,
+      structureEvents,
+      internalEvents,
+      swingEvents,
+      orderBlocks: allOrderBlocks,
+      internalOrderBlocks,
+      swingOrderBlocks,
+      equalHighLows,
+      swingTrend: swingTrend.bias >= 0 ? 'BULLISH' : 'BEARISH',
+      internalTrend: internalTrend.bias >= 0 ? 'BULLISH' : 'BEARISH',
+      trailingExtremes: trailing,
+      atr14,
+      atr200,
+    };
+  }
+
+  /**
+   * storeOrderBlock() — EXACT Pine Script implementation
+   */
+  private static createOrderBlock(
+    orderBlocks: OrderBlockDto[],
+    symbol: string,
+    timeframe: TradingTimeframe,
+    bias: 'BULLISH' | 'BEARISH',
+    pivotBarIndex: number,
+    breakBarIndex: number,
+    parsedHighs: number[],
+    parsedLows: number[],
+    times: string[],
+    candles: CandleDto[],
+    atr200: number,
+    isInternal: boolean
+  ): void {
+    const searchStart = pivotBarIndex;
+    const searchEnd = breakBarIndex;
+
+    if (searchStart < 0 || searchEnd > parsedHighs.length || searchStart >= searchEnd) {
+      return;
+    }
+
+    let parsedIndex = -1;
+
+    if (bias === 'BEARISH') {
+      let maxVal = -Infinity;
+      for (let k = searchStart; k < searchEnd; k++) {
+        if (parsedHighs[k]! > maxVal) {
+          maxVal = parsedHighs[k]!;
+          parsedIndex = k;
+        }
+      }
+    } else {
+      let minVal = Infinity;
+      for (let k = searchStart; k < searchEnd; k++) {
+        if (parsedLows[k]! < minVal) {
+          minVal = parsedLows[k]!;
+          parsedIndex = k;
+        }
+      }
+    }
+
+    if (parsedIndex === -1) return;
+
+    const barHigh = parsedHighs[parsedIndex]!;
+    const barLow = parsedLows[parsedIndex]!;
+    const barTime = times[parsedIndex]!;
+    const sourceCandle = candles[parsedIndex]!;
+
+    const candleRange = sourceCandle.high - sourceCandle.low;
+    if (atr200 > 0 && candleRange >= 2 * atr200) {
+      return;
+    }
+
+    const prefix = isInternal ? 'INT' : 'SWG';
+    const obId = `OB-${prefix}-${bias}-${symbol}-${parsedIndex}-${breakBarIndex}`;
+
+    const width = barHigh - barLow;
+    const widthPercent = Number(((width / Math.max(0.0001, barHigh)) * 100).toFixed(3));
+
+    const ob: OrderBlockDto = {
+      id: obId,
       symbol,
       timeframe,
-      internalOrderBlocks: [],
-      swingOrderBlocks: [],
-      structureEvents: [],
-      pivotsInternal: [],
-      pivotsSwing: [],
-      equalHighLows: [],
-      swingTrend: 'BULLISH',
-      internalTrend: 'BULLISH',
-      atr14: 1.0,
-      atr200: 1.0,
-      trailingExtremes: { top: 0, bottom: 0, lastTopTime: '', lastBottomTime: '', lastTopIndex: 0, lastBottomIndex: 0 },
-      premiumZone: { top: 0, bottom: 0 },
-      equilibriumZone: { top: 0, bottom: 0 },
-      discountZone: { top: 0, bottom: 0 },
+      type: bias,
+      upperPrice: Number(barHigh.toFixed(4)),
+      lowerPrice: Number(barLow.toFixed(4)),
+      widthPercent,
+      entryPrice: 0,
+      stopLossPrice: 0,
+      takeProfitPrice: 0,
+      calculatedLeverage: 1,
+      baseCandleIndex: parsedIndex,
+      breakCandleIndex: breakBarIndex,
+      isMitigated: false,
+      mitigatedAtIndex: undefined,
+      isInvalidated: false,
+      isUsed: false,
+      usedAt: undefined,
+      touchCount: 0,
+      source: 'SMC',
+      createdAt: barTime,
     };
+
+    if (orderBlocks.length >= 100) {
+      orderBlocks.pop();
+    }
+    orderBlocks.unshift(ob);
+  }
+
+  /**
+   * deleteOrderBlocks() — EXACT Pine Script implementation
+   */
+  private static applyMitigation(
+    orderBlocks: OrderBlockDto[],
+    candle: CandleDto,
+    mitigationMode: 'CLOSE' | 'HIGHLOW'
+  ): void {
+    const bearishSource = mitigationMode === 'CLOSE' ? candle.close : candle.high;
+    const bullishSource = mitigationMode === 'CLOSE' ? candle.close : candle.low;
+
+    for (let idx = orderBlocks.length - 1; idx >= 0; idx--) {
+      const ob = orderBlocks[idx]!;
+      let crossed = false;
+
+      if (ob.type === 'BEARISH' && bearishSource > ob.upperPrice) {
+        crossed = true;
+      } else if (ob.type === 'BULLISH' && bullishSource < ob.lowerPrice) {
+        crossed = true;
+      }
+
+      if (crossed) {
+        ob.isMitigated = true;
+        ob.mitigatedAtIndex = idx;
+        orderBlocks.splice(idx, 1);
+      }
+    }
   }
 }

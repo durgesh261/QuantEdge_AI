@@ -37,14 +37,14 @@ router.get('/debug/smc/:symbol', async (req, res) => {
 
   const report = result.internalOrderBlocks.map((ob) => ({
     id: ob.id,
-    sourceBar: ob.barTime,
+    sourceBar: ob.createdAt,
     type: ob.type,
     high: ob.upperPrice,
     low: ob.lowerPrice,
     baseIndex: ob.baseCandleIndex,
     breakIndex: ob.breakCandleIndex,
     widthPct: ob.widthPercent,
-    mitigated: ob.mitigated,
+    mitigated: ob.isMitigated,
   }));
 
   res.json({
