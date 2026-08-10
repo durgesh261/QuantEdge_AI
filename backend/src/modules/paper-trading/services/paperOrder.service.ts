@@ -21,9 +21,9 @@ export class PaperOrderService {
   }
 
   public static async createOrder(input: CreatePaperOrderInput): Promise<PaperOrderDto> {
-    // Get LIVE price — no fake fallback
+    // Get LIVE price — fallback to explicit input.price if provided
     const liveCandle = candleEngine.getLiveCandle(input.symbol, '1H');
-    const livePrice = liveCandle?.close || 0;
+    const livePrice = input.price || liveCandle?.close || 0;
     
     if (!livePrice || livePrice <= 0) {
       throw new Error(`Cannot create paper order: no live price available for ${input.symbol}`);

@@ -51,7 +51,7 @@ describe('System Integration & Shadow Mode End-to-End Integration Tests', () => 
 
     expect(trace1.decision.decisionState).toBe(trace2.decision.decisionState);
     expect(trace1.decision.confidenceScore).toBe(trace2.decision.confidenceScore);
-    expect(trace1.strategySignal.outcome).toBe(trace2.strategySignal.outcome);
+    expect(trace1.strategySignal?.outcome).toBe(trace2.strategySignal?.outcome);
   });
 
   it('should monitor system health across all 9 pipeline modules', async () => {

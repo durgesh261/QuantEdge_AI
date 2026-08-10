@@ -64,6 +64,8 @@ export class StrategyPipelineService {
       leverage: decision.leverage,
       confidenceScore: decision.confidenceScore,
       reasonCodes: decision.reasonCodes || [],
+      decision,
+      indicatorSnapshot: indicators,
       executedAt: (decision.state as any) === 'APPROVED' ? new Date().toISOString() : undefined,
       createdAt: new Date().toISOString(),
     };

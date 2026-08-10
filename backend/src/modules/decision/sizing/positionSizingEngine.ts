@@ -23,6 +23,7 @@ export class PositionSizingEngine {
       entryPrice: input.entryPrice,
       stopLossPrice: input.stopLossPrice,
       direction,
+      riskPercent: input.riskPercent,
     });
 
     return {

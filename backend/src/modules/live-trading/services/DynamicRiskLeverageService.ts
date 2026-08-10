@@ -8,6 +8,7 @@ export interface RiskCalculationInput {
   orderBlockWidthPercent?: number;
   orderBlockUpperPrice?: number;
   orderBlockLowerPrice?: number;
+  riskPercent?: number | undefined;
 }
 
 export interface RiskCalculationResult {
@@ -56,6 +57,7 @@ export class DynamicRiskLeverageService {
       orderBlockWidthPercent = 0,
       orderBlockUpperPrice,
       orderBlockLowerPrice,
+      riskPercent: customRiskPercent,
     } = input;
 
     // Validate inputs
@@ -104,8 +106,9 @@ export class DynamicRiskLeverageService {
       return this.reject('Stop loss distance is zero');
     }
 
-    // ── Strategy §17: Risk = 35% of account balance ──
-    const riskAmount = accountBalance * (this.TARGET_RISK_PERCENT / 100);
+    // ── Strategy §17: Risk = custom riskPercent or 35% of account balance ──
+    const targetRiskPct = customRiskPercent !== undefined ? customRiskPercent : this.TARGET_RISK_PERCENT;
+    const riskAmount = accountBalance * (targetRiskPct / 100);
     
     // Position size = risk amount ÷ price distance to SL
     const positionSize = riskAmount / slDistance;

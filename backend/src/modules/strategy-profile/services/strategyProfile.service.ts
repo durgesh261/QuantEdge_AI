@@ -54,7 +54,61 @@ const default1HProfile: StrategyProfileDto = {
   updatedAt: '2026-08-03T12:00:00Z',
 };
 
-let profilesStore: StrategyProfileDto[] = [default1HProfile];
+const default15MProfile: StrategyProfileDto = {
+  id: 'DEF-15M-PROF',
+  name: 'Default 15M Scalping Profile',
+  description: 'Fast 15M market structure profile optimized for intraday momentum',
+  version: '1.0.0',
+  isActive: true,
+  pair: 'BTCUSD.P',
+  timeframe: '15M',
+  patConfig: {
+    zigzagLen: 5,
+    liquidityLen: 15,
+    atrPeriod: 14,
+    obShowCount: 2,
+    trendLineLen: 10,
+  },
+  smcConfig: {
+    swingLen: 20,
+    internalShow: true,
+    swingShow: true,
+    atrFilterThreshold: 2.0,
+    mitigationSource: 'High/Low',
+    obSize: 5,
+  },
+  riskConfig: {
+    challengeMode: false,
+    maxRiskPerTradePercent: 35.0,
+    maxDailyDrawdownPercent: 100.0,
+    maxOpenPositions: 1,
+    dynamicLeverage: true,
+  },
+  executionConfig: {
+    defaultMode: 'PAPER',
+  },
+  indicatorConfig: {
+    mergeThreshold: 0.4,
+    freshnessDecay: 0.02,
+    maxTouches: 1,
+    scoreWeights: {
+      zoneStrength: 0.3,
+      freshness: 0.25,
+      trend: 0.2,
+      liquidity: 0.15,
+      merged: 0.1,
+    },
+  },
+  decisionConfig: {
+    confidenceThreshold: 85.0,
+    minZoneScore: 70.0,
+    momentumRules: true,
+  },
+  createdAt: '2026-08-03T12:00:00Z',
+  updatedAt: '2026-08-03T12:00:00Z',
+};
+
+let profilesStore: StrategyProfileDto[] = [default1HProfile, default15MProfile];
 
 export class StrategyProfileService {
   public async getProfiles(): Promise<StrategyProfileDto[]> {

@@ -88,7 +88,6 @@ export class ExecutionEngineService {
       timestamp: new Date().toISOString(),
     };
     requestStore.unshift(request);
-    processedIdempotencyKeys.add(idempotencyKey);
 
     const sessionJournals: ExecutionJournalDto[] = [];
     let currentState = ExecutionStatus.QUEUED;
@@ -155,6 +154,8 @@ export class ExecutionEngineService {
 
       return { session, request, result, journal: sessionJournals };
     }
+
+    processedIdempotencyKeys.add(idempotencyKey);
 
     // Transition QUEUED -> VALIDATED
     const validatedState = ExecutionStatus.VALIDATED;

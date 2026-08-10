@@ -49,12 +49,17 @@ export class AIDecisionCenterService {
       (input.outcome === StrategySignalOutcome.BUY && input.indicators.marketStructure.internalTrend === 'BULLISH') ||
       (input.outcome === StrategySignalOutcome.SELL && input.indicators.marketStructure.internalTrend === 'BEARISH');
 
-    let trendPoints = 0;
+    let trendPoints = 10;
     if (isSwingAligned && isInternalAligned) {
       trendPoints = 15;
       reasonCodes.push(DecisionReasonCode.MOMENTUM_ALIGNED);
     } else if (isSwingAligned || (input.outcome === StrategySignalOutcome.BUY && isBullish) || (input.outcome === StrategySignalOutcome.SELL && isBearish)) {
       trendPoints = 10;
+      reasonCodes.push(DecisionReasonCode.MOMENTUM_ALIGNED);
+    } else if ((input.outcome === StrategySignalOutcome.BUY && isBearish) || (input.outcome === StrategySignalOutcome.SELL && isBullish)) {
+      trendPoints = 0;
+    } else {
+      trendPoints = 10; // Baseline structural allowance for neutral regime
       reasonCodes.push(DecisionReasonCode.MOMENTUM_ALIGNED);
     }
 
@@ -213,7 +218,7 @@ export class AIDecisionCenterService {
     // Total Score calculation
     const totalScore = trendPoints + freshnessPoints + firstTouchPoints + structPoints + sweepPoints + premDiscPoints + sessionPoints + rrPoints + newsPoints;
     const confidenceScore = Math.min(100, Math.max(0, totalScore));
-    const approved = confidenceScore >= 85;
+    const approved = confidenceScore >= 75;
 
     let setupQuality: 'INSTITUTIONAL' | 'HIGH' | 'MEDIUM' | 'POOR' = 'POOR';
     if (confidenceScore >= 90) setupQuality = 'INSTITUTIONAL';

@@ -76,6 +76,17 @@ export class DecisionEngineService {
 
     const reasonCodes: DecisionReasonCode[] = [];
 
+    // Build Reproducibility Hash
+    const inputSnapshotPayload = JSON.stringify({
+      symbol,
+      timeframe,
+      currentPrice,
+      outcome: input.outcome || StrategySignalOutcome.WAIT,
+      zoneId: activeZone?.id,
+      candleTimestamp,
+    });
+    const inputSnapshotHash = crypto.createHash('sha256').update(inputSnapshotPayload).digest('hex');
+
     // 1. Session Filter
     const sessionResult = SessionFilterEngine.evaluateSession(candleTimestamp);
     if (!sessionResult.allowed && sessionResult.reasonCode) {
@@ -128,7 +139,7 @@ export class DecisionEngineService {
           entryPrice: currentPrice, stopLossPrice: currentPrice, takeProfitPrice: currentPrice,
           positionSize: 0, leverage: 0, riskPercent: 0, confidenceScore: 0,
           reasonCodes: ['OB_ALREADY_USED' as any, ...reasonCodes],
-          inputSnapshotHash: '',
+          inputSnapshotHash,
           createdAt: new Date().toISOString(),
         };
         decisionLogs.unshift(usedDecision);
@@ -168,7 +179,7 @@ export class DecisionEngineService {
         riskPercent: 0,
         confidenceScore: 0,
         reasonCodes,
-        inputSnapshotHash: '',
+        inputSnapshotHash,
         createdAt: new Date().toISOString(),
       };
       
@@ -222,7 +233,7 @@ export class DecisionEngineService {
         riskPercent: 0,
         confidenceScore: 0,
         reasonCodes: ['NO_ACTIVE_ZONE' as any, ...reasonCodes],
-        inputSnapshotHash: '',
+        inputSnapshotHash,
         createdAt: new Date().toISOString(),
       };
       decisionLogs.unshift(noZoneDecision);
@@ -288,21 +299,6 @@ export class DecisionEngineService {
     if (!dedupResult.allowed && dedupResult.reasonCode && !reasonCodes.includes(dedupResult.reasonCode)) {
       reasonCodes.push(dedupResult.reasonCode);
     }
-
-    // Build Reproducibility Hash
-    const inputSnapshotPayload = JSON.stringify({
-      symbol,
-      timeframe,
-      currentPrice,
-      outcome,
-      sessionAllowed: sessionResult.allowed,
-      marketRegime: marketResult.marketRegime,
-      zoneId: activeZone?.id,
-      riskRewardRatio: riskResult.riskRewardRatio,
-      confidenceScore: aiResult.confidenceScore,
-      candleTimestamp,
-    });
-    const inputSnapshotHash = crypto.createHash('sha256').update(inputSnapshotPayload).digest('hex');
 
     // Final Decision State
     let decisionState = DecisionState.WAIT;

@@ -41,7 +41,7 @@ const NEWS_SOURCES = [
   { url: 'https://ambcrypto.com/feed/', name: 'AMBCrypto', category: 'CRYPTO' as const },
   
   // Tier 3: Traditional Finance / Macro
-  { url: 'http://feeds.reuters.com/reuters/businessNews', name: 'Reuters', category: 'MACRO' as const },
+  { url: 'https://search.cnbc.com/rs/search/combinedradios/search.xml?partnerId=2000&keywords=finance', name: 'CNBC Finance', category: 'MACRO' as const },
   { url: 'https://www.forexlive.com/feed/', name: 'ForexLive', category: 'MACRO' as const },
   { url: 'https://www.investing.com/rss/news_301.rss', name: 'Investing.com', category: 'MARKETS' as const },
   

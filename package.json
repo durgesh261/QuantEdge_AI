@@ -15,7 +15,7 @@
     "lint": "eslint \"**/*.{ts,tsx}\"",
     "format": "prettier --write \"**/*.{ts,tsx,json,md,yml,yaml,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,json,md,yml,yaml,css}\"",
-    "test:unit": "vitest run --config tests/vitest.config.ts",
+    "test:unit": "vitest run --pool=forks --config tests/vitest.config.ts",
     "test:e2e": "playwright test --config tests/playwright.config.ts",
     "prepare": "husky install"
   },
