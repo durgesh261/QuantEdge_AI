@@ -1,28 +1,39 @@
 import {
   CandleDto,
-  DemandZone,
   IndicatorEngineOutput,
-  SupplyZone,
   TradingTimeframe,
 } from "@algoapp/shared";
 
-// Authoritative indicator engines (Pine Script faithful ports)
-import { SmcLegEngine } from "../engines/smcLegEngine.js";
-import { PatLegEngine } from "../engines/patLegEngine.js";
-
-// Zone post-processing pipeline
-import { ZoneMergerService } from "../../strategy/services/zoneMerger.service.js";
-import { ZoneLifecycleEngine } from "../engines/zoneLifecycleEngine.js";
-import { FreshnessEngine } from "../engines/freshnessEngine.js";
-import { TouchEngine } from "../engines/touchEngine.js";
-import { ZoneScoreEngine } from "../engines/zoneScoreEngine.js";
-import { PremiumDiscountEngine } from "../engines/premiumDiscountEngine.js";
-import { FvgEngine } from "../engines/fvgEngine.js";
-import { OrderBlockWidthEngine } from "../engines/orderBlockWidthEngine.js";
-import { OrderBlockMergeEngine } from "../engines/orderBlockMergeEngine.js";
+import { LuxAlgoSMCEngine, LuxAlgoConfig } from "../engines/LuxAlgoSMCEngine.js";
 import { CandleStoreService } from "../../market-data/services/candleStore.service.js";
 
 export class IndicatorEngineService {
+
+  private static readonly DEFAULT_CONFIG: LuxAlgoConfig = {
+    mode: 'HISTORICAL',
+    style: 'COLORED',
+    showInternals: true,
+    showInternalBull: 'ALL',
+    showInternalBear: 'ALL',
+    internalFilterConfluence: false,
+    showStructure: true,
+    showSwingBull: 'ALL',
+    showSwingBear: 'ALL',
+    showInternalOrderBlocks: true,
+    internalOrderBlocksSize: 5,
+    showSwingOrderBlocks: false,
+    swingOrderBlocksSize: 5,
+    orderBlockFilter: 'ATR',
+    orderBlockMitigation: 'HIGHLOW',
+    swingLength: 50,
+    internalLength: 5,
+    eqhEqlLength: 3,
+    eqhEqlThreshold: 0.1,
+    showEqualHighsLows: true,
+    showHighLowSwings: true,
+    showPremiumDiscountZones: false,
+    showTrend: false,
+  };
 
   private static runPipeline(
     symbol: string,
@@ -40,155 +51,117 @@ export class IndicatorEngineService {
       };
     }
 
-    const latestCandle = candles[candles.length - 1]!;
+    // ═══════════════════════════════════════════════════════════════════════
+    // CANONICAL: ONLY LuxAlgo SMC Engine — no PAT, no UAlgo, no competing sources
+    // ═══════════════════════════════════════════════════════════════════════
+    const smcResult = LuxAlgoSMCEngine.run(symbol, candles, timeframe, this.DEFAULT_CONFIG);
 
-    // 1. LuxAlgo SMC Engine (swing + internal OBs, EQH/EQL, BOS/CHoCH)
-    const smcResult = SmcLegEngine.run(symbol, candles, timeframe);
-
-    // 2. UAlgo Price Action Toolkit (zigzag, PAT OBs, liquidity sweeps)
-    const patResult = PatLegEngine.run(symbol, candles, timeframe);
-
-    // 3. FVG disabled per strategy (FVG_ENABLED=false in fvgEngine.ts)
-    const fairValueGaps = FvgEngine.detectFvgs(symbol, candles, timeframe);
-
-    // 4. Combine OBs from both sources and run through canonical merge pipeline
-    const { merged: canonicalMergedOBs } = OrderBlockMergeEngine.merge(
-      smcResult.orderBlocks,
-      patResult.orderBlocks,
-    );
-
-    // Apply used state from in-memory cache (populated from DB on startup)
-    const allOrderBlocks = canonicalMergedOBs.map((ob) => {
-      return OrderBlockWidthEngine.enrichOrderBlock(
-        ob.id, ob.symbol, ob.timeframe, ob.type,
-        ob.upperPrice, ob.lowerPrice,
-        ob.baseCandleIndex, ob.breakCandleIndex,
-        (ob as any).isMitigated ?? false,
-        (ob as any).isInvalidated ?? false,
-        (ob as any).touchCount ?? 0,
-        (ob as any).source ?? 'SMC', ob.createdAt,
-        (ob as any).mitigatedAtIndex,
-      );
-    }).map(ob => ({
-      ...ob,
-      // Ensure isUsed reflects DB-persisted state too
-      isUsed: OrderBlockWidthEngine.isUsed(ob.id),
+    // Formatted OrderBlock list for shared output compatibility
+    const formattedOrderBlocks = smcResult.internalOrderBlocks.map((ob) => ({
+      id: ob.id,
+      symbol,
+      timeframe,
+      type: ob.type,
+      upperPrice: ob.upperPrice,
+      lowerPrice: ob.lowerPrice,
+      baseCandleIndex: ob.baseCandleIndex,
+      breakCandleIndex: ob.breakCandleIndex,
+      createdAt: ob.createdAt,
+      source: 'SMC' as const,
+      widthPercent: ob.widthPercent,
+      isMitigated: ob.mitigated,
+      isInvalidated: false,
+      isUsed: ob.traded,
+      touchCount: ob.touched ? 1 : 0,
+      strength: 90.0,
+      width: ob.upperPrice - ob.lowerPrice,
+      freshness: 100.0,
+      status: 'FRESH' as any,
     }));
 
-    // Canonical active OBs (non-used, non-mitigated, non-invalidated)
-    const canonicalActiveOBs = allOrderBlocks.filter(
-      (ob) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
-    );
-
-    // 5. Build Supply/Demand zones from canonical active OBs
-    const supplyZonesRaw: SupplyZone[] = canonicalActiveOBs
-      .filter((ob) => ob.type === "BEARISH")
-      .map((ob) => ({
+    // Build Supply/Demand zones from canonical active OBs for frontend compatibility
+    const supplyZonesRaw = smcResult.internalOrderBlocks
+      .filter(ob => ob.type === "BEARISH")
+      .map(ob => ({
         id: `ZONE-SUP-${ob.id}`,
         symbol, timeframe,
         type: "SUPPLY" as const,
         upperPrice: ob.upperPrice,
         lowerPrice: ob.lowerPrice,
-        patStrength: ob.source === "PAT" ? 80.0 : 0.0,
-        smcStrength: ob.source === "SMC" ? 90.0 : 0.0,
-        mergedStrength: ob.source === "SMC" ? 90.0 : 80.0,
+        patStrength: 0.0,
+        smcStrength: 90.0,
+        mergedStrength: 90.0,
         width: Number((ob.upperPrice - ob.lowerPrice).toFixed(4)),
-        freshness: ob.touchCount === 0 ? 100.0 : Math.max(0, 100 - ob.touchCount * 20),
-        touchCount: ob.touchCount,
-        age: candles.length - 1 - ob.baseCandleIndex,
-        confidence: ob.source === "SMC" ? 90.0 : 80.0,
-        status: ob.touchCount === 0 ? ("NEW" as any) : ("TRADED" as any),
-        source: ob.source as any,
+        freshness: 100.0,
+        touchCount: 0,
+        age: 0,
+        confidence: 90.0,
+        status: "NEW" as any,
+        source: "SMC" as const,
         createdAt: ob.createdAt,
         updatedAt: ob.createdAt,
       }));
 
-    const demandZonesRaw: DemandZone[] = canonicalActiveOBs
-      .filter((ob) => ob.type === "BULLISH")
-      .map((ob) => ({
+    const demandZonesRaw = smcResult.internalOrderBlocks
+      .filter(ob => ob.type === "BULLISH")
+      .map(ob => ({
         id: `ZONE-DEM-${ob.id}`,
         symbol, timeframe,
         type: "DEMAND" as const,
         upperPrice: ob.upperPrice,
         lowerPrice: ob.lowerPrice,
-        patStrength: ob.source === "PAT" ? 80.0 : 0.0,
-        smcStrength: ob.source === "SMC" ? 90.0 : 0.0,
-        mergedStrength: ob.source === "SMC" ? 90.0 : 80.0,
+        patStrength: 0.0,
+        smcStrength: 90.0,
+        mergedStrength: 90.0,
         width: Number((ob.upperPrice - ob.lowerPrice).toFixed(4)),
-        freshness: ob.touchCount === 0 ? 100.0 : Math.max(0, 100 - ob.touchCount * 20),
-        touchCount: ob.touchCount,
-        age: candles.length - 1 - ob.baseCandleIndex,
-        confidence: ob.source === "SMC" ? 90.0 : 80.0,
-        status: ob.touchCount === 0 ? ("NEW" as any) : ("TRADED" as any),
-        source: ob.source as any,
+        freshness: 100.0,
+        touchCount: 0,
+        age: 0,
+        confidence: 90.0,
+        status: "NEW" as any,
+        source: "SMC" as const,
         createdAt: ob.createdAt,
         updatedAt: ob.createdAt,
       }));
 
-    // 6. Zone post-processing pipeline
-    const mergedSupply = ZoneMergerService.detectAndMergeZones(supplyZonesRaw) as SupplyZone[];
-    const mergedDemand = ZoneMergerService.detectAndMergeZones(demandZonesRaw) as DemandZone[];
-    const lifecycleSupply = ZoneLifecycleEngine.updateLifecycle(mergedSupply, latestCandle);
-    const lifecycleDemand = ZoneLifecycleEngine.updateLifecycle(mergedDemand, latestCandle);
-    const freshSupply = FreshnessEngine.updateFreshness(lifecycleSupply);
-    const freshDemand = FreshnessEngine.updateFreshness(lifecycleDemand);
-    const finalSupply = TouchEngine.evaluateTouches(freshSupply, latestCandle);
-    const finalDemand = TouchEngine.evaluateTouches(freshDemand, latestCandle);
-
-    // 7. Market Structure from SMC engine
-    const liquiditySwept = patResult.liquiditySweeps.length > 0;
-    const lastBosEvt   = smcResult.structureEvents.filter((e) => e.type === "BOS").slice(-1)[0];
-    const lastChochEvt = smcResult.structureEvents.filter((e) => e.type === "CHOCH").slice(-1)[0];
-    const lastPivot    = smcResult.pivotsSwing.slice(-1)[0];
+    // Market Structure
+    const lastBosEvt = smcResult.structureEvents.filter(e => e.type === "BOS").slice(-1)[0];
+    const lastChochEvt = smcResult.structureEvents.filter(e => e.type === "CHOCH").slice(-1)[0];
+    const lastPivot = smcResult.pivotsSwing.slice(-1)[0];
 
     const marketStructure = {
       symbol, timeframe,
-      trend:          smcResult.swingTrend,
-      internalTrend:  smcResult.internalTrend,
-      swingTrend:     smcResult.swingTrend,
-      liquiditySwept,
-      lastBosTime:    lastBosEvt?.time,
-      lastChochTime:  lastChochEvt?.time,
-      lastPivotType:  lastPivot?.type,
+      trend: smcResult.swingTrend,
+      internalTrend: smcResult.internalTrend,
+      swingTrend: smcResult.swingTrend,
+      liquiditySwept: false,
+      lastBosTime: lastBosEvt?.time,
+      lastChochTime: lastChochEvt?.time,
+      lastPivotType: lastPivot?.type,
       lastPivotPrice: lastPivot?.price,
     };
 
-    // 8. Zone Scoring
-    const supplyScores = ZoneScoreEngine.scoreZones(finalSupply, marketStructure);
-    const demandScores = ZoneScoreEngine.scoreZones(finalDemand, marketStructure);
-    const zoneScores   = { ...supplyScores, ...demandScores };
-    const premiumDiscountZones = PremiumDiscountEngine.calculateZones(candles);
-
-    // 9. Real ATR values (were hardcoded 0 — now computed from actual candles)
-    const atr14  = PatLegEngine.calculateAtr14(candles);
-    const atr200 = SmcLegEngine.calculateAtr200(candles);
-
     return {
       symbol, timeframe,
-      supplyZones:     finalSupply,
-      demandZones:     finalDemand,
-      zoneScores,
+      supplyZones: supplyZonesRaw,
+      demandZones: demandZonesRaw,
+      zoneScores: {},
       marketStructure,
-      premiumDiscountZones,
-      pivotsInternal:  smcResult.pivotsInternal,
-      pivotsSwing:     smcResult.pivotsSwing,
-      zigzagLegs:      patResult.zigzagLegs,
+      pivotsInternal: smcResult.pivotsInternal,
+      pivotsSwing: smcResult.pivotsSwing,
+      zigzagLegs: [],
       structureEvents: smcResult.structureEvents,
-      // CANONICAL: merged, used-filtered, deduplicated OBs — used by scanner/decision/chart
-      orderBlocks:     canonicalActiveOBs,
-      liquiditySweeps: patResult.liquiditySweeps,
-      fairValueGaps,
-      equalHighLows:   smcResult.equalHighLows,
-      atr14,
-      atr200,
+      // CANONICAL: only LuxAlgo internal OBs
+      orderBlocks: formattedOrderBlocks as any,
+      liquiditySweeps: [],
+      fairValueGaps: [],
+      equalHighLows: smcResult.equalHighLows,
+      atr14: 0,
+      atr200: smcResult.atr200,
       evaluatedAt: new Date().toISOString(),
     };
   }
 
-  /**
-   * Synchronous compute used by ScannerEngine + StrategyPipelineService.
-   * Backed by SmcLegEngine + PatLegEngine (Pine Script faithful ports).
-   */
   public static computeIndicators(
     candles: CandleDto[],
     timeframe: TradingTimeframe = "1H",
@@ -197,17 +170,13 @@ export class IndicatorEngineService {
     return IndicatorEngineService.runPipeline(symbol, candles, timeframe);
   }
 
-  /**
-   * Async variant used by the indicator controller (API requests).
-   * Fetches 200 candles so SMC_SWING_SIZE=50 produces valid pivots.
-   */
   public async evaluateSymbol(
     symbol: string = "BTCUSD.P",
     timeframe: TradingTimeframe = "1H",
     _profileId?: string,
     inputCandles?: CandleDto[],
   ): Promise<IndicatorEngineOutput> {
-    const candles = inputCandles ?? (await CandleStoreService.getCandles(symbol, timeframe, 200));
+    const candles = inputCandles ?? (await CandleStoreService.getCandles(symbol, timeframe, 300));
     return IndicatorEngineService.runPipeline(symbol, candles, timeframe);
   }
 }

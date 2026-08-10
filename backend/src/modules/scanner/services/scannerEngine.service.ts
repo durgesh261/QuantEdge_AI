@@ -1,5 +1,5 @@
 import { OrderBlockService } from './orderBlock.service.js';
-import { PersistentOBRegistry } from './PersistentOBRegistry.js';
+import { CanonicalOBRegistry } from '../../indicator-engine/services/canonicalOBRegistry.js';
 import { Server } from 'socket.io';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
@@ -8,7 +8,6 @@ import { IndicatorEngineService } from '../../indicator-engine/services/indicato
 import { deltaSyncService } from '../../delta-exchange/index.js';
 import { DecisionEngineService } from '../../decision/services/decisionEngine.service.js';
 import { executionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
-import { OrderBlockWidthEngine } from '../../indicator-engine/engines/orderBlockWidthEngine.js';
 import { StrategySignalOutcome } from '@algoapp/shared';
 import { eventBus } from '../../../services/EventBus.js';
 
@@ -35,34 +34,24 @@ export class ScannerEngine {
   }
 
   private static async handleLivePriceTick(symbol: string, price: number): Promise<void> {
-    const activeOBs = PersistentOBRegistry.getActive(symbol);
-    if (activeOBs.length === 0) return;
+    const touchedEntries = CanonicalOBRegistry.checkLiveTouch(
+      symbol,
+      price,
+      new Date().toISOString()
+    );
 
-    for (const ob of activeOBs) {
-      if (OrderBlockWidthEngine.isUsed(ob.id)) continue;
-      const isBullish = ob.type === 'BULLISH';
-      const isInside = isBullish
-        ? (price <= ob.upperPrice && price >= ob.lowerPrice)
-        : (price >= ob.lowerPrice && price <= ob.upperPrice);
-
-      if (isInside) {
-        logger.info(`[ScannerEngine] WS REAL-TIME FIRST-TOUCH ${ob.id} for ${symbol} @ ${price}`);
-        OrderBlockWidthEngine.markUsedWithMeta(
-          ob.id, symbol, ob.type as 'BULLISH' | 'BEARISH',
-          ob.upperPrice, ob.lowerPrice, ob.widthPercent, ob.id
-        );
-        PersistentOBRegistry.markUsed(ob.id);
-        eventBus.emit('ob:touched', {
-          symbol,
-          orderBlockId: ob.id,
-          touchPrice: price,
-          type: ob.type,
-          upperPrice: ob.upperPrice,
-          lowerPrice: ob.lowerPrice,
-          isUsed: true,
-          timestamp: new Date().toISOString(),
-        });
-      }
+    for (const ob of touchedEntries) {
+      logger.info(`[ScannerEngine] WS REAL-TIME FIRST-TOUCH ${ob.id} for ${symbol} @ ${price}`);
+      eventBus.emit('ob:touched', {
+        symbol,
+        orderBlockId: ob.id,
+        touchPrice: price,
+        type: ob.direction,
+        upperPrice: ob.upperPrice,
+        lowerPrice: ob.lowerPrice,
+        isUsed: true,
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 
@@ -220,7 +209,7 @@ export class ScannerEngine {
     let priceChange24h = ticker.change_24h || 0;
 
     try {
-      const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
+      const candles = await CandleStoreService.getCandles(symbol, '1H', 300);
       if (candles.length >= 2 && priceChange24h === 0) {
         const slice = candles.slice(-24);
         const first = slice[0]!;
@@ -231,104 +220,104 @@ export class ScannerEngine {
       }
 
       if (candles.length >= 10) {
+        // ═════════════════════════════════════════════════════════════════════
+        // 1. RUN CANONICAL INDICATOR ENGINE (LuxAlgo SMC ONLY)
+        // ═════════════════════════════════════════════════════════════════════
         indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
-        // ── REGISTRY: Feed new OBs into persistent registry (additive only) ──
-        // The registry NEVER removes an untouched OB just because the indicator
-        // engine didn't produce it this tick (price moved away from zone).
-        PersistentOBRegistry.addAll(symbol, indicators.orderBlocks || []);
+        // ═════════════════════════════════════════════════════════════════════
+        // 2. SYNC CANONICAL OB REGISTRY with current indicator state
+        // ═════════════════════════════════════════════════════════════════════
+        CanonicalOBRegistry.syncFromIndicator(symbol, indicators.orderBlocks || []);
 
-        // ── STRUCTURAL BREAK CHECK: invalidate OBs broken by latest candle ──
-        // DEMAND broken: candle closes below lower boundary
-        // SUPPLY broken: candle closes above upper boundary
-        if (candles.length > 0) {
-          const latestClosedCandle = candles[candles.length - 1]!;
-          PersistentOBRegistry.checkAndInvalidate(symbol, latestClosedCandle);
+        // ═════════════════════════════════════════════════════════════════════
+        // 3. LIVE PRICE TOUCH DETECTION (WebSocket-driven, not candle-close)
+        // ═════════════════════════════════════════════════════════════════════
+        const livePrice = ticker.price;
+        const touchedNow = CanonicalOBRegistry.checkLiveTouch(
+          symbol, livePrice, new Date().toISOString()
+        );
+
+        for (const touched of touchedNow) {
+          eventBus.emit('ob:touched', {
+            symbol,
+            orderBlockId: touched.id,
+            touchPrice: livePrice,
+            type: touched.direction,
+            upperPrice: touched.upperPrice,
+            lowerPrice: touched.lowerPrice,
+            timestamp: new Date().toISOString(),
+          });
         }
 
-        // ── VALID OBs: read from REGISTRY (not fresh indicator output) ──────
-        // This is the key fix: includes all historically-detected untouched OBs
-        // that may not appear in the latest indicator tick.
-        const validOBs = PersistentOBRegistry.getActive(symbol);
-        activeOBs = validOBs.length;
+        // ═════════════════════════════════════════════════════════════════════
+        // 4. READ ACTIVE OBs FROM CANONICAL REGISTRY
+        // ═════════════════════════════════════════════════════════════════════
+        const activeEntries = CanonicalOBRegistry.getActive(symbol);
+        activeOBs = activeEntries.length;
 
+        // Calculate average width for display
         if (activeOBs > 0) {
-          // ── LIVE PRICE TOUCH DETECTION ──────────────────────────────────────
-          // Use real-time Delta price to check if price has entered any active OB.
-          // This is the authoritative first-touch event (not candle-close based).
-          const livePrice = ticker.price;
-          for (const ob of validOBs) {
-            if (OrderBlockWidthEngine.isUsed(ob.id)) continue; // already consumed
-
-            const isBullish = ob.type === 'BULLISH';
-            const wasPriceInside = isBullish
-              ? (livePrice <= ob.upperPrice && livePrice >= ob.lowerPrice)
-              : (livePrice >= ob.lowerPrice && livePrice <= ob.upperPrice);
-
-            if (wasPriceInside) {
-              // FIRST TOUCH — mark this OB consumed immediately in both registry and width engine
-              logger.info(`[ScannerEngine] OB FIRST-TOUCH ${ob.id} @ ${livePrice} (${ob.type} ${ob.upperPrice}→${ob.lowerPrice})`);
-              OrderBlockWidthEngine.markUsedWithMeta(
-                ob.id, symbol, ob.type as 'BULLISH' | 'BEARISH',
-                ob.upperPrice, ob.lowerPrice, ob.widthPercent, ob.id,
-              );
-              // Also mark in persistent registry (source of truth)
-              PersistentOBRegistry.markUsed(ob.id);
-
-              // Emit real-time WS event so frontend removes OB immediately
-              eventBus.emit('ob:touched', {
-                symbol,
-                orderBlockId: ob.id,
-                touchPrice:   livePrice,
-                type:         ob.type,
-                upperPrice:   ob.upperPrice,
-                lowerPrice:   ob.lowerPrice,
-                isUsed:       true,
-                timestamp:    new Date().toISOString(),
-              });
-
-              // Remove from best-OB candidates immediately
-              // The decision engine will still evaluate this touch below
-            }
-          }
-          // ────────────────────────────────────────────────────────────────────
-
-          // Re-filter: only truly active (untouched) OBs remain for display
-          // Also cross-check against registry in case any were just invalidated
-          const activeOBsForDisplay = validOBs.filter((ob: any) =>
-            !OrderBlockWidthEngine.isUsed(ob.id) && !PersistentOBRegistry.isConsumed(ob.id)
-          );
-          activeOBs = activeOBsForDisplay.length;
-
-          OrderBlockService.syncFromIndicators(symbol, activeOBsForDisplay, indicators.zoneScores);
-          const avgWidth = activeOBsForDisplay.reduce((sum: number, b: any) => sum + (b.widthPercent || 0.25), 0) / Math.max(1, activeOBs);
+          const avgWidth = activeEntries.reduce(
+            (sum, e) => sum + (((e.upperPrice - e.lowerPrice) / e.upperPrice) * 100), 0
+          ) / activeOBs;
           obWidthPct = Number(avgWidth.toFixed(3));
-
-          // Best OB for decision engine: pick the first-touched OB this tick (if any),
-          // or fall back to the highest-scoring active OB.
-          const touchedThisTick = validOBs.find((ob: any) => OrderBlockWidthEngine.isUsed(ob.id));
-
-          if (touchedThisTick) {
-            // A first-touch just happened — feed decision engine with this OB
-            const score = indicators.zoneScores?.[`ZONE-SUP-${touchedThisTick.id}`]?.totalScore
-                       ?? indicators.zoneScores?.[`ZONE-DEM-${touchedThisTick.id}`]?.totalScore
-                       ?? 80;
-            bestScore = score;
-            bestOB    = touchedThisTick;
-          } else {
-            const result = activeOBsForDisplay.reduce((best: any, ob: any) => {
-              const score = indicators.zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
-                         ?? indicators.zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
-                         ?? 78;
-              return score > (best.score ?? 0) ? { ob, score } : best;
-            }, {} as { ob?: any; score?: number });
-
-            bestScore = result.score ?? null;
-            bestOB    = result.ob   ?? null;
-          }
-        } else {
-          OrderBlockService.setBlocks(symbol, []);
         }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // 5. DECISION ENGINE — evaluate touched or best active OB
+        // ═════════════════════════════════════════════════════════════════════
+        const touchedEntries = CanonicalOBRegistry.getTouched(symbol);
+        const candidate = touchedEntries.length > 0
+          ? touchedEntries[touchedEntries.length - 1]!
+          : activeEntries[0];
+
+        if (candidate) {
+          const activeZone = {
+            id: candidate.id,
+            symbol: candidate.symbol,
+            type: candidate.direction === 'BULLISH' ? 'DEMAND' : 'SUPPLY',
+            upperPrice: candidate.upperPrice,
+            lowerPrice: candidate.lowerPrice,
+            touchCount: candidate.touched ? 1 : 0,
+            freshness: 100,
+          };
+
+          const decision = await DecisionEngineService.evaluateDecision({
+            symbol,
+            timeframe: '1H',
+            currentPrice: livePrice,
+            indicators,
+            activeZone: activeZone as any,
+          });
+
+          bestScore = decision.confidenceScore;
+          bestOB = candidate;
+
+          if ((decision.state as any) === 'APPROVED' && bestScore >= 85) {
+            CanonicalOBRegistry.markTraded(candidate.id);
+            await this.triggerExecution(symbol, livePrice, decision);
+          }
+        }
+
+        // Sync OrderBlockService for legacy frontend compatibility
+        OrderBlockService.syncFromIndicators(symbol, activeEntries.map(e => ({
+          id: e.id,
+          symbol: e.symbol,
+          timeframe: e.timeframe,
+          type: e.direction,
+          upperPrice: e.upperPrice,
+          lowerPrice: e.lowerPrice,
+          widthPercent: ((e.upperPrice - e.lowerPrice) / e.upperPrice) * 100,
+          baseCandleIndex: e.baseCandleIndex,
+          breakCandleIndex: e.breakCandleIndex,
+          source: e.sourceType,
+          createdAt: e.createdAt,
+          isMitigated: e.mitigated,
+          isInvalidated: false,
+          isUsed: e.traded,
+          touchCount: e.touched ? 1 : 0,
+        })), {});
       }
     } catch (obErr) {
       logger.warn(`[ScannerEngine] OB detection failed for ${symbol}:`, obErr);
@@ -365,6 +354,40 @@ export class ScannerEngine {
     });
 
     return { symbol, ticker, bestScore, activeOBs, bestOB, indicators };
+  }
+
+  private static async triggerExecution(
+    symbol: string,
+    price: number,
+    decision: any
+  ) {
+    try {
+      await executionEngineService.placeOrder({
+        symbol,
+        side: decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
+        orderType: 'market',
+        size: decision.positionSize ?? 0,
+        leverage: decision.leverage,
+        stopLossPrice: decision.stopLossPrice,
+        takeProfitPrice: decision.takeProfitPrice,
+      });
+
+      const globalState = await prisma.scannerState.findFirst();
+      if (globalState) {
+        await prisma.scannerState.update({
+          where: { id: globalState.id },
+          data: { tradesTotal: { increment: 1 } },
+        });
+      }
+      await prisma.scannerPair.update({
+        where: { symbol },
+        data: { tradesExecuted: { increment: 1 } },
+      });
+
+      logger.info(`[Scanner→Execution] Trade executed for ${symbol} @ ${price}`);
+    } catch (err) {
+      logger.error(`[Scanner→Execution] Failed for ${symbol}:`, err);
+    }
   }
 
   private static async feedStrategyEngine(

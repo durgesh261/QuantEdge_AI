@@ -42,8 +42,10 @@ import ordersRoutes from './orders.routes.js';
 export const apiRouter = Router();
 
 import scannerRoutes from './scanner.routes.js';
+import indicatorDebugRoute from './indicatorDebug.route.js';
 
 apiRouter.use('/health', healthRoutes);
+apiRouter.use(indicatorDebugRoute);
 apiRouter.use('/admin', adminRoutes);
 apiRouter.use('/orders', ordersRoutes);
 apiRouter.use('/portfolio', portfolioRouter);

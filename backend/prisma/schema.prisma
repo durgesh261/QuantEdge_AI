@@ -101,6 +101,38 @@ model OrderBlock {
   @@map("order_blocks")
 }
 
+model CanonicalOrderBlock {
+  id                  String   @id
+  symbol              String
+  timeframe           String   @default("1H")
+  direction           String   // BULLISH | BEARISH
+  sourceType          String   @map("source_type") // INTERNAL | SWING
+  sourceBarTime       DateTime @map("source_bar_time")
+  upperPrice          Float    @map("upper_price")
+  lowerPrice          Float    @map("lower_price")
+  createdAt           DateTime @default(now()) @map("created_at")
+  createdFromStructure String  @default("BOS") @map("created_from_structure")
+  structureType       String   @map("structure_type") // INTERNAL | SWING
+  status              String   @default("ACTIVE") // ACTIVE | TOUCHED | TRADED | MITIGATED | MERGED
+  mitigated           Boolean  @default(false)
+  mitigatedAt         DateTime? @map("mitigated_at")
+  touched             Boolean  @default(false)
+  firstTouchTime      DateTime? @map("first_touch_time")
+  firstTouchPrice     Float?    @map("first_touch_price")
+  traded              Boolean  @default(false)
+  lastUpdated         DateTime @updatedAt @map("last_updated")
+  mergedZoneId        String?   @map("merged_zone_id")
+  parsedBarHigh       Float     @map("parsed_bar_high")
+  parsedBarLow        Float     @map("parsed_bar_low")
+  baseCandleIndex     Int       @map("base_candle_index")
+  breakCandleIndex    Int       @map("break_candle_index")
+
+  @@index([symbol, status])
+  @@index([symbol, direction, status])
+  @@index([createdAt])
+  @@map("canonical_order_blocks")
+}
+
 model StructureHistoryRecord {
   id          String   @id @default(uuid())
   symbol      String
