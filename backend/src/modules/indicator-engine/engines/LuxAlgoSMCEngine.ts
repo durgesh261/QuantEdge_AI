@@ -74,6 +74,7 @@ export interface LuxAlgoSMCResult {
   equalHighLows: EqualHighLowDto[];
   swingTrend: 'BULLISH' | 'BEARISH';
   internalTrend: 'BULLISH' | 'BEARISH';
+  atr14: number;
   atr200: number;
   trailingExtremes: TrailingExtremes;
   premiumZone: { top: number; bottom: number };
@@ -95,8 +96,10 @@ export class LuxAlgoSMCEngine {
       return this.emptyResult(symbol, timeframe);
     }
 
+    const atr14Series = this.computeATR(candles, 14);
     const atr200Series = this.computeATR(candles, 200);
     const cumMeanRangeSeries = this.computeCumulativeMeanRange(candles);
+    const atr14 = atr14Series[atr14Series.length - 1] || 1.0;
     const atr200 = atr200Series[atr200Series.length - 1] || 1.0;
 
     const parsedHighs: number[] = [];
@@ -392,6 +395,7 @@ export class LuxAlgoSMCEngine {
       equalHighLows,
       swingTrend,
       internalTrend,
+      atr14,
       atr200,
       trailingExtremes,
       premiumZone,
@@ -593,6 +597,7 @@ export class LuxAlgoSMCEngine {
       equalHighLows: [],
       swingTrend: 'BULLISH',
       internalTrend: 'BULLISH',
+      atr14: 1.0,
       atr200: 1.0,
       trailingExtremes: { top: 0, bottom: 0, lastTopTime: '', lastBottomTime: '', lastTopIndex: 0, lastBottomIndex: 0 },
       premiumZone: { top: 0, bottom: 0 },

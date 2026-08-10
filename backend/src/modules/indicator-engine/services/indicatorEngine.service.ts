@@ -156,7 +156,7 @@ export class IndicatorEngineService {
       liquiditySweeps: [],
       fairValueGaps: [],
       equalHighLows: smcResult.equalHighLows,
-      atr14: 0,
+      atr14: smcResult.atr14,
       atr200: smcResult.atr200,
       evaluatedAt: new Date().toISOString(),
     };
