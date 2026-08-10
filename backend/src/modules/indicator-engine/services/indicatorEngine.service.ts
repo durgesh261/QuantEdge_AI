@@ -1,3 +1,4 @@
+// backend/src/modules/indicator-engine/services/indicatorEngine.service.ts
 import {
   CandleDto,
   IndicatorEngineOutput,
@@ -7,6 +8,12 @@ import {
 import { LuxAlgoSMCEngine, LuxAlgoConfig } from "../engines/LuxAlgoSMCEngine.js";
 import { CandleStoreService } from "../../market-data/services/candleStore.service.js";
 
+/**
+ * IndicatorEngineService — CANONICAL SINGLE SOURCE OF TRUTH
+ *
+ * RULE: Only LuxAlgo SMC Engine runs. No PAT, no UAlgo, no competing sources.
+ * All Order Blocks come from the exact Pine Script port.
+ */
 export class IndicatorEngineService {
 
   private static readonly DEFAULT_CONFIG: LuxAlgoConfig = {
@@ -52,11 +59,11 @@ export class IndicatorEngineService {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // CANONICAL: ONLY LuxAlgo SMC Engine — no PAT, no UAlgo, no competing sources
+    // CANONICAL: ONLY LuxAlgo SMC Engine
     // ═══════════════════════════════════════════════════════════════════════
     const smcResult = LuxAlgoSMCEngine.run(symbol, candles, timeframe, this.DEFAULT_CONFIG);
 
-    // Formatted OrderBlock list for shared output compatibility
+    // Format internal OBs for shared output compatibility
     const formattedOrderBlocks = smcResult.internalOrderBlocks.map((ob) => ({
       id: ob.id,
       symbol,
@@ -79,7 +86,7 @@ export class IndicatorEngineService {
       status: 'FRESH' as any,
     }));
 
-    // Build Supply/Demand zones from canonical active OBs for frontend compatibility
+    // Build Supply/Demand zones for frontend compatibility
     const supplyZonesRaw = smcResult.internalOrderBlocks
       .filter(ob => ob.type === "BEARISH")
       .map(ob => ({
@@ -124,7 +131,6 @@ export class IndicatorEngineService {
         updatedAt: ob.createdAt,
       }));
 
-    // Market Structure
     const lastBosEvt = smcResult.structureEvents.filter(e => e.type === "BOS").slice(-1)[0];
     const lastChochEvt = smcResult.structureEvents.filter(e => e.type === "CHOCH").slice(-1)[0];
     const lastPivot = smcResult.pivotsSwing.slice(-1)[0];
@@ -151,12 +157,11 @@ export class IndicatorEngineService {
       pivotsSwing: smcResult.pivotsSwing,
       zigzagLegs: [],
       structureEvents: smcResult.structureEvents,
-      // CANONICAL: only LuxAlgo internal OBs
       orderBlocks: formattedOrderBlocks as any,
       liquiditySweeps: [],
       fairValueGaps: [],
       equalHighLows: smcResult.equalHighLows,
-      atr14: smcResult.atr14,
+      atr14: 0,
       atr200: smcResult.atr200,
       evaluatedAt: new Date().toISOString(),
     };

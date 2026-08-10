@@ -4,18 +4,34 @@
 // EXACT TypeScript port of Pine Script v5:
 //   Smart Money Concepts [LuxAlgo]
 //
-// CRITICAL FIXES:
-// 1. storeOrderBlock() uses EXACT Pine Script logic:
-//    - BEARISH: parsedHighs.slice(pivot.barIndex, bar_index).max()
-//    - BULLISH: parsedLows.slice(pivot.barIndex, bar_index).min()
-//    - OB bounds = parsedHigh[parsedIndex] / parsedLow[parsedIndex]
-// 2. ATR(200) uses Wilder RMA (ta.rma) not SMA
-// 3. Mitigation uses parsed barHigh/barLow values, not full candle range
-// 4. Slice is [from, to) — exclusive at end, matching Pine Script arrays
-// 5. Internal structure uses length=5, Swing uses length=50
+// CRITICAL FIX from smcLegEngine.ts:
+//   OLD (WRONG): searched for "last opposite-color candle" (close < open / close > open)
+//   NEW (CORRECT): Pine Script parsedHighs.slice().max() / parsedLows.slice().min()
+//
+// The old logic produced completely different OBs because candle color has
+// NOTHING to do with LuxAlgo's OB selection. LuxAlgo selects the candle with
+// the extreme PARSED value in the range [pivotIndex, breakIndex).
+//
+// DEFAULT SETTINGS (from supplied Pine Script):
+//   Mode: HISTORICAL, Style: COLORED
+//   Internal Structure: ON, Internal Bullish: ALL, Internal Bearish: ALL
+//   Confluence Filter: OFF
+//   Swing Structure: ON
+//   Internal Order Blocks: ON (size 5)
+//   Swing Order Blocks: OFF
+//   Order Block Filter: ATR, Order Block Mitigation: HIGH/LOW
+//   Swing Length: 50, Internal Length: 5
+//   EQH/EQL Length: 3, Threshold: 0.1
 // ============================================================================
 
-import { CandleDto, OrderBlockDto, MarketStructureEventDto, PivotPointDto, EqualHighLowDto, TradingTimeframe } from '@algoapp/shared';
+import {
+  CandleDto,
+  OrderBlockDto,
+  MarketStructureEventDto,
+  PivotPointDto,
+  EqualHighLowDto,
+  TradingTimeframe,
+} from '@algoapp/shared';
 
 const BULLISH_LEG = 1;
 const BEARISH_LEG = 0;
@@ -84,7 +100,6 @@ export interface LuxAlgoSMCOutput {
   swingTrend: 'BULLISH' | 'BEARISH';
   internalTrend: 'BULLISH' | 'BEARISH';
   trailingExtremes: TrailingExtremes;
-  atr14: number;
   atr200: number;
 }
 
@@ -117,10 +132,13 @@ export class LuxAlgoSMCEngine {
   };
 
   /**
-   * ATR using Wilder's RMA — exact Pine Script ta.atr(length)
+   * ATR(200) using Wilder's RMA — exact Pine Script ta.atr(200)
+   * Pine: ta.atr(length) => ta.rma(ta.tr, length)
+   * RMA: alpha = 1/length, rma = alpha * src + (1 - alpha) * rma[1]
    */
-  public static calculateAtr(candles: CandleDto[], period: number = 200): number {
+  public static calculateAtr200(candles: CandleDto[]): number {
     if (candles.length < 2) return 1.0;
+    const period = 200;
     const trValues: number[] = [];
 
     for (let i = 0; i < candles.length; i++) {
@@ -171,6 +189,15 @@ export class LuxAlgoSMCEngine {
 
   /**
    * leg(size) — EXACT Pine Script implementation
+   *
+   * Pine:
+   *   newLegHigh = high[size] > ta.highest(size)
+   *   newLegLow  = low[size]  < ta.lowest(size)
+   *
+   * At bar i:
+   *   high[size] = candles[i - size].high
+   *   ta.highest(size) = max(candles[i-size+1 .. i].high)
+   *   ta.lowest(size)  = min(candles[i-size+1 .. i].low)
    */
   private static getLeg(candles: CandleDto[], i: number, size: number): 0 | 1 | null {
     if (i < size) return null;
@@ -216,12 +243,14 @@ export class LuxAlgoSMCEngine {
     const internalOrderBlocks: OrderBlockDto[] = [];
     const swingOrderBlocks: OrderBlockDto[] = [];
 
-    const atr14 = this.calculateAtr(candles, 14);
-    const atr200 = this.calculateAtr(candles, 200);
+    const atr200 = this.calculateAtr200(candles);
     const cumMeanRange = this.calculateCumulativeMeanRange(candles);
 
+    // ── parsedHigh / parsedLow — Pine Script volatility correction ──
     const parsedHighs: number[] = [];
     const parsedLows: number[] = [];
+    const highs: number[] = [];
+    const lows: number[] = [];
     const times: string[] = [];
 
     for (let i = 0; i < candles.length; i++) {
@@ -233,9 +262,12 @@ export class LuxAlgoSMCEngine {
 
       parsedHighs.push(isHighVol ? c.low : c.high);
       parsedLows.push(isHighVol ? c.high : c.low);
+      highs.push(c.high);
+      lows.push(c.low);
       times.push(c.timestamp);
     }
 
+    // ── Mutable pivot state (Pine Script `var`) ──
     const swingHigh: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
     const swingLow: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
     const internalHigh: PivotState = { currentLevel: NaN, lastLevel: NaN, crossed: false, barIndex: -1, barTime: '' };
@@ -265,6 +297,7 @@ export class LuxAlgoSMCEngine {
     for (let i = 0; i < candles.length; i++) {
       const candle = candles[i]!;
 
+      // ── updateTrailingExtremes() ──
       if (candle.high > trailing.top) {
         trailing.top = candle.high;
         trailing.lastTopTime = candle.timestamp;
@@ -274,6 +307,7 @@ export class LuxAlgoSMCEngine {
         trailing.lastBottomTime = candle.timestamp;
       }
 
+      // ── Confluence filter ──
       if (cfg.internalFilterConfluence) {
         const bodyTop = Math.max(candle.close, candle.open);
         const bodyBottom = Math.min(candle.close, candle.open);
@@ -283,40 +317,32 @@ export class LuxAlgoSMCEngine {
         bearishBar = upperWick < lowerWick;
       }
 
-      // ── SWING STRUCTURE ──
+      // ═══════════════════════════════════════════════════════════════════════
+      // SWING STRUCTURE
+      // ═══════════════════════════════════════════════════════════════════════
       const swingLeg = this.getLeg(candles, i, SWING_SIZE);
       if (swingLeg !== null && swingLeg !== prevSwingLeg) {
         const pIdx = i - SWING_SIZE;
         if (pIdx >= 0) {
           const pc = candles[pIdx]!;
           if (swingLeg === BULLISH_LEG) {
-            if (!isNaN(swingLow.currentLevel)) {
-              swingLow.lastLevel = swingLow.currentLevel;
-            }
+            if (!isNaN(swingLow.currentLevel)) swingLow.lastLevel = swingLow.currentLevel;
             swingLow.currentLevel = pc.low;
             swingLow.crossed = false;
             swingLow.barIndex = pIdx;
             swingLow.barTime = pc.timestamp;
-            pivotsSwing.push({
-              index: pIdx, time: pc.timestamp, price: pc.low,
-              type: 'LOW', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i,
-            });
+            pivotsSwing.push({ index: pIdx, time: pc.timestamp, price: pc.low, type: 'LOW', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i });
             trailing.bottom = pc.low;
             trailing.barTime = pc.timestamp;
             trailing.barIndex = pIdx;
             trailing.lastBottomTime = pc.timestamp;
           } else {
-            if (!isNaN(swingHigh.currentLevel)) {
-              swingHigh.lastLevel = swingHigh.currentLevel;
-            }
+            if (!isNaN(swingHigh.currentLevel)) swingHigh.lastLevel = swingHigh.currentLevel;
             swingHigh.currentLevel = pc.high;
             swingHigh.crossed = false;
             swingHigh.barIndex = pIdx;
             swingHigh.barTime = pc.timestamp;
-            pivotsSwing.push({
-              index: pIdx, time: pc.timestamp, price: pc.high,
-              type: 'HIGH', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i,
-            });
+            pivotsSwing.push({ index: pIdx, time: pc.timestamp, price: pc.high, type: 'HIGH', length: SWING_SIZE, isSwing: true, confirmedAtIndex: i });
             trailing.top = pc.high;
             trailing.barTime = pc.timestamp;
             trailing.barIndex = pIdx;
@@ -326,22 +352,17 @@ export class LuxAlgoSMCEngine {
         prevSwingLeg = swingLeg;
       }
 
-      // ── SWING BOS/CHoCH ──
+      // ── Swing BOS/CHoCH ──
       if (cfg.showStructure) {
         if (!isNaN(swingHigh.currentLevel) && !swingHigh.crossed && candle.close > swingHigh.currentLevel) {
           const tag: 'BOS' | 'CHOCH' = swingTrend.bias === BEARISH ? 'CHOCH' : 'BOS';
           swingHigh.crossed = true;
           swingTrend.bias = BULLISH;
-          const evt: MarketStructureEventDto = {
-            index: i, time: candle.timestamp, type: tag, direction: 'BULLISH',
-            brokenLevel: swingHigh.currentLevel, isInternal: false, confirmationCandleIndex: i,
-          };
+          const evt: MarketStructureEventDto = { index: i, time: candle.timestamp, type: tag, direction: 'BULLISH', brokenLevel: swingHigh.currentLevel, isInternal: false, confirmationCandleIndex: i };
           structureEvents.push(evt);
           swingEvents.push(evt);
-
           if (cfg.showSwingOrderBlocks) {
-            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BULLISH',
-              swingHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
+            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BULLISH', swingHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
           }
         }
 
@@ -349,105 +370,74 @@ export class LuxAlgoSMCEngine {
           const tag: 'BOS' | 'CHOCH' = swingTrend.bias === BULLISH ? 'CHOCH' : 'BOS';
           swingLow.crossed = true;
           swingTrend.bias = BEARISH;
-          const evt: MarketStructureEventDto = {
-            index: i, time: candle.timestamp, type: tag, direction: 'BEARISH',
-            brokenLevel: swingLow.currentLevel, isInternal: false, confirmationCandleIndex: i,
-          };
+          const evt: MarketStructureEventDto = { index: i, time: candle.timestamp, type: tag, direction: 'BEARISH', brokenLevel: swingLow.currentLevel, isInternal: false, confirmationCandleIndex: i };
           structureEvents.push(evt);
           swingEvents.push(evt);
-
           if (cfg.showSwingOrderBlocks) {
-            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BEARISH',
-              swingLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
+            this.createOrderBlock(swingOrderBlocks, symbol, timeframe, 'BEARISH', swingLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, false);
           }
         }
       }
 
-      // ── INTERNAL STRUCTURE ──
+      // ═══════════════════════════════════════════════════════════════════════
+      // INTERNAL STRUCTURE
+      // ═══════════════════════════════════════════════════════════════════════
       const internalLegVal = this.getLeg(candles, i, INTERNAL_SIZE);
       if (internalLegVal !== null && internalLegVal !== prevInternalLeg) {
         const pIdx = i - INTERNAL_SIZE;
         if (pIdx >= 0) {
           const pc = candles[pIdx]!;
           if (internalLegVal === BULLISH_LEG) {
-            if (!isNaN(internalLow.currentLevel)) {
-              internalLow.lastLevel = internalLow.currentLevel;
-            }
+            if (!isNaN(internalLow.currentLevel)) internalLow.lastLevel = internalLow.currentLevel;
             internalLow.currentLevel = pc.low;
             internalLow.crossed = false;
             internalLow.barIndex = pIdx;
             internalLow.barTime = pc.timestamp;
-            pivotsInternal.push({
-              index: pIdx, time: pc.timestamp, price: pc.low,
-              type: 'LOW', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i,
-            });
+            pivotsInternal.push({ index: pIdx, time: pc.timestamp, price: pc.low, type: 'LOW', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i });
           } else {
-            if (!isNaN(internalHigh.currentLevel)) {
-              internalHigh.lastLevel = internalHigh.currentLevel;
-            }
+            if (!isNaN(internalHigh.currentLevel)) internalHigh.lastLevel = internalHigh.currentLevel;
             internalHigh.currentLevel = pc.high;
             internalHigh.crossed = false;
             internalHigh.barIndex = pIdx;
             internalHigh.barTime = pc.timestamp;
-            pivotsInternal.push({
-              index: pIdx, time: pc.timestamp, price: pc.high,
-              type: 'HIGH', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i,
-            });
+            pivotsInternal.push({ index: pIdx, time: pc.timestamp, price: pc.high, type: 'HIGH', length: INTERNAL_SIZE, isSwing: false, confirmedAtIndex: i });
           }
         }
         prevInternalLeg = internalLegVal;
       }
 
-      // ── INTERNAL BOS/CHoCH ──
+      // ── Internal BOS/CHoCH ──
       if (cfg.showInternals) {
-        const bullishExtra = !isNaN(internalHigh.currentLevel) &&
-          internalHigh.currentLevel !== swingHigh.currentLevel && bullishBar;
-
-        if (!isNaN(internalHigh.currentLevel) && !internalHigh.crossed &&
-            candle.close > internalHigh.currentLevel && bullishExtra) {
+        const bullishExtra = !isNaN(internalHigh.currentLevel) && internalHigh.currentLevel !== swingHigh.currentLevel && bullishBar;
+        if (!isNaN(internalHigh.currentLevel) && !internalHigh.crossed && candle.close > internalHigh.currentLevel && bullishExtra) {
           const tag: 'BOS' | 'CHOCH' = internalTrend.bias === BEARISH ? 'CHOCH' : 'BOS';
-
           internalHigh.crossed = true;
           internalTrend.bias = BULLISH;
-
-          const evt: MarketStructureEventDto = {
-            index: i, time: candle.timestamp, type: tag, direction: 'BULLISH',
-            brokenLevel: internalHigh.currentLevel, isInternal: true, confirmationCandleIndex: i,
-          };
+          const evt: MarketStructureEventDto = { index: i, time: candle.timestamp, type: tag, direction: 'BULLISH', brokenLevel: internalHigh.currentLevel, isInternal: true, confirmationCandleIndex: i };
           structureEvents.push(evt);
           internalEvents.push(evt);
-
           if (cfg.showInternalOrderBlocks) {
-            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BULLISH',
-              internalHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
+            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BULLISH', internalHigh.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
           }
         }
 
-        const bearishExtra = !isNaN(internalLow.currentLevel) &&
-          internalLow.currentLevel !== swingLow.currentLevel && bearishBar;
-
-        if (!isNaN(internalLow.currentLevel) && !internalLow.crossed &&
-            candle.close < internalLow.currentLevel && bearishExtra) {
+        const bearishExtra = !isNaN(internalLow.currentLevel) && internalLow.currentLevel !== swingLow.currentLevel && bearishBar;
+        if (!isNaN(internalLow.currentLevel) && !internalLow.crossed && candle.close < internalLow.currentLevel && bearishExtra) {
           const tag: 'BOS' | 'CHOCH' = internalTrend.bias === BULLISH ? 'CHOCH' : 'BOS';
-
           internalLow.crossed = true;
           internalTrend.bias = BEARISH;
-
-          const evt: MarketStructureEventDto = {
-            index: i, time: candle.timestamp, type: tag, direction: 'BEARISH',
-            brokenLevel: internalLow.currentLevel, isInternal: true, confirmationCandleIndex: i,
-          };
+          const evt: MarketStructureEventDto = { index: i, time: candle.timestamp, type: tag, direction: 'BEARISH', brokenLevel: internalLow.currentLevel, isInternal: true, confirmationCandleIndex: i };
           structureEvents.push(evt);
           internalEvents.push(evt);
-
           if (cfg.showInternalOrderBlocks) {
-            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BEARISH',
-              internalLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
+            this.createOrderBlock(internalOrderBlocks, symbol, timeframe, 'BEARISH', internalLow.barIndex, i, parsedHighs, parsedLows, times, candles, atr200, true);
           }
         }
       }
 
-      // ── EQUAL HIGHS / EQUAL LOWS ──
+      // ═══════════════════════════════════════════════════════════════════════
+      // EQUAL HIGHS / EQUAL LOWS
+      // ═══════════════════════════════════════════════════════════════════════
       if (cfg.showEqualHighsLows) {
         const eqLegVal = this.getLeg(candles, i, EQ_SIZE);
         if (eqLegVal !== null && eqLegVal !== prevEqLeg) {
@@ -455,42 +445,21 @@ export class LuxAlgoSMCEngine {
           if (pIdx >= 0) {
             const pc = candles[pIdx]!;
             const tol = EQ_THRESHOLD * atr200;
-
             if (eqLegVal === BULLISH_LEG) {
               if (!isNaN(eqLow.currentLevel) && Math.abs(eqLow.currentLevel - pc.low) < tol) {
                 const avg = (eqLow.currentLevel + pc.low) / 2;
-                equalHighLows.push({
-                  id: `EQL-SMC-${symbol}-${eqLow.barIndex}-${pIdx}`,
-                  symbol, timeframe, type: 'EQL',
-                  priceLevel: Number(avg.toFixed(4)),
-                  firstPivotIndex: eqLow.barIndex,
-                  secondPivotIndex: pIdx,
-                  tolerance: Number(tol.toFixed(4)),
-                  isSwept: false,
-                });
+                equalHighLows.push({ id: `EQL-SMC-${symbol}-${eqLow.barIndex}-${pIdx}`, symbol, timeframe, type: 'EQL', priceLevel: Number(avg.toFixed(4)), firstPivotIndex: eqLow.barIndex, secondPivotIndex: pIdx, tolerance: Number(tol.toFixed(4)), isSwept: false });
               }
-              if (!isNaN(eqLow.currentLevel)) {
-                eqLow.lastLevel = eqLow.currentLevel;
-              }
+              if (!isNaN(eqLow.currentLevel)) eqLow.lastLevel = eqLow.currentLevel;
               eqLow.currentLevel = pc.low;
               eqLow.barIndex = pIdx;
               eqLow.barTime = pc.timestamp;
             } else {
               if (!isNaN(eqHigh.currentLevel) && Math.abs(eqHigh.currentLevel - pc.high) < tol) {
                 const avg = (eqHigh.currentLevel + pc.high) / 2;
-                equalHighLows.push({
-                  id: `EQH-SMC-${symbol}-${eqHigh.barIndex}-${pIdx}`,
-                  symbol, timeframe, type: 'EQH',
-                  priceLevel: Number(avg.toFixed(4)),
-                  firstPivotIndex: eqHigh.barIndex,
-                  secondPivotIndex: pIdx,
-                  tolerance: Number(tol.toFixed(4)),
-                  isSwept: false,
-                });
+                equalHighLows.push({ id: `EQH-SMC-${symbol}-${eqHigh.barIndex}-${pIdx}`, symbol, timeframe, type: 'EQH', priceLevel: Number(avg.toFixed(4)), firstPivotIndex: eqHigh.barIndex, secondPivotIndex: pIdx, tolerance: Number(tol.toFixed(4)), isSwept: false });
               }
-              if (!isNaN(eqHigh.currentLevel)) {
-                eqHigh.lastLevel = eqHigh.currentLevel;
-              }
+              if (!isNaN(eqHigh.currentLevel)) eqHigh.lastLevel = eqHigh.currentLevel;
               eqHigh.currentLevel = pc.high;
               eqHigh.barIndex = pIdx;
               eqHigh.barTime = pc.timestamp;
@@ -500,7 +469,9 @@ export class LuxAlgoSMCEngine {
         }
       }
 
-      // ── MITIGATION ──
+      // ═══════════════════════════════════════════════════════════════════════
+      // MITIGATION — deleteOrderBlocks() runs EVERY bar
+      // ═══════════════════════════════════════════════════════════════════════
       if (cfg.showInternalOrderBlocks) {
         this.applyMitigation(internalOrderBlocks, candle, cfg.orderBlockMitigation);
       }
@@ -509,32 +480,36 @@ export class LuxAlgoSMCEngine {
       }
     }
 
-    const allOrderBlocks: OrderBlockDto[] = [
-      ...internalOrderBlocks,
-      ...swingOrderBlocks,
-    ];
-
     return {
       symbol, timeframe,
-      pivotsSwing,
-      pivotsInternal,
-      structureEvents,
-      internalEvents,
-      swingEvents,
-      orderBlocks: allOrderBlocks,
+      pivotsSwing, pivotsInternal,
+      structureEvents, internalEvents, swingEvents,
+      orderBlocks: [...internalOrderBlocks, ...swingOrderBlocks],
       internalOrderBlocks,
       swingOrderBlocks,
       equalHighLows,
       swingTrend: swingTrend.bias >= 0 ? 'BULLISH' : 'BEARISH',
       internalTrend: internalTrend.bias >= 0 ? 'BULLISH' : 'BEARISH',
       trailingExtremes: trailing,
-      atr14,
       atr200,
     };
   }
 
   /**
    * storeOrderBlock() — EXACT Pine Script implementation
+   *
+   * Pine:
+   *   if bias == BEARISH
+   *     a_rray      := parsedHighs.slice(p_ivot.barIndex, bar_index)
+   *     parsedIndex := p_ivot.barIndex + a_rray.indexof(a_rray.max())
+   *   else
+   *     a_rray      := parsedLows.slice(p_ivot.barIndex, bar_index)
+   *     parsedIndex := p_ivot.barIndex + a_rray.indexof(a_rray.min())
+   *
+   *   orderBlock.new(parsedHighs.get(parsedIndex), parsedLows.get(parsedIndex),
+   *                  times.get(parsedIndex), bias)
+   *
+   * CRITICAL: slice is [from, to) — exclusive at the end.
    */
   private static createOrderBlock(
     orderBlocks: OrderBlockDto[],
@@ -546,34 +521,26 @@ export class LuxAlgoSMCEngine {
     parsedHighs: number[],
     parsedLows: number[],
     times: string[],
-    candles: CandleDto[],
-    atr200: number,
+    _candles: CandleDto[],
+    _atr200: number,
     isInternal: boolean
   ): void {
     const searchStart = pivotBarIndex;
     const searchEnd = breakBarIndex;
 
-    if (searchStart < 0 || searchEnd > parsedHighs.length || searchStart >= searchEnd) {
-      return;
-    }
+    if (searchStart < 0 || searchEnd > parsedHighs.length || searchStart >= searchEnd) return;
 
     let parsedIndex = -1;
 
     if (bias === 'BEARISH') {
       let maxVal = -Infinity;
       for (let k = searchStart; k < searchEnd; k++) {
-        if (parsedHighs[k]! > maxVal) {
-          maxVal = parsedHighs[k]!;
-          parsedIndex = k;
-        }
+        if (parsedHighs[k]! > maxVal) { maxVal = parsedHighs[k]!; parsedIndex = k; }
       }
     } else {
       let minVal = Infinity;
       for (let k = searchStart; k < searchEnd; k++) {
-        if (parsedLows[k]! < minVal) {
-          minVal = parsedLows[k]!;
-          parsedIndex = k;
-        }
+        if (parsedLows[k]! < minVal) { minVal = parsedLows[k]!; parsedIndex = k; }
       }
     }
 
@@ -582,18 +549,12 @@ export class LuxAlgoSMCEngine {
     const barHigh = parsedHighs[parsedIndex]!;
     const barLow = parsedLows[parsedIndex]!;
     const barTime = times[parsedIndex]!;
-    const sourceCandle = candles[parsedIndex]!;
-
-    const candleRange = sourceCandle.high - sourceCandle.low;
-    if (atr200 > 0 && candleRange >= 2 * atr200) {
-      return;
-    }
-
-    const prefix = isInternal ? 'INT' : 'SWG';
-    const obId = `OB-${prefix}-${bias}-${symbol}-${parsedIndex}-${breakBarIndex}`;
 
     const width = barHigh - barLow;
     const widthPercent = Number(((width / Math.max(0.0001, barHigh)) * 100).toFixed(3));
+
+    const prefix = isInternal ? 'INT' : 'SWG';
+    const obId = `OB-${prefix}-${bias}-${symbol}-${parsedIndex}-${breakBarIndex}`;
 
     const ob: OrderBlockDto = {
       id: obId,
@@ -610,23 +571,23 @@ export class LuxAlgoSMCEngine {
       baseCandleIndex: parsedIndex,
       breakCandleIndex: breakBarIndex,
       isMitigated: false,
-      mitigatedAtIndex: undefined,
       isInvalidated: false,
       isUsed: false,
-      usedAt: undefined,
       touchCount: 0,
       source: 'SMC',
       createdAt: barTime,
     };
 
-    if (orderBlocks.length >= 100) {
-      orderBlocks.pop();
-    }
+    if (orderBlocks.length >= 100) orderBlocks.pop();
     orderBlocks.unshift(ob);
   }
 
   /**
    * deleteOrderBlocks() — EXACT Pine Script implementation
+   *
+   * HIGH/LOW mode:
+   *   Bearish OB: mitigated when high > ob.barHigh
+   *   Bullish OB: mitigated when low < ob.barLow
    */
   private static applyMitigation(
     orderBlocks: OrderBlockDto[],
@@ -639,16 +600,11 @@ export class LuxAlgoSMCEngine {
     for (let idx = orderBlocks.length - 1; idx >= 0; idx--) {
       const ob = orderBlocks[idx]!;
       let crossed = false;
-
-      if (ob.type === 'BEARISH' && bearishSource > ob.upperPrice) {
-        crossed = true;
-      } else if (ob.type === 'BULLISH' && bullishSource < ob.lowerPrice) {
-        crossed = true;
-      }
+      if (ob.type === 'BEARISH' && bearishSource > ob.upperPrice) crossed = true;
+      else if (ob.type === 'BULLISH' && bullishSource < ob.lowerPrice) crossed = true;
 
       if (crossed) {
         ob.isMitigated = true;
-        ob.mitigatedAtIndex = idx;
         orderBlocks.splice(idx, 1);
       }
     }
