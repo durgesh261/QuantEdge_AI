@@ -17,8 +17,8 @@ router.get('/debug/smc/:symbol', async (req, res) => {
     const symbol = req.params.symbol;
     const candles = await CandleStoreService.getCandles(symbol, '1H', 300);
 
-    if (!candles || candles.length < 50) {
-      res.status(400).json({ error: `Need >= 50 candles, got ${candles?.length ?? 0}` });
+    if (!candles || candles.length < 10) {
+      res.status(400).json({ error: `Need >= 10 candles, got ${candles?.length ?? 0}` });
       return;
     }
 
@@ -95,8 +95,8 @@ router.get('/debug/trace/:symbol', async (req, res) => {
     const symbol = req.params.symbol;
     const candles = await CandleStoreService.getCandles(symbol, '1H', 300);
 
-    if (!candles || candles.length < 50) {
-      res.status(400).json({ error: `Need >= 50 candles, got ${candles?.length ?? 0}` });
+    if (!candles || candles.length < 10) {
+      res.status(400).json({ error: `Need >= 10 candles, got ${candles?.length ?? 0}` });
       return;
     }
 
