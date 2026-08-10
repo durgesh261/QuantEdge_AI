@@ -31,6 +31,44 @@ export interface CanonicalOBEntry {
 export class CanonicalOBRegistry {
   private static registry = new Map<string, CanonicalOBEntry[]>();
 
+  public static async loadFromDb(): Promise<void> {
+    try {
+      const blocks = await prisma.canonicalOrderBlock.findMany({
+        where: { mitigated: false },
+      });
+      for (const b of blocks) {
+        const existing = this.registry.get(b.symbol) || [];
+        if (!existing.some((e) => e.id === b.id)) {
+          existing.push({
+            id: b.id,
+            symbol: b.symbol,
+            timeframe: b.timeframe,
+            direction: b.direction as any,
+            sourceType: b.sourceType as any,
+            upperPrice: b.upperPrice,
+            lowerPrice: b.lowerPrice,
+            barHigh: (b as any).barHigh ?? b.upperPrice,
+            barLow: (b as any).barLow ?? b.lowerPrice,
+            barTime: b.sourceBarTime ? b.sourceBarTime.toISOString() : b.createdAt.toISOString(),
+            baseCandleIndex: b.baseCandleIndex,
+            breakCandleIndex: b.breakCandleIndex,
+            createdAt: b.createdAt.toISOString(),
+            mitigated: b.mitigated,
+            touched: b.touched,
+            traded: b.traded,
+            status: b.status as any,
+            sourceBarTime: b.sourceBarTime ? b.sourceBarTime.toISOString() : b.createdAt.toISOString(),
+            createdFromStructure: b.createdFromStructure,
+            structureType: b.structureType as any,
+          });
+          this.registry.set(b.symbol, existing);
+        }
+      }
+    } catch (err) {
+      logger.warn('[CanonicalOBRegistry] Failed to load from DB:', err);
+    }
+  }
+
   public static syncFromIndicator(symbol: string, activeOBs: OrderBlockDto[]): void {
     const existing = this.registry.get(symbol) || [];
     const activeIds = new Set(activeOBs.map((ob) => ob.id));

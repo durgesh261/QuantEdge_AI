@@ -1,6 +1,5 @@
 import { OrderBlockService } from './orderBlock.service.js';
 import { CanonicalOBRegistry } from '../../indicator-engine/services/canonicalOBRegistry.js';
-import { PersistentOBRegistry } from './PersistentOBRegistry.js';
 import { Server } from 'socket.io';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
@@ -26,6 +25,9 @@ export class ScannerEngine {
     this.ensureState().catch((err) =>
       logger.error('[ScannerEngine] Initial state creation failed', err)
     );
+    CanonicalOBRegistry.loadFromDb().catch((err: any) =>
+      logger.error('[ScannerEngine] Failed to load OB registry from DB:', err)
+    );
 
     // Subscribe to real-time Delta WebSocket price ticks for immediate touch detection
     deltaSyncService.onPriceTick((tick: { symbol: string; price: number; timestamp: number }) => {
@@ -43,11 +45,6 @@ export class ScannerEngine {
 
     for (const ob of touchedEntries) {
       logger.info(`[ScannerEngine] WS REAL-TIME FIRST-TOUCH ${ob.id} for ${symbol} @ ${price}`);
-      // BUGFIX: PersistentOBRegistry.markUsed() was never called anywhere in
-      // the codebase — the registry backing GET /order-blocks (the panel the
-      // user is looking at) had no way to ever transition a zone out of
-      // ACTIVE on touch. Keep it in sync with the live-touch detector.
-      PersistentOBRegistry.markUsed(ob.id);
       eventBus.emit('ob:touched', {
         symbol,
         orderBlockId: ob.id,
@@ -236,18 +233,6 @@ export class ScannerEngine {
         // ═════════════════════════════════════════════════════════════════════
         CanonicalOBRegistry.syncFromIndicator(symbol, indicators.orderBlocks || []);
 
-        // BUGFIX: PersistentOBRegistry (the registry actually backing
-        // GET /order-blocks, i.e. the "Live Order Blocks" panel on the Live
-        // Trading page) was only ever fed ONCE — the first time a request
-        // came in for a symbol with an empty registry. After that it just
-        // kept returning the same frozen snapshot forever: no new zones ever
-        // appeared, nothing was ever invalidated, and USED/consumed zones
-        // never cleared. Feed it here, every tick (~5s), same as the
-        // canonical registry above, so it behaves like the live indicator:
-        // new zones appear as they form, and stale ones fall away.
-        PersistentOBRegistry.addAll(symbol, indicators.orderBlocks || []);
-        PersistentOBRegistry.checkAndInvalidate(symbol, candles[candles.length - 1]!);
-
         // ═════════════════════════════════════════════════════════════════════
         // 3. LIVE PRICE TOUCH DETECTION (WebSocket-driven, not candle-close)
         // ═════════════════════════════════════════════════════════════════════
@@ -257,7 +242,6 @@ export class ScannerEngine {
         );
 
         for (const touched of touchedNow) {
-          PersistentOBRegistry.markUsed(touched.id);
           eventBus.emit('ob:touched', {
             symbol,
             orderBlockId: touched.id,
@@ -381,7 +365,7 @@ export class ScannerEngine {
     decision: any
   ) {
     try {
-      const result = await executionEngineService.placeOrder({
+      await executionEngineService.placeOrder({
         symbol,
         side: decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
         orderType: 'market',
@@ -390,17 +374,6 @@ export class ScannerEngine {
         stopLossPrice: decision.stopLossPrice,
         takeProfitPrice: decision.takeProfitPrice,
       });
-
-      // BUGFIX: placeOrder() resolves (never throws) on validation failure or
-      // exchange rejection — it returns { success:false, state:'REJECTED'|'ERROR', message }.
-      // Counters must only move on a confirmed successful placement, otherwise
-      // "Trades Executed" climbs on every rejected attempt (e.g. insufficient
-      // margin), which is exactly what produced the inflated counter with 0
-      // open positions.
-      if (!result.success) {
-        logger.warn(`[Scanner→Execution] REJECTED for ${symbol}: ${result.message}`);
-        return;
-      }
 
       const globalState = await prisma.scannerState.findFirst();
       if (globalState) {
@@ -424,8 +397,8 @@ export class ScannerEngine {
     symbol: string,
     price: number,
     aiScore: number,
-    _bestOB: any,
-    _indicators: any
+    bestOB: any,
+    indicators: any
   ) {
     try {
       await prisma.strategySignalRecord.create({
@@ -441,14 +414,52 @@ export class ScannerEngine {
 
       logger.info(`[Scanner→Strategy/Algo] Signal fed for ${symbol} @ ${price} (score: ${aiScore})`);
 
-      // BUGFIX: this method used to re-run DecisionEngineService.evaluateDecision()
-      // and call executionEngineService.placeOrder() a SECOND time, independently
-      // of the execution already attempted for the same candidate OB inside
-      // processPair() → triggerExecution(). Two separate code paths evaluating
-      // the same signal and both placing/counting an order is what let the
-      // trade counter run far ahead of real (or even attempted) executions.
-      // Execution is owned exclusively by processPair()/triggerExecution();
-      // this method now only records the signal for the strategy/journal feed.
+      if (!bestOB || !indicators) {
+        return;
+      }
+
+      // Step 2-4: CONFIDENCE_CHECK -> RISK_CHECK -> ENTRY_PENDING via Decision Engine
+      const decision = await DecisionEngineService.evaluateDecision({
+        symbol,
+        timeframe: '1H',
+        currentPrice: price,
+        indicators,
+        activeZone: bestOB,
+      });
+
+      if (decision.state === 'APPROVED' as any) {
+        logger.info(`[Scanner→Execution] Signal APPROVED for ${symbol}. Dispatching order.`);
+
+        // Execute the trade (ENTRY_PENDING -> OPEN)
+        await executionEngineService.placeOrder({
+          symbol,
+          side: decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
+          orderType: 'market',
+          size: decision.positionSize ?? 0,
+          leverage: decision.leverage,
+          stopLossPrice: decision.stopLossPrice,
+          takeProfitPrice: decision.takeProfitPrice,
+        });
+
+        const globalState = await prisma.scannerState.findFirst();
+        if (globalState) {
+          await prisma.scannerState.update({
+            where: { id: globalState.id },
+            data: { tradesTotal: { increment: 1 } },
+          });
+        }
+        await prisma.scannerPair.update({
+          where: { symbol },
+          data: { tradesExecuted: { increment: 1 } },
+        });
+
+        // NOTE: OB is already marked used on first-touch above.
+        // markUsed is NOT called here again — touch already consumed the OB.
+      } else {
+        logger.warn(`[Scanner→Execution] Signal REJECTED for ${symbol}. Reason: ${decision.reasonCodes.join(', ')}`);
+        // OB was already consumed on first-touch above. No re-entry possible.
+      }
+
     } catch (err) {
       logger.error('[Scanner→Strategy/Algo] Failed to feed signal:', err);
     }
@@ -535,3 +546,5 @@ export class ScannerEngine {
     this.io?.of('/scanner').emit('inspect', { symbol, pair, blocks });
   }
 }
+
+
