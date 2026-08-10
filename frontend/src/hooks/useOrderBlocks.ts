@@ -48,7 +48,8 @@ export function useOrderBlocks(symbol: string) {
     fetchBlocks(symbol);
     const interval = setInterval(() => fetchBlocks(symbol), 10000);
 
-    // Real-time OB removal via WebSocket ob_touched event
+    // Real-time OB removal via WebSocket
+    // ob_touched: first-touch consumed; ob_invalidated: structural price break
     const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:4000/ws';
     let ws: WebSocket | null = null;
     try {
@@ -57,7 +58,11 @@ export function useOrderBlocks(symbol: string) {
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (msg.type === 'ob_touched' && msg.symbol === symbol) {
+          const isRelevant = msg.symbol === symbol;
+          if (!isRelevant) return;
+
+          if (msg.type === 'ob_touched' || msg.type === 'ob_invalidated') {
+            // Remove consumed/invalidated OB from UI immediately
             setBlocks((prev) => prev.filter((b) => b.id !== msg.orderBlockId));
           }
         } catch { /* ignore */ }

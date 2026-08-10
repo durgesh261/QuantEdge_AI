@@ -1,4 +1,5 @@
 import { OrderBlockService } from './orderBlock.service.js';
+import { PersistentOBRegistry } from './PersistentOBRegistry.js';
 import { Server } from 'socket.io';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
@@ -194,8 +195,23 @@ export class ScannerEngine {
       if (candles.length >= 10) {
         indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
-        // Canonical active OBs (already merged, used-filtered by indicatorEngine)
-        const validOBs = (indicators.orderBlocks || []);
+        // ── REGISTRY: Feed new OBs into persistent registry (additive only) ──
+        // The registry NEVER removes an untouched OB just because the indicator
+        // engine didn't produce it this tick (price moved away from zone).
+        PersistentOBRegistry.addAll(symbol, indicators.orderBlocks || []);
+
+        // ── STRUCTURAL BREAK CHECK: invalidate OBs broken by latest candle ──
+        // DEMAND broken: candle closes below lower boundary
+        // SUPPLY broken: candle closes above upper boundary
+        if (candles.length > 0) {
+          const latestClosedCandle = candles[candles.length - 1]!;
+          PersistentOBRegistry.checkAndInvalidate(symbol, latestClosedCandle);
+        }
+
+        // ── VALID OBs: read from REGISTRY (not fresh indicator output) ──────
+        // This is the key fix: includes all historically-detected untouched OBs
+        // that may not appear in the latest indicator tick.
+        const validOBs = PersistentOBRegistry.getActive(symbol);
         activeOBs = validOBs.length;
 
         if (activeOBs > 0) {
@@ -212,12 +228,14 @@ export class ScannerEngine {
               : (livePrice >= ob.lowerPrice && livePrice <= ob.upperPrice);
 
             if (wasPriceInside) {
-              // FIRST TOUCH — mark this OB consumed immediately
+              // FIRST TOUCH — mark this OB consumed immediately in both registry and width engine
               logger.info(`[ScannerEngine] OB FIRST-TOUCH ${ob.id} @ ${livePrice} (${ob.type} ${ob.upperPrice}→${ob.lowerPrice})`);
               OrderBlockWidthEngine.markUsedWithMeta(
                 ob.id, symbol, ob.type as 'BULLISH' | 'BEARISH',
                 ob.upperPrice, ob.lowerPrice, ob.widthPercent, ob.id,
               );
+              // Also mark in persistent registry (source of truth)
+              PersistentOBRegistry.markUsed(ob.id);
 
               // Emit real-time WS event so frontend removes OB immediately
               eventBus.emit('ob:touched', {
@@ -238,7 +256,10 @@ export class ScannerEngine {
           // ────────────────────────────────────────────────────────────────────
 
           // Re-filter: only truly active (untouched) OBs remain for display
-          const activeOBsForDisplay = validOBs.filter((ob: any) => !OrderBlockWidthEngine.isUsed(ob.id));
+          // Also cross-check against registry in case any were just invalidated
+          const activeOBsForDisplay = validOBs.filter((ob: any) =>
+            !OrderBlockWidthEngine.isUsed(ob.id) && !PersistentOBRegistry.isConsumed(ob.id)
+          );
           activeOBs = activeOBsForDisplay.length;
 
           OrderBlockService.syncFromIndicators(symbol, activeOBsForDisplay, indicators.zoneScores);

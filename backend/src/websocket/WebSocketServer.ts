@@ -181,6 +181,21 @@ export class WebSocketServer {
         timestamp:     data.timestamp,
       });
     });
+
+    // Order Block structural invalidation — price closed through zone boundary
+    eventBus.on('ob:invalidated', (data: any) => {
+      this.broadcast('zones', {
+        type:          'ob_invalidated',
+        symbol:        data.symbol,
+        orderBlockId:  data.orderBlockId,
+        obType:        data.type,
+        upperPrice:    data.upperPrice,
+        lowerPrice:    data.lowerPrice,
+        reason:        data.reason,
+        isInvalidated: true,
+        timestamp:     data.timestamp,
+      });
+    });
   }
 
   private broadcast(channel: string, payload: any): void {

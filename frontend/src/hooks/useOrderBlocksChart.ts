@@ -15,7 +15,7 @@ export function useOrderBlocksChart(symbol: string) {
       try {
         const res = await indicatorApi.getOrderBlocks(symbol);
         if (res.success && mounted) {
-          // Only keep active canonical OBs — backend already filters, this is a safety net
+          // Only keep active canonical OBs
           const active = (res.data || []).filter(
             (ob: any) => !ob.isMitigated && !ob.isUsed && !ob.isInvalidated
           );
@@ -36,8 +36,12 @@ export function useOrderBlocksChart(symbol: string) {
     const handleZones = (data: any) => {
       if (data.symbol !== symbol) return;
 
-      if (data.type === 'ob_touched' && data.orderBlockId) {
-        // Real-time: remove consumed OB immediately from chart
+      // ob_touched: first-touch consumed
+      // ob_invalidated: structural break (candle closed through zone)
+      if (
+        (data.type === 'ob_touched' || data.type === 'ob_invalidated')
+        && data.orderBlockId
+      ) {
         setOrderBlocks((prev) => prev.filter((ob) => ob.id !== data.orderBlockId));
         return;
       }
@@ -52,7 +56,7 @@ export function useOrderBlocksChart(symbol: string) {
 
     chartWebSocketService.on('zones', handleZones);
 
-    // Also subscribe directly to the backend WS for ob_touched events
+    // Direct backend WS for ob_touched and ob_invalidated events
     const wsUrl = (import.meta as any).env?.VITE_WS_URL || 'ws://localhost:4000/ws';
     let ws: WebSocket | null = null;
     try {
@@ -61,8 +65,10 @@ export function useOrderBlocksChart(symbol: string) {
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
-          if (msg.type === 'ob_touched' && msg.symbol === symbol && mounted) {
-            setOrderBlocks((prev) => prev.filter((ob) => ob.id !== msg.orderBlockId));
+          if (msg.symbol === symbol && mounted) {
+            if (msg.type === 'ob_touched' || msg.type === 'ob_invalidated') {
+              setOrderBlocks((prev) => prev.filter((ob) => ob.id !== msg.orderBlockId));
+            }
           }
         } catch { /* ignore */ }
       };

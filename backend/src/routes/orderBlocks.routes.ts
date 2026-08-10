@@ -1,5 +1,6 @@
 ﻿import { Router } from 'express';
 import { OrderBlockService } from '../modules/scanner/services/orderBlock.service.js';
+import { PersistentOBRegistry } from '../modules/scanner/services/PersistentOBRegistry.js';
 import { CandleStoreService } from '../modules/market-data/services/candleStore.service.js';
 import { IndicatorEngineService } from '../modules/indicator-engine/services/indicatorEngine.service.js';
 import { OrderBlockWidthEngine } from '../modules/indicator-engine/engines/orderBlockWidthEngine.js';
@@ -7,39 +8,56 @@ import { OrderBlockWidthEngine } from '../modules/indicator-engine/engines/order
 const router = Router();
 
 // GET /api/v1/order-blocks?symbol=BTCUSD.P
-// Returns ONLY active canonical Order Blocks (merged, not used/mitigated/invalidated).
+// Returns ONLY active canonical Order Blocks from the PersistentOBRegistry.
+// The registry is the source of truth: it contains ALL historically-detected
+// untouched OBs, not just what the latest indicator tick produced.
 router.get('/', async (req, res) => {
   const symbol = (req.query.symbol as string) || '';
 
   if (symbol) {
-    try {
-      const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
-      if (candles.length >= 10) {
-        const indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
-        // indicators.orderBlocks is already canonical (merged + used-filtered).
-        // Double-filter here as safety net against any stale in-memory state.
-        const activeOBs = (indicators.orderBlocks || []).filter(
-          (ob: any) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
-            && !OrderBlockWidthEngine.isUsed(ob.id)
-        );
-        // Sync to in-memory cache for scanner
-        OrderBlockService.syncFromIndicators(symbol, activeOBs, indicators.zoneScores);
+    // Primary source: persistent registry (remembers untouched historical OBs)
+    let activeOBs = PersistentOBRegistry.getActive(symbol);
 
-        res.json({
-          success: true,
-          data: activeOBs,
-          meta: { symbol, count: activeOBs.length, scannedAt: new Date().toISOString(), canonical: true }
-        });
-        return;
+    if (activeOBs.length === 0) {
+      // Registry is empty for this symbol (e.g. first request after restart).
+      // Seed it from a fresh indicator run, then return registry result.
+      try {
+        const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
+        if (candles.length >= 10) {
+          const indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
+          PersistentOBRegistry.addAll(symbol, indicators.orderBlocks || []);
+          // Structural break check on latest candle
+          if (candles.length > 0) {
+            PersistentOBRegistry.checkAndInvalidate(symbol, candles[candles.length - 1]!);
+          }
+          activeOBs = PersistentOBRegistry.getActive(symbol);
+          OrderBlockService.syncFromIndicators(symbol, activeOBs, indicators.zoneScores);
+        }
+      } catch (_err) {
+        // Fall through — return empty
       }
-    } catch (_err) {
-      // Fall through to empty response on error — never fake OBs
     }
 
-    res.json({ success: true, data: [], meta: { symbol, count: 0, scannedAt: new Date().toISOString() } });
+    // Double-filter: cross-check against width engine used cache
+    const filtered = activeOBs.filter(
+      (ob: any) => !OrderBlockWidthEngine.isUsed(ob.id) && !PersistentOBRegistry.isConsumed(ob.id)
+    );
+
+    res.json({
+      success: true,
+      data: filtered,
+      meta: {
+        symbol,
+        count: filtered.length,
+        scannedAt: new Date().toISOString(),
+        canonical: true,
+        registry: PersistentOBRegistry.stats(),
+      }
+    });
     return;
   }
 
+  // No symbol — return all in-memory blocks
   const allBlocks = OrderBlockService.getAllBlocks();
   res.json({ success: true, data: allBlocks, meta: { count: allBlocks.length } });
 });
@@ -57,6 +75,11 @@ router.post('/scan', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// GET /api/v1/order-blocks/registry-stats — diagnostics endpoint
+router.get('/registry-stats', (_req, res) => {
+  res.json({ success: true, data: PersistentOBRegistry.stats() });
 });
 
 export default router;

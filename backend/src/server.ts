@@ -10,18 +10,22 @@ import { NewsAggregatorService } from './modules/news/services/newsAggregator.se
 import { ScannerEngine } from './modules/scanner/services/scannerEngine.service.js';
 import { tradeAccountingTrigger } from './modules/trade-accounting/TradeAccountingTrigger.js';
 import { OrderBlockWidthEngine } from './modules/indicator-engine/engines/orderBlockWidthEngine.js';
+import { PersistentOBRegistry } from './modules/scanner/services/PersistentOBRegistry.js';
 
 const app = createApp();
 
 JournalAutomationService.initialize();
 MarketScannerService.initialize();
 
-// Load persisted used OB IDs from DB into in-memory cache on every startup
-// This ensures restarted backend doesn't treat previously-consumed OBs as fresh
-OrderBlockWidthEngine.loadUsedFromDb().then(() => {
-  logger.info('[Boot] Used OB IDs loaded from DB into in-memory cache');
+// ── BOOT: restore persisted OB lifecycle state from DB ────────────────────
+// Both must run so the registry and width-engine cache agree on consumed IDs.
+Promise.all([
+  OrderBlockWidthEngine.loadUsedFromDb(),
+  PersistentOBRegistry.loadFromDb(),
+]).then(() => {
+  logger.info('[Boot] OB lifecycle state restored from DB');
 }).catch((err) => {
-  logger.warn({ err }, '[Boot] Could not load used OB IDs from DB — proceeding with empty cache');
+  logger.warn({ err }, '[Boot] OB lifecycle state partial load — proceeding');
 });
 
 import { prisma } from './db.js';
