@@ -10,30 +10,49 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-import { useScanner, ScannerTelemetry } from '../../hooks/useScanner';
+import { useQuery } from '@tanstack/react-query';
+import { useScannerSocket } from '../../hooks/useScannerSocket';
+import { useScannerStore, ScannerPair } from '../../store/useScannerStore';
+import { portfolioApi } from '../../services/api';
 
 export const MarketScannerPanel: React.FC = () => {
   const [selectedAiSymbol, setSelectedAiSymbol] = useState<string | null>(null);
 
-  const { telemetry, stats, scannerState, isDeltaConnected, controlScanner } = useScanner();
+  const { sendControl } = useScannerSocket();
+  const { global, pairs, isDeltaConnected } = useScannerStore();
 
-  const latestAiDecision = null; // Mock for now until AI details are added to telemetry
+  const { data: positionsData } = useQuery({
+    queryKey: ['scanner-positions'],
+    queryFn: () => portfolioApi.getPositions(),
+    refetchInterval: 5000,
+  });
 
-  const isRunning = scannerState === 'RUNNING';
-  const isPaused = scannerState === 'PAUSED';
-  // Note: we can map the isInTrade state if we want by tracking active trades,
-  // but for now we'll just use simple states to avoid breaking the UI.
-  const isInTrade = false; 
-  const isStopped = scannerState === 'STOPPED';
+  const activePositions = positionsData?.data || [];
+  const isInTrade = Array.isArray(activePositions) && activePositions.length > 0;
 
-  const startAll = () => controlScanner('start');
-  const pauseAll = () => controlScanner('pause');
-  const resumeAll = () => controlScanner('resume');
-  const stopAll = () => controlScanner('stop');
-  const startPair = (sym: string) => controlScanner('start', sym);
-  const pausePair = (sym: string) => controlScanner('pause', sym);
-  const resumePair = (sym: string) => controlScanner('resume', sym);
-  const stopPair = (sym: string) => controlScanner('stop', sym);
+  const isRunning = Boolean(global?.isRunning && !global?.isPaused);
+  const isPaused = Boolean(global?.isPaused);
+  const isStopped = Boolean(!global?.isRunning);
+
+  const scannerState = isInTrade
+    ? 'IN TRADE'
+    : isPaused
+    ? 'PAUSED'
+    : isRunning
+    ? 'RUNNING'
+    : 'STOPPED';
+
+  const startAll = () => sendControl('START_ALL');
+  const pauseAll = () => sendControl('PAUSE_ALL');
+  const resumeAll = () => sendControl('RESUME_ALL');
+  const stopAll = () => sendControl('STOP_ALL');
+
+  const startPair = (sym: string) => sendControl('START', sym);
+  const pausePair = (sym: string) => sendControl('PAUSE', sym);
+  const resumePair = (sym: string) => sendControl('RESUME', sym);
+  const stopPair = (sym: string) => sendControl('STOP', sym);
+
+  const selectedPair = pairs.find((p) => p.symbol === selectedAiSymbol);
 
   return (
     <div className="bg-[#0B0E14] border border-[#1E293B] rounded-xl p-4 font-mono text-xs text-slate-300 space-y-4">
@@ -130,7 +149,7 @@ export const MarketScannerPanel: React.FC = () => {
             </div>
           </div>
           <span className="text-[11px] font-mono text-purple-300 bg-purple-900/40 px-3 py-1 rounded-lg border border-purple-500/30 shrink-0">
-            ID: LIVE-DELTA-EXECUTION
+            POSITION ACTIVE
           </span>
         </motion.div>
       )}
@@ -139,15 +158,15 @@ export const MarketScannerPanel: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-[#0E121A] border border-[#1E293B] rounded-lg p-2.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Ticks Processed</span>
-          <span className="text-sm font-bold text-white font-mono mt-0.5 block">{(stats.ticks || 0).toLocaleString()}</span>
+          <span className="text-sm font-bold text-white font-mono mt-0.5 block">{(global?.ticksTotal || 0).toLocaleString()}</span>
         </div>
         <div className="bg-[#0E121A] border border-[#1E293B] rounded-lg p-2.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Signals Triggered</span>
-          <span className="text-sm font-bold text-indigo-400 font-mono mt-0.5 block">{stats.signals}</span>
+          <span className="text-sm font-bold text-indigo-400 font-mono mt-0.5 block">{global?.signalsTotal || 0}</span>
         </div>
         <div className="bg-[#0E121A] border border-[#1E293B] rounded-lg p-2.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Trades Executed</span>
-          <span className="text-sm font-bold text-emerald-400 font-mono mt-0.5 block">{stats.trades}</span>
+          <span className="text-sm font-bold text-emerald-400 font-mono mt-0.5 block">{global?.tradesTotal || 0}</span>
         </div>
         <div className="bg-[#0E121A] border border-[#1E293B] rounded-lg p-2.5">
           <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Scan Matrix</span>
@@ -171,27 +190,31 @@ export const MarketScannerPanel: React.FC = () => {
           </thead>
           <tbody className="divide-y divide-[#1E293B]/60 text-[11px]">
             {['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'].map((sym) => {
-              const pair: ScannerTelemetry = telemetry.find(t => t.symbol === sym) || {
+              const pair: ScannerPair = pairs.find((t) => t.symbol === sym) || {
                 symbol: sym,
+                isActive: true,
+                isPaused: false,
+                status: 'ENGINE',
                 livePrice: 0,
-                activeOrderBlocksCount: 0,
-                scanState: 'IDLE',
-                orderBlockWidthPercent: 0,
-                latestConfidenceScore: 0,
-                lastScanAt: new Date().toISOString(),
-                userStatus: 'RUNNING',
+                priceChange24h: 0,
+                activeOBs: 0,
+                obWidthPct: null,
+                aiScore: null,
+                ticksProcessed: 0,
+                signalsTriggered: 0,
+                tradesExecuted: 0,
               };
 
-              const pairUserStatus = pair.userStatus || 'RUNNING';
-              const isTradeActive = false; // Add trade active tracking if needed later
-              const isPairRunning = pairUserStatus === 'RUNNING';
-              const isPairPaused = pairUserStatus === 'PAUSED';
-              const isPairStopped = pairUserStatus === 'STOPPED';
+              const isPairRunning = pair.status === 'ENGINE' || (pair.isActive && !pair.isPaused);
+              const isPairPaused = pair.status === 'PAUSED' || pair.isPaused;
+              const isPairStopped = pair.status === 'STOPPED' || !pair.isActive;
+
+              const hasValidPrice = pair.livePrice > 0;
 
               return (
                 <tr key={sym} className="hover:bg-[#161D2A] transition-colors">
                   <td className="py-2.5 px-3 font-bold text-white flex items-center gap-2">
-                    {isTradeActive ? (
+                    {isInTrade ? (
                       <span className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
                     ) : isPairStopped ? (
                       <span className="w-2 h-2 rounded-full bg-rose-500" title="Stopped manually" />
@@ -205,20 +228,31 @@ export const MarketScannerPanel: React.FC = () => {
                     <span>{sym}</span>
                   </td>
                   <td className="py-2.5 px-3 font-mono font-semibold text-slate-200">
-                    ${pair.livePrice ? pair.livePrice.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '---'}
+                    {hasValidPrice ? (
+                      <div>
+                        <div>${pair.livePrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                        <div className={`text-[10px] font-normal ${pair.priceChange24h >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {pair.priceChange24h >= 0 ? '+' : ''}{pair.priceChange24h.toFixed(2)}%
+                        </div>
+                      </div>
+                    ) : !isDeltaConnected ? (
+                      <span className="text-rose-400 font-bold">DELTA DISCONNECTED</span>
+                    ) : (
+                      <span className="text-slate-500">NO DATA</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-400 text-center">
-                    {pair.activeOrderBlocksCount > 0 ? (
-                      <span className="text-[#F59E0B] font-bold">{pair.activeOrderBlocksCount} Zones</span>
+                    {pair.activeOBs > 0 ? (
+                      <span className="text-[#F59E0B] font-bold">{pair.activeOBs} Zones</span>
                     ) : (
                       <span className="text-[#64748B]">0 Zones</span>
                     )}
                   </td>
                   <td className="py-2.5 px-3 font-mono text-slate-400 text-center">
-                    {pair.orderBlockWidthPercent > 0 ? `${pair.orderBlockWidthPercent.toFixed(2)}%` : '---'}
+                    {pair.obWidthPct && pair.obWidthPct > 0 ? `${pair.obWidthPct.toFixed(2)}%` : '---'}
                   </td>
                   <td className="py-2.5 px-3">
-                    {isTradeActive ? (
+                    {isInTrade ? (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-500/20 text-purple-300 border border-purple-500/40">
                         ● IN ACTIVE TRADE
                       </span>
@@ -234,18 +268,6 @@ export const MarketScannerPanel: React.FC = () => {
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-500/10 text-slate-400 border border-slate-500/20">
                         ● ENGINE {scannerState}
                       </span>
-                    ) : pair.scanState === 'SIGNAL_TRIGGERED' ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse">
-                        ● SIGNAL TRIGGERED
-                      </span>
-                    ) : pair.scanState === 'EVALUATING' ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                        ● EVALUATING
-                      </span>
-                    ) : pair.scanState === 'ERROR' || pair.scanState === 'NO_DATA' ? (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                        ● {pair.scanState}
-                      </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
                         ● SCANNING
@@ -253,15 +275,15 @@ export const MarketScannerPanel: React.FC = () => {
                     )}
                   </td>
                   <td className="py-2.5 px-3 font-mono font-bold text-center">
-                    {pair.latestConfidenceScore ? (
+                    {pair.aiScore && pair.aiScore > 0 ? (
                       <span
                         className={
-                          pair.latestConfidenceScore >= 85
+                          pair.aiScore >= 85
                             ? 'text-emerald-400'
                             : 'text-amber-400'
                         }
                       >
-                        {pair.latestConfidenceScore}%
+                        {pair.aiScore}%
                       </span>
                     ) : (
                       <span className="text-slate-600">---</span>
@@ -354,56 +376,40 @@ export const MarketScannerPanel: React.FC = () => {
                 </button>
               </div>
 
-              {latestAiDecision ? (
+              {selectedPair?.aiScore && selectedPair.aiScore > 0 ? (
                 <div className="space-y-3 font-sans">
                   <div className="bg-[#161D2A] border border-[#1E293B] rounded-lg p-3 flex items-center justify-between">
                     <div>
                       <span className="text-xs text-slate-400">Total Approval Score:</span>
                       <div className="text-xl font-bold font-mono text-white mt-0.5">
-                        {/* @ts-ignore */}
-                        {latestAiDecision.confidenceScore}%
+                        {selectedPair.aiScore}%
                         <span className="text-xs font-normal text-slate-400 ml-2">
-                          (Req: $\ge 85\%$)
+                          (Req: ≥85%)
                         </span>
                       </div>
                     </div>
                     <span
                       className={`px-2.5 py-1 rounded text-xs font-bold font-mono uppercase ${
-                        /* @ts-ignore */
-                        latestAiDecision.approved
+                        selectedPair.aiScore >= 85
                           ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                           : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
                       }`}
                     >
-                      {/* @ts-ignore */}
-                      {latestAiDecision.approved ? 'APPROVED FOR LIVE' : 'REJECTED BY AI'}
+                      {selectedPair.aiScore >= 85 ? 'APPROVED FOR LIVE' : 'REJECTED BY AI'}
                     </span>
                   </div>
 
-                  <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                    {/* @ts-ignore */}
-                    {latestAiDecision.breakdown &&
-                      /* @ts-ignore */
-                      Object.values(latestAiDecision.breakdown).map((factor: any, i: number) => (
-                        <div
-                          key={i}
-                          className="bg-[#121722] border border-[#1E293B] rounded p-2 flex items-center justify-between text-xs"
-                        >
-                          <div>
-                            <span className="font-semibold text-slate-200">{factor.name}</span>
-                            <p className="text-[10px] text-slate-400">{factor.explanation}</p>
-                          </div>
-                          <span className="font-mono font-bold text-indigo-300 ml-2">
-                            +{factor.score} pts
-                          </span>
-                        </div>
-                      ))}
+                  <div className="bg-[#121722] border border-[#1E293B] rounded p-3 text-xs text-slate-300 space-y-1 font-sans">
+                    <p className="font-semibold text-white">Institutional Scan Summary:</p>
+                    <p>• Active Zones: {selectedPair.activeOBs} Order Blocks</p>
+                    <p>• OB Width: {selectedPair.obWidthPct ? `${selectedPair.obWidthPct.toFixed(2)}%` : 'N/A'}</p>
+                    <p>• Status: {selectedPair.status}</p>
                   </div>
                 </div>
               ) : (
                 <div className="text-center py-8 text-slate-500 text-xs">
                   <Info className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-                  No AI evaluation recorded yet for this session.
+                  AI details unavailable for this scan
                 </div>
               )}
             </motion.div>

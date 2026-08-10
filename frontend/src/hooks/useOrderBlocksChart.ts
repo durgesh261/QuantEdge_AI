@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { OrderBlockDto } from '@algoapp/shared';
 import { indicatorApi } from '../services/api';
 import { chartWebSocketService } from '../services/ChartWebSocketService';
@@ -46,9 +46,9 @@ export function useOrderBlocksChart(symbol: string) {
     };
   }, [symbol]);
 
-  const activeBullishOBs = orderBlocks.filter(ob => ob.type === 'BULLISH' && !ob.isMitigated && !ob.isUsed);
-  const activeBearishOBs = orderBlocks.filter(ob => ob.type === 'BEARISH' && !ob.isMitigated && !ob.isUsed);
-  const mitigatedOBs = orderBlocks.filter(ob => ob.isMitigated || ob.isUsed);
+  const activeBullishOBs = (orderBlocks || []).filter(ob => (ob.type === 'BULLISH' || (ob.type as string) === 'DEMAND') && !ob.isMitigated && !ob.isUsed);
+  const activeBearishOBs = (orderBlocks || []).filter(ob => (ob.type === 'BEARISH' || (ob.type as string) === 'SUPPLY') && !ob.isMitigated && !ob.isUsed);
+  const mitigatedOBs = (orderBlocks || []).filter(ob => ob.isMitigated || ob.isUsed);
 
   const nearestBullishOB = [...activeBullishOBs].sort((a, b) => b.upperPrice - a.upperPrice)[0] || null;
   const nearestBearishOB = [...activeBearishOBs].sort((a, b) => a.lowerPrice - b.lowerPrice)[0] || null;

@@ -3,16 +3,35 @@ import { OrderBlockService } from '../modules/scanner/services/orderBlock.servic
 
 const router = Router();
 
+import { CandleStoreService } from '../modules/market-data/services/candleStore.service.js';
+import { IndicatorEngineService } from '../modules/indicator-engine/services/indicatorEngine.service.js';
+
 // GET /api/v1/order-blocks?symbol=BTCUSD.P
-router.get('/', (req, res) => {
-  const { symbol } = req.query;
+router.get('/', async (req, res) => {
+  const symbol = (req.query.symbol as string) || '';
   
   if (symbol) {
-    const blocks = OrderBlockService.getBlocksForSymbol(symbol as string);
+    let blocks = OrderBlockService.getBlocksForSymbol(symbol);
+
+    if (!blocks || blocks.length === 0) {
+      try {
+        const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
+        if (candles.length >= 10) {
+          const indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
+          const validOBs = (indicators.orderBlocks || []).filter(
+            (ob: any) => !ob.isMitigated && !ob.isInvalidated && !ob.isUsed
+          );
+          blocks = OrderBlockService.syncFromIndicators(symbol, validOBs, indicators.zoneScores);
+        }
+      } catch (err) {
+        // Fallback silently if candles fail
+      }
+    }
+
     res.json({ 
       success: true, 
-      data: blocks,
-      meta: { symbol, count: blocks.length, scannedAt: new Date().toISOString() }
+      data: blocks || [],
+      meta: { symbol, count: (blocks || []).length, scannedAt: new Date().toISOString() }
     });
     return;
   }

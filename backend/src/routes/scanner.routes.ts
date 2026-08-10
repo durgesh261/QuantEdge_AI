@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { ScannerEngine } from '../modules/scanner/services/scannerEngine.service.js';
+import { deltaSyncService } from '../modules/delta-exchange/index.js';
 import { prisma } from '../db.js';
 
 const router = Router();
@@ -28,9 +29,11 @@ router.get('/state', async (_req, res) => {
       take: 50,
     });
 
+    const isDeltaConnected = deltaSyncService.isConnected();
+
     res.json({
       success: true,
-      data: { global: state, pairs, signals },
+      data: { global: state, pairs, signals, isDeltaConnected },
     });
   } catch (err: any) {
     console.error('[ScannerRoutes] GET /state error:', err);
@@ -44,15 +47,19 @@ router.post('/control', async (req, res): Promise<any> => {
   try {
     switch (action) {
       case 'PAUSE_ALL':
+      case 'pause':
         await ScannerEngine.globalPause();
         break;
       case 'RESUME_ALL':
+      case 'resume':
         await ScannerEngine.globalResume();
         break;
       case 'STOP_ALL':
+      case 'stop':
         await ScannerEngine.globalStop();
         break;
       case 'START_ALL':
+      case 'start':
         await ScannerEngine.globalStart();
         break;
       default:
@@ -71,13 +78,20 @@ router.post('/pair/:symbol/control', async (req, res): Promise<any> => {
   const { action } = req.body;
   try {
     switch (action) {
+      case 'START':
+      case 'START_PAIR':
+        await ScannerEngine.startPair(symbol);
+        break;
       case 'PAUSE':
+      case 'PAUSE_PAIR':
         await ScannerEngine.pausePair(symbol);
         break;
       case 'RESUME':
+      case 'RESUME_PAIR':
         await ScannerEngine.resumePair(symbol);
         break;
       case 'STOP':
+      case 'STOP_PAIR':
         await ScannerEngine.stopPair(symbol);
         break;
       case 'INSPECT':

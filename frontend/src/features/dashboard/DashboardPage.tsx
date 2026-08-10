@@ -47,7 +47,7 @@ export const DashboardPage: React.FC = () => {
   const { data: summary, isLoading: isSummaryLoading, refetch } = usePortfolioSummary();
   const { placeOrder } = useOrders();
   const { sendControl } = useScannerSocket();
-  const { global } = useScannerStore();
+  const { global, pairs } = useScannerStore();
 
   const wallet = summary?.wallet;
   const positions = summary?.positions?.items || [];
@@ -490,21 +490,90 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* PRE-TRADE RISK CONFIRMATION MODAL */}
-      <PreTradeRiskModal
-        isOpen={showPreTradeModal}
-        onClose={() => setShowPreTradeModal(false)}
-        onConfirm={() => void handlePreTradeSubmit()}
-        tradeDetails={{
+      {(() => {
+        const activePosition = positions.find((p: any) => p.symbol === activeSymbol || p.symbol === `${activeSymbol}.P`) || positions[0];
+        const activeOrder = orders.find((o: any) => o.symbol === activeSymbol || o.symbol === `${activeSymbol}.P`) || orders[0];
+        const scannerPair = (pairs || []).find((p: any) => p.symbol === activeSymbol || p.symbol === `${activeSymbol}.P`);
+
+        let modalTradeDetails = {
           symbol: activeSymbol,
-          side: 'LONG',
-          decision: latestDecision?.decisionState ?? 'EXECUTE',
-          confidence: latestDecision?.confidenceScore ?? 92.5,
-          quantity: 1, // Defaulting to 1 for this static demo integration
-          marginRequired: 50, // Static demo value, could be fetched
-          notional: 5000,
-          riskPercent: 1.5,
-        }}
-      />
+          side: 'LONG' as 'LONG' | 'SHORT',
+          decision: 'NO_ACTIVE_POSITION',
+          confidence: 0,
+          quantity: 0,
+          marginRequired: 0,
+          notional: 0,
+          riskPercent: 0,
+        };
+
+        if (activePosition) {
+          const posSize = Math.abs(activePosition.size || 0);
+          const entryPrice = activePosition.entryPrice || 0;
+          const posMargin = activePosition.margin || 0;
+          const notionalVal = posSize * entryPrice;
+          const equity = wallet?.totalEquity || 0;
+
+          modalTradeDetails = {
+            symbol: activePosition.symbol || activeSymbol,
+            side: activePosition.side === 'sell' ? 'SHORT' : 'LONG',
+            decision: 'OPEN_POSITION',
+            confidence: latestDecision?.confidenceScore ?? (scannerPair?.aiScore ?? 85),
+            quantity: posSize,
+            marginRequired: posMargin > 0 ? posMargin : (notionalVal / 50),
+            notional: notionalVal,
+            riskPercent: equity > 0 ? Number(((posMargin / equity) * 100).toFixed(1)) : 1.5,
+          };
+        } else if (activeOrder) {
+          const orderSize = Math.abs(activeOrder.size || 0);
+          const orderPrice = activeOrder.price || 0;
+          const notionalVal = orderSize * orderPrice;
+          const estMargin = notionalVal / 50;
+          const equity = wallet?.totalEquity || 0;
+
+          modalTradeDetails = {
+            symbol: activeOrder.symbol || activeSymbol,
+            side: activeOrder.side === 'sell' ? 'SHORT' : 'LONG',
+            decision: 'PENDING_ORDER',
+            confidence: latestDecision?.confidenceScore ?? (scannerPair?.aiScore ?? 85),
+            quantity: orderSize,
+            marginRequired: estMargin,
+            notional: notionalVal,
+            riskPercent: equity > 0 ? Number(((estMargin / equity) * 100).toFixed(1)) : 1.5,
+          };
+        } else if (latestDecision) {
+          const conf = latestDecision.confidenceScore ?? 0;
+          modalTradeDetails = {
+            symbol: latestDecision.symbol || activeSymbol,
+            side: latestDecision.outcome === 'SELL' ? 'SHORT' : 'LONG',
+            decision: latestDecision.decisionState || 'EVALUATED',
+            confidence: conf,
+            quantity: latestDecision.positionSize || 0,
+            marginRequired: 0,
+            notional: (latestDecision.positionSize || 0) * (latestDecision.entryPrice || 0),
+            riskPercent: latestDecision.riskPercent || 0,
+          };
+        } else if (scannerPair) {
+          modalTradeDetails = {
+            symbol: scannerPair.symbol,
+            side: 'LONG',
+            decision: scannerPair.status || 'SCANNING',
+            confidence: scannerPair.aiScore ?? 0,
+            quantity: 0,
+            marginRequired: 0,
+            notional: 0,
+            riskPercent: 0,
+          };
+        }
+
+        return (
+          <PreTradeRiskModal
+            isOpen={showPreTradeModal}
+            onClose={() => setShowPreTradeModal(false)}
+            onConfirm={() => void handlePreTradeSubmit()}
+            tradeDetails={modalTradeDetails}
+          />
+        );
+      })()}
 
       {/* END-OF-DAY CLOSING REPORT MODAL */}
       {showEodReport && (

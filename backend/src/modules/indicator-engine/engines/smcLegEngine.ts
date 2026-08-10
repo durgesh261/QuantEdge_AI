@@ -355,9 +355,15 @@ export class SmcLegEngine {
   // ============================================================
   // storeOrderBlock — Pine Script storeOrderBlock()
   //
-  // For BULLISH BOS: find bar with min(parsedLow) in [legStart..breakIdx)
-  // For BEARISH BOS: find bar with max(parsedHigh) in [legStart..breakIdx)
-  // OB high/low = parsedHigh/parsedLow at that bar
+  // LuxAlgo SMC OB zone definition:
+  //   BULLISH OB (Demand): last bearish candle before BOS break.
+  //     Search backwards from breakIdx for a down-candle (close < open).
+  //     Zone: low (bottom) to high (top).  Body top = open = lower bound.
+  //   BEARISH OB (Supply): last bullish candle before BOS break.
+  //     Search backwards from breakIdx for an up-candle (close > open).
+  //     Zone: low (bottom) to high (top).  Body bottom = open = upper bound.
+  //
+  // This matches what the TradingView LuxAlgo SMC script draws.
   // Volatility filter: skip if (high-low) >= 2 * ATR(200)
   // ============================================================
   private static storeOrderBlock(
@@ -377,31 +383,53 @@ export class SmcLegEngine {
     const end   = Math.min(breakIdx, candles.length - 1);
     if (start >= end) return;
 
-    let obBarIdx: number;
+    // Search window: look back up to 10 bars before the break for the last opposite-color candle
+    const searchStart = Math.max(start, end - 10);
+    let obBarIdx = -1;
 
     if (bias === 'BULLISH') {
-      let minVal = Infinity;
-      let minIdx = start;
-      for (let k = start; k < end; k++) {
-        if (parsedLows[k]! < minVal) { minVal = parsedLows[k]!; minIdx = k; }
+      // Demand OB: find the last BEARISH candle (close < open) before the break
+      for (let k = end - 1; k >= searchStart; k--) {
+        if (candles[k]!.close < candles[k]!.open) {
+          obBarIdx = k;
+          break;
+        }
       }
-      obBarIdx = minIdx;
+      // Fallback: if no bearish candle found, use the candle with lowest low in the range
+      if (obBarIdx === -1) {
+        let minVal = Infinity;
+        for (let k = searchStart; k < end; k++) {
+          if (parsedLows[k]! < minVal) { minVal = parsedLows[k]!; obBarIdx = k; }
+        }
+      }
     } else {
-      let maxVal = -Infinity;
-      let maxIdx = start;
-      for (let k = start; k < end; k++) {
-        if (parsedHighs[k]! > maxVal) { maxVal = parsedHighs[k]!; maxIdx = k; }
+      // Supply OB: find the last BULLISH candle (close > open) before the break
+      for (let k = end - 1; k >= searchStart; k--) {
+        if (candles[k]!.close > candles[k]!.open) {
+          obBarIdx = k;
+          break;
+        }
       }
-      obBarIdx = maxIdx;
+      // Fallback: if no bullish candle found, use the candle with highest high in the range
+      if (obBarIdx === -1) {
+        let maxVal = -Infinity;
+        for (let k = searchStart; k < end; k++) {
+          if (parsedHighs[k]! > maxVal) { maxVal = parsedHighs[k]!; obBarIdx = k; }
+        }
+      }
     }
 
+    if (obBarIdx === -1) return;
+
     const obCandle    = candles[obBarIdx]!;
-    const upperPrice  = Number(parsedHighs[obBarIdx]!.toFixed(4));
-    const lowerPrice  = Number(parsedLows[obBarIdx]!.toFixed(4));
     const candleRange = obCandle.high - obCandle.low;
 
     // LuxAlgo volatility filter
     if (atr200 > 0 && candleRange >= 2 * atr200) return;
+
+    // OB zone = full candle range (high to low), matching TradingView LuxAlgo box
+    const upperPrice = Number(obCandle.high.toFixed(4));
+    const lowerPrice = Number(obCandle.low.toFixed(4));
 
     const source = isInternal ? 'PAT' : 'SMC';
     const prefix = isInternal ? 'INT' : 'SWG';

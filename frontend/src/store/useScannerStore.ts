@@ -28,11 +28,13 @@ interface ScannerState {
   global: ScannerGlobal | null;
   pairs: ScannerPair[];
   signals: any[];
+  isDeltaConnected: boolean;
   isLoading: boolean;
 
-  setState: (global: ScannerGlobal, pairs: ScannerPair[], signals: any[]) => void;
+  setState: (global: ScannerGlobal, pairs: ScannerPair[], signals: any[], isDeltaConnected?: boolean) => void;
   updatePair: (symbol: string, data: Partial<ScannerPair>) => void;
   updateGlobal: (data: Partial<ScannerGlobal>) => void;
+  setDeltaConnected: (connected: boolean) => void;
   setLoading: (loading: boolean) => void;
 }
 
@@ -40,10 +42,11 @@ export const useScannerStore = create<ScannerState>((set, _get) => ({
   global: null,
   pairs: [],
   signals: [],
+  isDeltaConnected: false,
   isLoading: true,
 
-  setState: (global, pairs, signals) =>
-    set({ global, pairs, signals, isLoading: false }),
+  setState: (global, pairs, signals, isDeltaConnected = false) =>
+    set({ global, pairs, signals, isDeltaConnected, isLoading: false }),
 
   updatePair: (symbol, data) =>
     set((state) => ({
@@ -57,6 +60,8 @@ export const useScannerStore = create<ScannerState>((set, _get) => ({
         global: { ...state.global, ...data },
       };
     }),
+
+  setDeltaConnected: (isDeltaConnected) => set({ isDeltaConnected }),
 
   setLoading: (isLoading) => set({ isLoading }),
 }));

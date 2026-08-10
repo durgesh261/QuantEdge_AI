@@ -306,37 +306,42 @@ const LiveTradingPageInner: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
-                {orderBlocks.map((ob) => (
-                  <div 
-                    key={ob.id} 
-                    className={`bg-[#0B0E14] border rounded-lg p-3 ${
-                      ob.type === 'DEMAND' ? 'border-[#00C896]/30' : 'border-[#F6465D]/30'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-[9px] font-bold uppercase ${
-                        ob.type === 'DEMAND' ? 'text-[#00C896]' : 'text-[#F6465D]'
-                      }`}>
-                        {ob.type}
-                      </span>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-[9px] text-[#64748B]">{ob.freshness}% fresh</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
-                          ob.aiScore >= 85 ? 'bg-[#00C896]/20 text-[#00C896]' : 'bg-[#F59E0B]/20 text-[#F59E0B]'
+                {orderBlocks.map((ob) => {
+                  const isDemand = ob.type === 'DEMAND' || (ob.type as string) === 'BULLISH';
+                  const lowPrice = ob.priceLow || (ob as any).lowerPrice || 0;
+                  const highPrice = ob.priceHigh || (ob as any).upperPrice || 0;
+                  return (
+                    <div 
+                      key={ob.id} 
+                      className={`bg-[#0B0E14] border rounded-lg p-3 ${
+                        isDemand ? 'border-[#00C896]/30' : 'border-[#F6465D]/30'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-[9px] font-bold uppercase ${
+                          isDemand ? 'text-[#00C896]' : 'text-[#F6465D]'
                         }`}>
-                          AI {ob.aiScore}
+                          {isDemand ? 'DEMAND (BUY ZONE)' : 'SUPPLY (SELL ZONE)'}
                         </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[9px] text-[#64748B]">{ob.freshness ?? 100}% fresh</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${
+                            ob.aiScore >= 85 ? 'bg-[#00C896]/20 text-[#00C896]' : 'bg-[#F59E0B]/20 text-[#F59E0B]'
+                          }`}>
+                            AI {ob.aiScore}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-[11px] font-mono font-bold text-[#F8FAFC] mb-1">
+                        ${lowPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })} — ${highPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </div>
+                      <div className="flex items-center space-x-3 text-[9px] text-[#64748B]">
+                        <span>Strength: {ob.strength ?? 80}</span>
+                        <span>Touches: {ob.touches ?? 0}</span>
                       </div>
                     </div>
-                    <div className="text-[11px] font-mono font-bold text-[#F8FAFC] mb-1">
-                      {ob.priceLow.toFixed(2)} — {ob.priceHigh.toFixed(2)}
-                    </div>
-                    <div className="flex items-center space-x-3 text-[9px] text-[#64748B]">
-                      <span>Strength: {ob.strength}</span>
-                      <span>Touches: {ob.touches}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

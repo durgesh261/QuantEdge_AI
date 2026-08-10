@@ -55,17 +55,18 @@ export class SmcZoneEngine {
       const breakIdx = evt.confirmationCandleIndex;
       if (breakIdx <= 0 || breakIdx >= candles.length) continue;
 
-      const searchStart = Math.max(0, breakIdx - 5);
+      const searchStart = Math.max(0, breakIdx - 10);
 
       if (evt.direction === 'BULLISH') {
-        // Find last down-candle before the break
+        // Demand OB: find last BEARISH candle (close < open) before the break
         let baseCandleIdx = -1;
         for (let k = breakIdx - 1; k >= searchStart; k--) {
-          if (candles[k]!.close <= candles[k]!.open) {
+          if (candles[k]!.close < candles[k]!.open) {
             baseCandleIdx = k;
             break;
           }
         }
+        // Fallback: use bar just before break
         if (baseCandleIdx === -1) baseCandleIdx = Math.max(0, breakIdx - 1);
 
         const baseCandle = candles[baseCandleIdx]!;
@@ -74,6 +75,7 @@ export class SmcZoneEngine {
         // LuxAlgo Volatility filter: discard outsized anomaly bars
         if (candleRange >= 2.0 * atr200 && atr200 > 0) continue;
 
+        // OB zone = full candle range (high to low), matching TradingView LuxAlgo box
         const upperPrice = Number(baseCandle.high.toFixed(4));
         const lowerPrice = Number(baseCandle.low.toFixed(4));
         const width = Number((upperPrice - lowerPrice).toFixed(4));
@@ -138,14 +140,15 @@ export class SmcZoneEngine {
           });
         }
       } else {
-        // Find last up-candle before the break
+        // Supply OB: find last BULLISH candle (close > open) before the break
         let baseCandleIdx = -1;
         for (let k = breakIdx - 1; k >= searchStart; k--) {
-          if (candles[k]!.close >= candles[k]!.open) {
+          if (candles[k]!.close > candles[k]!.open) {
             baseCandleIdx = k;
             break;
           }
         }
+        // Fallback: use bar just before break
         if (baseCandleIdx === -1) baseCandleIdx = Math.max(0, breakIdx - 1);
 
         const baseCandle = candles[baseCandleIdx]!;
@@ -154,6 +157,7 @@ export class SmcZoneEngine {
         // Volatility filter
         if (candleRange >= 2.0 * atr200 && atr200 > 0) continue;
 
+        // OB zone = full candle range (high to low), matching TradingView LuxAlgo box
         const upperPrice = Number(baseCandle.high.toFixed(4));
         const lowerPrice = Number(baseCandle.low.toFixed(4));
         const width = Number((upperPrice - lowerPrice).toFixed(4));

@@ -142,6 +142,53 @@ export class OrderBlockService {
     return candles.reduce((sum, c) => sum + ((c.high + c.low) / 2), 0) / candles.length;
   }
 
+  static setBlocks(symbol: string, blocks: OrderBlock[]): void {
+    this.orderBlocks.set(symbol, blocks);
+  }
+
+  static syncFromIndicators(symbol: string, rawOBs: any[], zoneScores: any = {}): OrderBlock[] {
+    const formatted: OrderBlock[] = (rawOBs || []).map((ob: any, idx: number) => {
+      const isDemand = ob.type === 'DEMAND' || ob.type === 'BULLISH' || ob.type === 'DEMAND_ZONE';
+      const low = ob.lowerPrice ?? ob.priceLow ?? ob.low ?? ob.bottom ?? 0;
+      const high = ob.upperPrice ?? ob.priceHigh ?? ob.high ?? ob.top ?? 0;
+      const score = zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
+                 ?? zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
+                 ?? ob.aiScore
+                 ?? ob.score
+                 ?? 78;
+
+      return {
+        id: ob.id || `ob-${symbol}-${idx}`,
+        symbol,
+        type: isDemand ? 'DEMAND' : 'SUPPLY',
+        priceLow: Number(low),
+        priceHigh: Number(high),
+        strength: ob.strength ?? 80,
+        touches: ob.touches ?? 0,
+        freshness: ob.freshness ?? 100,
+        volume: ob.volume ?? 0,
+        createdAt: ob.createdAt || new Date().toISOString(),
+        timeframe: ob.timeframe || '1H',
+        isActive: true,
+        aiScore: score,
+        factors: ob.factors || {
+          volumeImbalance: true,
+          fairValueGap: true,
+          breakerBlock: false,
+          mitigation: false,
+          institutionalCandle: true,
+          liquiditySweep: true,
+          premiumDiscount: true,
+          orderFlowDelta: true,
+          timeAlignment: true,
+        },
+      };
+    });
+
+    this.orderBlocks.set(symbol, formatted);
+    return formatted;
+  }
+
   static getBlocksForSymbol(symbol: string): OrderBlock[] {
     return this.orderBlocks.get(symbol) || [];
   }

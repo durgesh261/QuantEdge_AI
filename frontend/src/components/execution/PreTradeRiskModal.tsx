@@ -94,12 +94,20 @@ export function PreTradeRiskModal({
               </span>
             </Row>
             <Row label="Decision State">
-              <span className={`font-mono font-bold ${tradeDetails.decision === 'EXECUTE' ? 'text-[#00C896]' : 'text-[#F59E0B]'}`}>
+              <span className={`font-mono font-bold ${
+                tradeDetails.decision === 'OPEN_POSITION' || tradeDetails.decision === 'EXECUTE' || tradeDetails.decision === 'APPROVED'
+                  ? 'text-[#00C896]'
+                  : tradeDetails.decision === 'PENDING_ORDER'
+                  ? 'text-[#F59E0B]'
+                  : 'text-[#94A3B8]'
+              }`}>
                 {tradeDetails.decision}
               </span>
             </Row>
             <Row label="Confidence">
-              <span className="font-mono font-bold text-[#3B82F6]">{tradeDetails.confidence.toFixed(1)}%</span>
+              <span className="font-mono font-bold text-[#3B82F6]">
+                {tradeDetails.confidence > 0 ? `${tradeDetails.confidence.toFixed(1)}%` : '---'}
+              </span>
             </Row>
             <Row label="Notional">
               <span className="font-mono text-[#94A3B8]">{fmt(tradeDetails.notional)}</span>
@@ -168,19 +176,21 @@ export function PreTradeRiskModal({
                   </Row>
                 </div>
 
-                {/* Per-asset balances */}
-                {balances.length > 0 && (
-                  <div className="border-t border-[#1E293B] pt-2 mt-1 space-y-1">
-                    <p className="text-[9px] font-bold text-[#64748B] uppercase tracking-wider mb-1">Wallet Balances</p>
-                    {balances.map((b) => (
-                      <div key={b.asset} className="flex justify-between text-[9px]">
-                        <span className="text-[#64748B]">{b.asset}</span>
-                        <span className="font-mono text-[#F8FAFC]">
-                          {b.balance.toFixed(4)}&nbsp;
-                          <span className="text-[#64748B]">(avail {b.available.toFixed(4)})</span>
-                        </span>
-                      </div>
-                    ))}
+                {/* Per-asset balances (USD / non-zero assets only) */}
+                {balances.filter((b) => b.balance > 0 || b.asset === 'USD').length > 0 && (
+                  <div className="border-t border-[#1E293B] pt-2 mt-2 space-y-1">
+                    <p className="text-[9px] font-bold text-[#64748B] uppercase tracking-wider">Wallet Balances</p>
+                    {balances
+                      .filter((b) => b.balance > 0 || b.asset === 'USD')
+                      .map((b) => (
+                        <div key={b.asset} className="flex justify-between text-[10px] font-mono">
+                          <span className="text-[#94A3B8]">{b.asset}</span>
+                          <span className="text-[#F8FAFC]">
+                            {b.balance.toFixed(4)}{' '}
+                            <span className="text-[#64748B]">(avail {b.available.toFixed(4)})</span>
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 )}
               </>
@@ -202,18 +212,22 @@ export function PreTradeRiskModal({
         {/* ── Footer ─────────────────────────────────────────── */}
         <div className="px-5 py-4 border-t border-[#1E293B]">
           <button
-            onClick={onConfirm}
-            disabled={insufficientMargin || loading || isConfirming}
+            onClick={tradeDetails.decision === 'OPEN_POSITION' || tradeDetails.decision === 'NO_ACTIVE_POSITION' ? onClose : onConfirm}
+            disabled={(insufficientMargin || loading || isConfirming) && tradeDetails.decision !== 'OPEN_POSITION' && tradeDetails.decision !== 'NO_ACTIVE_POSITION'}
             className={`w-full py-2.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-              insufficientMargin || loading || isConfirming
+              (insufficientMargin || loading || isConfirming) && tradeDetails.decision !== 'OPEN_POSITION' && tradeDetails.decision !== 'NO_ACTIVE_POSITION'
                 ? 'bg-[#1E293B] text-[#64748B] cursor-not-allowed'
                 : 'bg-[#00C896] text-[#0B0E14] hover:bg-[#00C896]/90 active:scale-[0.98]'
             }`}
           >
             {isConfirming
               ? 'TRANSMITTING TO DELTA…'
-              : insufficientMargin
+              : insufficientMargin && tradeDetails.decision !== 'OPEN_POSITION' && tradeDetails.decision !== 'NO_ACTIVE_POSITION'
               ? 'INSUFFICIENT MARGIN'
+              : tradeDetails.decision === 'OPEN_POSITION'
+              ? 'POSITION ACTIVE — CLOSE WINDOW'
+              : tradeDetails.decision === 'NO_ACTIVE_POSITION'
+              ? 'CLOSE WINDOW'
               : 'Confirm and Submit Order'}
           </button>
         </div>

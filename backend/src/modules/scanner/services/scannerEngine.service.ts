@@ -1,4 +1,5 @@
-﻿import { Server } from 'socket.io';
+import { OrderBlockService } from './orderBlock.service.js';
+import { Server } from 'socket.io';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
 import { CandleStoreService } from '../../market-data/services/candleStore.service.js';
@@ -31,10 +32,13 @@ export class ScannerEngine {
         data: {
           isRunning: false,
           isPaused: false,
-          
-          
         },
       });
+    } else {
+      const state = await prisma.scannerState.findFirst();
+      if (state?.isRunning && !state?.isPaused) {
+        this.start();
+      }
     }
   }
 
@@ -136,6 +140,14 @@ export class ScannerEngine {
         data: { signalsTriggered: { increment: 1 }, lastSignalAt: new Date() },
       });
 
+      const globalState = await prisma.scannerState.findFirst();
+      if (globalState) {
+        await prisma.scannerState.update({
+          where: { id: globalState.id },
+          data: { signalsTotal: { increment: 1 } },
+        });
+      }
+
       await this.feedStrategyEngine(symbol, ticker.price, bestScore, bestOB, indicators);
 
       this.io?.of('/scanner').emit('signal', {
@@ -150,30 +162,33 @@ export class ScannerEngine {
 
   private static async processPair(symbol: string) {
     const ticker = await this.fetchDeltaTicker(symbol);
-    if (!ticker) return null;
-
-    await prisma.scannerPair.update({
-      where: { symbol },
-      data: {
-        livePrice: ticker.price,
-        priceChange24h: ticker.change_24h,
-        lastTickAt: new Date(),
-        ticksProcessed: { increment: 1 },
-      },
-    });
-
-    await prisma.scannerTick.create({
-      data: { symbol, price: ticker.price, source: 'delta' },
-    });
+    if (!ticker) {
+      // If ticker fails, update pair status without breaking
+      await prisma.scannerPair.update({
+        where: { symbol },
+        data: { lastTickAt: new Date() },
+      }).catch(() => {});
+      return null;
+    }
 
     let activeOBs = 0;
     let obWidthPct: number | null = null;
     let bestScore: number | null = null;
     let bestOB: any = null;
     let indicators: any = null;
+    let priceChange24h = ticker.change_24h || 0;
 
     try {
       const candles = await CandleStoreService.getCandles(symbol, '1H', 200);
+      if (candles.length >= 2 && priceChange24h === 0) {
+        const slice = candles.slice(-24);
+        const first = slice[0]!;
+        const last = slice[slice.length - 1]!;
+        if (first.open && first.open > 0) {
+          priceChange24h = Number((((last.close - first.open) / first.open) * 100).toFixed(2));
+        }
+      }
+
       if (candles.length >= 10) {
         indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
@@ -183,18 +198,21 @@ export class ScannerEngine {
         activeOBs = validOBs.length;
 
         if (activeOBs > 0) {
-          const avgWidth = validOBs.reduce((sum: number, b: any) => sum + b.widthPercent, 0) / activeOBs;
+          OrderBlockService.syncFromIndicators(symbol, validOBs, indicators.zoneScores);
+          const avgWidth = validOBs.reduce((sum: number, b: any) => sum + (b.widthPercent || 0.25), 0) / activeOBs;
           obWidthPct = Number(avgWidth.toFixed(3));
           
           const result = validOBs.reduce((best: any, ob: any) => {
             const score = indicators.zoneScores[`ZONE-SUP-${ob.id}`]?.totalScore
                        ?? indicators.zoneScores[`ZONE-DEM-${ob.id}`]?.totalScore
-                       ?? 70;
+                       ?? 78;
             return score > (best.score ?? 0) ? { ob, score } : best;
           }, {} as { ob?: any; score?: number });
           
           bestScore = result.score ?? null;
           bestOB = result.ob ?? null;
+        } else {
+          OrderBlockService.setBlocks(symbol, []);
         }
       }
     } catch (obErr) {
@@ -203,7 +221,19 @@ export class ScannerEngine {
 
     const updatedPair = await prisma.scannerPair.update({
       where: { symbol },
-      data: { activeOBs, obWidthPct, aiScore: bestScore },
+      data: {
+        livePrice: ticker.price,
+        priceChange24h,
+        activeOBs,
+        obWidthPct,
+        aiScore: bestScore,
+        lastTickAt: new Date(),
+        ticksProcessed: { increment: 1 },
+      },
+    });
+
+    await prisma.scannerTick.create({
+      data: { symbol, price: ticker.price, source: 'delta' },
     });
 
     await this.incrementGlobalTicks();
@@ -211,7 +241,7 @@ export class ScannerEngine {
     this.io?.of('/scanner').emit('tick', {
       symbol,
       price: ticker.price,
-      change24h: ticker.change_24h,
+      change24h: updatedPair.priceChange24h,
       activeOBs: updatedPair.activeOBs,
       obWidthPct: updatedPair.obWidthPct,
       aiScore: updatedPair.aiScore,
@@ -270,6 +300,18 @@ export class ScannerEngine {
           takeProfitPrice: decision.takeProfitPrice,
         });
 
+        const globalState = await prisma.scannerState.findFirst();
+        if (globalState) {
+          await prisma.scannerState.update({
+            where: { id: globalState.id },
+            data: { tradesTotal: { increment: 1 } },
+          });
+        }
+        await prisma.scannerPair.update({
+          where: { symbol },
+          data: { tradesExecuted: { increment: 1 } },
+        });
+
         // Mark the OB as USED (Phase 2 rule)
         const { OrderBlockWidthEngine } = await import('../../indicator-engine/engines/orderBlockWidthEngine.js');
         OrderBlockWidthEngine.markUsed(bestOB.id);
@@ -284,11 +326,28 @@ export class ScannerEngine {
 
   private static async fetchDeltaTicker(symbol: string) {
     try {
+      const deltaSymbol = symbol.replace('.P', '');
       const restClient = deltaSyncService.getRestClient();
-      const product = restClient.getProduct(symbol);
-      if (!product) return null;
-      const tData = await restClient.getTicker(symbol);
-      return { price: parseFloat(tData.mark_price), change_24h: 0 };
+      if (restClient.isConfigured()) {
+        try {
+          const tData = await restClient.getTicker(deltaSymbol);
+          if (tData?.mark_price || tData?.close || tData?.spot_price) {
+            const p = parseFloat(tData.close || tData.mark_price || tData.spot_price);
+            if (!isNaN(p) && p > 0) {
+              return { price: p, change_24h: parseFloat(tData.change_24h || '0') };
+            }
+          }
+        } catch {
+          // ignore REST client error and try MarketSnapshotService
+        }
+      }
+
+      const { MarketSnapshotService } = await import('../../market-data/services/marketSnapshot.service.js');
+      const snap = await MarketSnapshotService.getSnapshot(symbol);
+      if (snap && snap.currentPrice > 0) {
+        return { price: snap.currentPrice, change_24h: 0 };
+      }
+      return null;
     } catch {
       return null;
     }
@@ -300,12 +359,20 @@ export class ScannerEngine {
       if (globalState) {
         await prisma.scannerState.update({
           where: { id: globalState.id },
-          data: {},
+          data: { ticksTotal: { increment: 1 } },
         });
       }
     } catch (e) {
       // ignore
     }
+  }
+
+  static async startPair(symbol: string) {
+    await prisma.scannerPair.update({
+      where: { symbol },
+      data: { isActive: true, isPaused: false, status: 'ENGINE' },
+    });
+    this.io?.of('/scanner').emit('control', { action: 'START_PAIR', symbol });
   }
 
   static async pausePair(symbol: string) {

@@ -33,14 +33,15 @@ export function useScannerSocket() {
         setState(
           dataObj.global || FALLBACK_GLOBAL,
           dataObj.pairs?.length ? dataObj.pairs : FALLBACK_PAIRS,
-          dataObj.signals || []
+          dataObj.signals || [],
+          dataObj.isDeltaConnected ?? false
         );
       } else {
         throw new Error('Invalid response');
       }
     } catch (err) {
       console.error('[ScannerSocket] Fetch failed:', err);
-      setState(FALLBACK_GLOBAL, FALLBACK_PAIRS, []);
+      setState(FALLBACK_GLOBAL, FALLBACK_PAIRS, [], false);
     } finally {
       setLoading(false);
     }
