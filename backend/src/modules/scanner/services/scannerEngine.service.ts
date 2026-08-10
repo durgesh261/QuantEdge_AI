@@ -197,7 +197,7 @@ export class ScannerEngine {
       await prisma.scannerPair.update({
         where: { symbol },
         data: { lastTickAt: new Date() },
-      }).catch(() => {});
+      }).catch(() => { });
       return null;
     }
 
@@ -426,7 +426,7 @@ export class ScannerEngine {
 
       if (decision.state === 'APPROVED' as any) {
         logger.info(`[Scanner→Execution] Signal APPROVED for ${symbol}. Dispatching order.`);
-        
+
         // Execute the trade (ENTRY_PENDING -> OPEN)
         await executionEngineService.placeOrder({
           symbol,
