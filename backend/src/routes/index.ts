@@ -79,6 +79,7 @@ apiRouter.use('/execution', combinedExecutionRouter);
 apiRouter.use('/tradingview', tradingViewRouter);
 apiRouter.use('/system-integration', systemIntegrationRouter);
 apiRouter.use('/production', productionRouter);
+apiRouter.use('/indicators', indicatorRouter);
 apiRouter.use('/indicator', indicatorRouter);
 apiRouter.use('/indicator-validation', indicatorValidationRouter);
 apiRouter.use('/strategy-profile', strategyProfileRouter);
