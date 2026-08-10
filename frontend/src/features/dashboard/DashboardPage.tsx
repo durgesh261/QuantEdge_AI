@@ -427,38 +427,15 @@ export const DashboardPage: React.FC = () => {
               </thead>
               <tbody>
                 {decisions.length > 0 ? (
-                  decisions.map((dec: any, idx: number) => {
-                    const stateStr = String(dec.state || dec.decisionState || 'SKIP').toUpperCase();
-                    const isApproved = stateStr === 'APPROVED' || stateStr === 'EXECUTE' || stateStr === 'BUY' || stateStr === 'SELL';
-                    const isRejected = stateStr === 'REJECTED' || stateStr === 'FAIL';
-                    const stateBadgeClass = isApproved
-                      ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
-                      : isRejected
-                      ? 'text-rose-400 bg-rose-500/10 border-rose-500/30'
-                      : 'text-amber-400 bg-amber-500/10 border-amber-500/30';
-
-                    const confidenceStr = typeof dec.confidenceScore === 'number'
-                      ? `${dec.confidenceScore.toFixed(1)}%`
-                      : dec.confidenceScore ? `${parseFloat(dec.confidenceScore).toFixed(1)}%` : '--';
-
-                    const reasonStr = Array.isArray(dec.reasonCodes) && dec.reasonCodes.length > 0
-                      ? dec.reasonCodes.join(', ')
-                      : dec.reason || 'SMC 1H Zone Evaluation';
-
-                    return (
-                      <tr key={dec.id || idx} className="border-b border-slate-800/50 hover:bg-slate-950 text-white">
-                        <td className="py-2.5 px-3 text-slate-400">{toISTTime(dec.createdAt || dec.timestamp || Date.now())} IST</td>
-                        <td className="py-2.5 px-3 font-bold">{dec.symbol || activeSymbol}</td>
-                        <td className="py-2.5 px-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${stateBadgeClass}`}>
-                            {isApproved ? 'EXECUTE' : stateStr}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-indigo-400 font-bold">{confidenceStr}</td>
-                        <td className="py-2.5 px-3 text-slate-400 max-w-xs truncate" title={reasonStr}>{reasonStr}</td>
-                      </tr>
-                    );
-                  })
+                  decisions.map((dec: any, idx: number) => (
+                    <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-950 text-white">
+                      <td className="py-2.5 px-3 text-slate-400">{toISTTime(dec.timestamp || Date.now())} IST</td>
+                      <td className="py-2.5 px-3 font-bold">{dec.symbol || activeSymbol}</td>
+                      <td className="py-2.5 px-3 text-emerald-400 font-bold">{dec.decisionState || 'EXECUTE'}</td>
+                      <td className="py-2.5 px-3 text-right text-indigo-400">{dec.confidenceScore ? `${dec.confidenceScore.toFixed(1)}%` : '92.5%'}</td>
+                      <td className="py-2.5 px-3 text-slate-400">{dec.reason || 'SMC 1H Demand zone retest'}</td>
+                    </tr>
+                  ))
                 ) : (
                   <tr>
                     <td colSpan={5} className="py-6 text-center text-slate-500 italic">

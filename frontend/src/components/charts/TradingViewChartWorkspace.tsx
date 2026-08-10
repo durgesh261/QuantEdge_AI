@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { strategyApi, indicatorApi, marketDataApi } from '../../services/api';
+import { strategyApi, indicatorApi } from '../../services/api';
 import { useTerminalStore } from '../../store/useTerminalStore';
-import { Maximize2, Minimize2, TrendingUp, TrendingDown, Layers, Monitor } from 'lucide-react';
+import { Maximize2, Minimize2, TrendingUp, TrendingDown } from 'lucide-react';
 import { useOrderBlocksChart } from '../../hooks/useOrderBlocksChart';
 import { useOrderBlocks } from '../../hooks/useOrderBlocks';
 import { OrderBlockDto } from '@algoapp/shared';
-import { createChart, ColorType, LineStyle, IChartApi, CandlestickSeries } from 'lightweight-charts';
 
 // Strategy §2: ONLY these 4 pairs
 const DELTA_SYMBOL_MAP: Record<string, string> = {
@@ -35,16 +34,11 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
     ? (activeSymbol || initialSymbol) 
     : 'BTCUSD.P';
 
-  const [chartMode, setChartMode] = useState<'NATIVE_SMC' | 'TRADINGVIEW_IFRAME'>('NATIVE_SMC');
+  const widgetContainerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const widgetContainerRef = useRef<HTMLDivElement>(null);
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<IChartApi | null>(null);
-
-  // ── 1. TradingView Iframe Embed ──
+  // ── TradingView Advanced Chart Widget (visualization ONLY per Strategy §5) ──
   useEffect(() => {
-    if (chartMode !== 'TRADINGVIEW_IFRAME') return;
     const container = widgetContainerRef.current;
     if (!container) return;
     container.innerHTML = '';
@@ -62,9 +56,9 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
       style: '1',
       locale: 'en',
       toolbar_bg: '#0B0E14',
-      withdateranges: false,
+      withdateranges: false, // No timeframe switching allowed
       hide_side_toolbar: false,
-      allow_symbol_change: false,
+      allow_symbol_change: false, // Strategy §2: Only 4 pairs
       save_image: true,
       details: true,
       hotlist: false,
@@ -74,15 +68,9 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
 
     container.appendChild(script);
     return () => { container.innerHTML = ''; };
-  }, [currentSymbol, chartMode]);
+  }, [currentSymbol]);
 
-  // ── 2. Live Indicator & Candle Data ──
-  const { data: candlesRes } = useQuery({
-    queryKey: ['marketCandles', currentSymbol],
-    queryFn: () => marketDataApi.getCandles(currentSymbol, '1H', 300),
-    refetchInterval: 10_000,
-  });
-
+  // ── Live Zones & Signals from BACKEND (not TradingView) ──
   const { data: signalsData } = useQuery({
     queryKey: ['signals', currentSymbol],
     queryFn: () => strategyApi.getSignals(),
@@ -93,8 +81,8 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
   const { data: indicatorRes } = useQuery({
     queryKey: ['indicator-engine', currentSymbol],
     queryFn: () => indicatorApi.evaluate(currentSymbol, '1H'),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
+    refetchInterval: 15_000,
+    staleTime: 10_000,
   });
 
   const indicators = indicatorRes?.data;
@@ -110,14 +98,17 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
     const rawWidth = Math.max(0.0001, high - low);
     const widthPct = low > 0 ? Number(((rawWidth / Math.max(0.0001, high)) * 100).toFixed(3)) : 0.25;
 
+    // Entry: if width <= 0.6% enter at first edge; otherwise 25% inside
     const entryPrice = isBull
       ? (widthPct <= 0.6 ? high : high - 0.25 * rawWidth)
       : (widthPct <= 0.6 ? low  : low  + 0.25 * rawWidth);
     const stopLossPrice = isBull ? low : high;
 
+    // Rule: 35% account risk → leverage = 35 / slDist%, capped at 100x
     const slDistPct = Math.max(0.01, Math.abs(entryPrice - stopLossPrice) / Math.max(0.0001, entryPrice) * 100);
     const calculatedLeverage = Math.min(100, Math.max(1, Math.round(35 / slDistPct)));
 
+    // TP: 60% account growth → tpDist% = 60 / leverage
     const tpDistPct = 60 / calculatedLeverage;
     const takeProfitPrice = isBull
       ? entryPrice * (1 + tpDistPct / 100)
@@ -148,132 +139,6 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
 
   const primaryOBs = [...activeBullishOBs, ...activeBearishOBs, ...mitigatedOBs];
   const allDisplayOBs = (primaryOBs.length > 0 ? primaryOBs : fallbackOBs).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-
-  // ── 3. Native Lightweight Charts SMC Canvas Rendering ──
-  useEffect(() => {
-    if (chartMode !== 'NATIVE_SMC') return;
-    const container = canvasContainerRef.current;
-    if (!container) return;
-    container.innerHTML = '';
-
-    const chart = createChart(container, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#0B0E14' },
-        textColor: '#94A3B8',
-      },
-      grid: {
-        vertLines: { color: 'rgba(30, 41, 59, 0.4)' },
-        horzLines: { color: 'rgba(30, 41, 59, 0.4)' },
-      },
-      width: container.clientWidth,
-      height: container.clientHeight,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-        borderColor: '#1E293B',
-      },
-      rightPriceScale: {
-        borderColor: '#1E293B',
-      },
-    });
-
-    chartInstanceRef.current = chart;
-
-    const candlestickSeries = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981',
-      downColor: '#ef4444',
-      borderVisible: false,
-      wickUpColor: '#10b981',
-      wickDownColor: '#ef4444',
-    });
-
-    // Format & set candle data
-    const candlesRaw = (candlesRes as any)?.data || candlesRes || [];
-    if (Array.isArray(candlesRaw) && candlesRaw.length > 0) {
-      const formattedData = candlesRaw
-        .map((c: any) => ({
-          time: Math.floor(new Date(c.timestamp || c.time).getTime() / 1000) as any,
-          open: Number(c.open),
-          high: Number(c.high),
-          low: Number(c.low),
-          close: Number(c.close),
-        }))
-        .sort((a: any, b: any) => a.time - b.time);
-
-      candlestickSeries.setData(formattedData);
-    }
-
-    // ── Render Order Blocks (Supply & Demand Price Lines / Bands) ──
-    allDisplayOBs.forEach((ob) => {
-      const isBull = ob.type === 'BULLISH' || (ob.type as string) === 'DEMAND';
-      const color = isBull ? '#10b981' : '#f43f5e';
-      const labelPrefix = isBull ? 'DEMAND OB' : 'SUPPLY OB';
-
-      // Upper Edge Line
-      candlestickSeries.createPriceLine({
-        price: ob.upperPrice,
-        color,
-        lineWidth: 2,
-        lineStyle: LineStyle.Solid,
-        axisLabelVisible: true,
-        title: `${labelPrefix} Top $${ob.upperPrice}`,
-      });
-
-      // Lower Edge Line
-      candlestickSeries.createPriceLine({
-        price: ob.lowerPrice,
-        color,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `Bot $${ob.lowerPrice}`,
-      });
-    });
-
-    // ── Render Market Structure Break Lines (CHoCH & BOS) ──
-    const events = indicators?.structureEvents || [];
-    events.forEach((evt) => {
-      const color = evt.direction === 'BULLISH' ? '#10b981' : '#f43f5e';
-      candlestickSeries.createPriceLine({
-        price: evt.brokenLevel,
-        color,
-        lineWidth: 2,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `SMC ${evt.type} (${evt.direction}) $${evt.brokenLevel}`,
-      });
-    });
-
-    // ── Render Equal Highs / Equal Lows (EQH & EQL) ──
-    const eqhEqlList = indicators?.equalHighLows || [];
-    eqhEqlList.forEach((eq) => {
-      candlestickSeries.createPriceLine({
-        price: eq.priceLevel,
-        color: '#f59e0b',
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: `LuxAlgo ${eq.type} $${eq.priceLevel}`,
-      });
-    });
-
-    // Handle Resize
-    const handleResize = () => {
-      if (container && chartInstanceRef.current) {
-        chartInstanceRef.current.applyOptions({
-          width: container.clientWidth,
-          height: container.clientHeight,
-        });
-      }
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-      chartInstanceRef.current = null;
-    };
-  }, [currentSymbol, chartMode, candlesRes, allDisplayOBs, indicators]);
 
   const latestSignal = signalsData?.data?.filter((s) => s.symbol === currentSymbol)[0] ?? null;
 
@@ -315,32 +180,6 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
           <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/30">
             1H ONLY
           </span>
-
-          {/* Mode Switcher Toggle */}
-          <div className="flex items-center bg-[#161D2A] border border-[#1E293B] rounded p-0.5 space-x-0.5">
-            <button
-              onClick={() => setChartMode('NATIVE_SMC')}
-              className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors flex items-center space-x-1 ${
-                chartMode === 'NATIVE_SMC'
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  : 'text-[#94A3B8] hover:text-white'
-              }`}
-            >
-              <Layers className="w-3 h-3" />
-              <span>SMC Canvas</span>
-            </button>
-            <button
-              onClick={() => setChartMode('TRADINGVIEW_IFRAME')}
-              className={`px-2 py-0.5 rounded text-[9px] font-bold transition-colors flex items-center space-x-1 ${
-                chartMode === 'TRADINGVIEW_IFRAME'
-                  ? 'bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/40'
-                  : 'text-[#94A3B8] hover:text-white'
-              }`}
-            >
-              <Monitor className="w-3 h-3" />
-              <span>TV Iframe</span>
-            </button>
-          </div>
         </div>
 
         <div className="flex items-center space-x-2 shrink-0">
@@ -380,19 +219,15 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
         </div>
       </div>
 
-      {/* ── Chart Container (Canvas or TradingView Widget) ── */}
+      {/* ── Chart Widget ── */}
       <div className="flex-1 relative min-h-0">
-        {chartMode === 'NATIVE_SMC' ? (
-          <div ref={canvasContainerRef} className="absolute inset-0" />
-        ) : (
-          <div ref={widgetContainerRef} className="absolute inset-0" />
-        )}
+        <div ref={widgetContainerRef} className="absolute inset-0" />
       </div>
 
       {/* ── Zone Overlay Panel ── */}
       <div className="h-32 bg-[#0E121A] border-t border-[#1E293B] px-3 py-2 overflow-y-auto shrink-0">
         <div className="text-[10px] text-[#94A3B8] uppercase font-bold mb-1.5 flex justify-between">
-          <span>LuxAlgo SMC Order Blocks ({allDisplayOBs.length}) — Canonical Engine</span>
+          <span>Live Order Blocks ({allDisplayOBs.length}) — Backend Native Engine</span>
           {obsLoading && <span className="text-emerald-500 animate-pulse">Syncing...</span>}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
@@ -404,6 +239,8 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
             const entry = Number(ob.entryPrice ?? (isBullish ? high : low));
             const stop = Number(ob.stopLossPrice ?? (isBullish ? low * 0.995 : high * 1.005));
             const tp = Number(ob.takeProfitPrice ?? (isBullish ? high * 1.02 : low * 0.98));
+            const slDistPct = entry > 0 ? Math.max(0.01, Math.abs(entry - stop) / entry * 100) : 1;
+            const leverage = ob.calculatedLeverage ?? (ob as any).leverage ?? Math.min(100, Math.max(1, Math.round(35 / slDistPct)));
             const widthPct = ob.widthPercent ?? (low > 0 ? Number((((high - low) / high) * 100).toFixed(2)) : 0);
 
             const bgClass = !isActive 
@@ -421,19 +258,42 @@ export const TradingViewChartWorkspace: React.FC<TradingViewChartWorkspaceProps>
                     </span>
                     <span className="bg-[#1E293B] text-[#94A3B8] px-1 rounded text-[9px]">{ob.source || 'SMC'}</span>
                   </div>
-                  <span className="text-slate-400 text-[9px] font-bold">{widthPct}% wide</span>
+                  {!isActive && (
+                    <span className="text-amber-500 font-semibold">{ob.isUsed ? 'USED' : 'MITIGATED'}</span>
+                  )}
+                  {isActive && (
+                    <span className="text-[#94A3B8] font-semibold">{widthPct}% wide</span>
+                  )}
                 </div>
-                <div className="text-slate-300 font-bold mb-1">
-                  Zone: ${low.toLocaleString()} – ${high.toLocaleString()}
+                
+                <div className="font-mono-tabular flex justify-between text-[#94A3B8] mb-0.5">
+                  <span>Zone: ${low.toFixed(2)} - ${high.toFixed(2)}</span>
+                  <span>Leverage: {leverage}x</span>
                 </div>
-                <div className="grid grid-cols-3 gap-1 text-[9px] border-t border-[#1E293B] pt-1 mt-1 text-slate-400">
-                  <div>ENTRY <span className="block font-bold text-white">${entry.toLocaleString()}</span></div>
-                  <div>STOP <span className="block font-bold text-rose-400">${stop.toLocaleString()}</span></div>
-                  <div>TARGET <span className="block font-bold text-emerald-400">${tp.toLocaleString()}</span></div>
+                
+                <div className="font-mono-tabular grid grid-cols-3 gap-1 mt-1.5 pt-1.5 border-t border-[#1E293B]/50">
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">ENTRY</div>
+                    <div className={isBullish ? 'text-emerald-300' : 'text-red-300'}>${entry.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">STOP</div>
+                    <div className="text-rose-400">${stop.toFixed(2)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] text-[#94A3B8]">TARGET</div>
+                    <div className="text-emerald-400">${tp.toFixed(2)}</div>
+                  </div>
                 </div>
               </div>
             );
           })}
+          
+          {!obsLoading && allDisplayOBs.length === 0 && (
+            <div className="col-span-full text-[10px] text-[#94A3B8] italic p-2 border border-dashed border-[#1E293B] rounded text-center">
+              No recent Order Blocks found for {currentSymbol}. Waiting for market structure...
+            </div>
+          )}
         </div>
       </div>
     </div>
