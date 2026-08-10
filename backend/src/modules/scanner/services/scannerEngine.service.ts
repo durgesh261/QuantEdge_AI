@@ -26,6 +26,44 @@ export class ScannerEngine {
     this.ensureState().catch((err) =>
       logger.error('[ScannerEngine] Initial state creation failed', err)
     );
+
+    // Subscribe to real-time Delta WebSocket price ticks for immediate touch detection
+    deltaSyncService.onPriceTick((tick: { symbol: string; price: number; timestamp: number }) => {
+      if (!this.isRunning) return;
+      this.handleLivePriceTick(tick.symbol, tick.price);
+    });
+  }
+
+  private static async handleLivePriceTick(symbol: string, price: number): Promise<void> {
+    const activeOBs = PersistentOBRegistry.getActive(symbol);
+    if (activeOBs.length === 0) return;
+
+    for (const ob of activeOBs) {
+      if (OrderBlockWidthEngine.isUsed(ob.id)) continue;
+      const isBullish = ob.type === 'BULLISH';
+      const isInside = isBullish
+        ? (price <= ob.upperPrice && price >= ob.lowerPrice)
+        : (price >= ob.lowerPrice && price <= ob.upperPrice);
+
+      if (isInside) {
+        logger.info(`[ScannerEngine] WS REAL-TIME FIRST-TOUCH ${ob.id} for ${symbol} @ ${price}`);
+        OrderBlockWidthEngine.markUsedWithMeta(
+          ob.id, symbol, ob.type as 'BULLISH' | 'BEARISH',
+          ob.upperPrice, ob.lowerPrice, ob.widthPercent, ob.id
+        );
+        PersistentOBRegistry.markUsed(ob.id);
+        eventBus.emit('ob:touched', {
+          symbol,
+          orderBlockId: ob.id,
+          touchPrice: price,
+          type: ob.type,
+          upperPrice: ob.upperPrice,
+          lowerPrice: ob.lowerPrice,
+          isUsed: true,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
   }
 
   private static async ensureState() {

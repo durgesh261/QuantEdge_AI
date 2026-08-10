@@ -22,6 +22,8 @@ export class DeltaSyncService {
   private latestOrders: DeltaOrder[] = [];
   private latestHistory: any[] = [];
 
+  private priceTickCallbacks: ((tick: { symbol: string; price: number; timestamp: number }) => void)[] = [];
+
   private health: DeltaHealthStatus = {
     status: 'DISCONNECTED',
     restStatus: 'UNCONFIGURED',
@@ -161,12 +163,20 @@ export class DeltaSyncService {
     return this.rest;
   }
 
+  public onPriceTick(callback: (tick: { symbol: string; price: number; timestamp: number }) => void): void {
+    this.priceTickCallbacks.push(callback);
+  }
+
   private handleTicker(data: any): void {
     if (!data?.symbol || !data?.price) return;
     const price = parseFloat(data.price);
     const volume = parseFloat(data.volume_24h || '0');
     candleEngine.ingestTick(data.symbol, price, volume, new Date());
     eventBus.emit('ticker:live', data);
+    const tickObj = { symbol: data.symbol, price, timestamp: Date.now() };
+    for (const cb of this.priceTickCallbacks) {
+      try { cb(tickObj); } catch { /* ignore error */ }
+    }
   }
 
   private handleWsPosition(data: any): void {

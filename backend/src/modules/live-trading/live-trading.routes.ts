@@ -27,11 +27,29 @@ liveTradingRouter.get('/status', (req, res) => {
 const handleCalculateRisk = (req: any, res: any) => {
   const requestId = (req.headers[config.correlationHeader.toLowerCase()] as string) || 'unknown';
   const source = req.method === 'POST' ? req.body : req.query;
-  const { accountBalance, entryPrice, stopLossPrice, direction, side } = source;
+  const { accountBalance, entryPrice, stopLossPrice, direction, side } = source || {};
+  const numAccountBalance = Number(accountBalance);
+  const numEntryPrice = Number(entryPrice);
+  const numStopLossPrice = Number(stopLossPrice);
+
+  if (!numAccountBalance || !numEntryPrice || !numStopLossPrice || numAccountBalance <= 0 || numEntryPrice <= 0 || numStopLossPrice <= 0) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'INVALID_PARAMETERS',
+        message: 'Real accountBalance, entryPrice, and stopLossPrice parameters are required and must be greater than zero.',
+      },
+      meta: {
+        requestId,
+        timestamp: getIsoUtcTimestamp(),
+      },
+    });
+  }
+
   const result = DynamicRiskLeverageService.calculateRiskAndLeverage({
-    accountBalance: Number(accountBalance) || 1000,
-    entryPrice: Number(entryPrice) || 60000,
-    stopLossPrice: Number(stopLossPrice) || 59000,
+    accountBalance: numAccountBalance,
+    entryPrice: numEntryPrice,
+    stopLossPrice: numStopLossPrice,
     direction: direction === 'SELL' || side === 'SELL' ? 'SELL' : 'BUY',
   });
   const response: ApiResponse<any> = {

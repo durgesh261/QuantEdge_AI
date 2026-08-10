@@ -111,8 +111,12 @@ export class OrderBlockWidthEngine {
    * Marks an order block as USED (in memory + DB for persistence across restarts).
    * Once marked used, this OB cannot trigger another trade — ever.
    */
-  public static markUsed(orderBlockId: string): void {
-    usedOrderBlockIds.add(orderBlockId);
+  public static markUsed(orderBlockId: string, isUsed: boolean = true): void {
+    if (isUsed) {
+      usedOrderBlockIds.add(orderBlockId);
+    } else {
+      usedOrderBlockIds.delete(orderBlockId);
+    }
     // Persist to DB asynchronously (fire-and-forget, non-blocking)
     prisma.orderBlock.upsert({
       where: { id: orderBlockId },

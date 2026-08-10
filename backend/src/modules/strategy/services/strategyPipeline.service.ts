@@ -7,8 +7,6 @@ import {
 
 import { IndicatorEngineService } from '../../indicator-engine/services/indicatorEngine.service.js';
 import { DecisionEngineService } from '../../decision/services/decisionEngine.service.js';
-import { executionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
-import { deltaSyncService } from '../../delta-exchange/index.js';
 import { eventBus } from '../../../services/EventBus.js';
 import { ZoneDetectorService } from './zoneDetector.service.js';
 
@@ -36,10 +34,6 @@ export class StrategyPipelineService {
       candles,
       timeframe
     );
-
-    // 2. Get REAL Delta Account data
-    const positions = deltaSyncService.getPositions();
-    const hasOpenPosition = positions.length > 0;
 
     // 3. Get active zones and find best candidate
     const zones = await ZoneDetectorService.detectZones(symbol);
@@ -74,33 +68,9 @@ export class StrategyPipelineService {
       createdAt: new Date().toISOString(),
     };
 
-    // 6. Execute if approved
-    if (autoExecute && (decision.state as any) === 'APPROVED' && decision.confidenceScore >= 85) {
-      if (hasOpenPosition) {
-        result.decisionState = 'SKIP' as any;
-        result.reasonCodes!.push('ONE_TRADE_MAXIMUM' as any);
-        eventBus.emit('pipeline:skipped', { symbol, reason: 'One trade maximum' });
-        return result;
-      }
-
-      try {
-        const execResult = await executionEngineService.placeOrder({
-          symbol,
-          side: decision.outcome === 'BUY' ? 'buy' : 'sell',
-          orderType: 'market',
-          size: decision.positionSize || 0,
-          leverage: decision.leverage || 1,
-          stopLossPrice: decision.stopLossPrice || 0,
-          takeProfitPrice: decision.takeProfitPrice || 0,
-          clientOrderId: `QEA-${symbol}-${Date.now()}`,
-        });
-
-        result.executionResult = execResult;
-        eventBus.emit('pipeline:executed', result);
-      } catch (err: any) {
-        result.executionError = err.message;
-        eventBus.emit('pipeline:execution_failed', result);
-      }
+    // 6. Execution disabled in diagnostic pipeline — ScannerEngine is sole live execution path
+    if (autoExecute) {
+      // Diagnostic mode only — live trades executed solely via ScannerEngine
     }
 
     eventBus.emit('pipeline:completed', result);
