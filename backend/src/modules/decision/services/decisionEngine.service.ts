@@ -10,6 +10,7 @@ import {
   ZoneDto,
 } from '@algoapp/shared';
 
+import { logger } from '../../../logger/index.js';
 import { SessionFilterEngine } from '../filters/sessionFilterEngine.js';
 import { MarketFilterEngine } from '../filters/marketFilterEngine.js';
 import { SignalDeduplicationEngine } from '../deduplication/signalDeduplicationEngine.js';
@@ -337,6 +338,32 @@ export class DecisionEngineService {
       inputSnapshotHash,
       createdAt: new Date().toISOString(),
     };
+
+    const isExecuted = (decisionState as string) === 'APPROVED';
+    const widthPct = activeZone
+      ? Number((((activeZone.upperPrice - activeZone.lowerPrice) / Math.max(0.0001, activeZone.upperPrice)) * 100).toFixed(3))
+      : 0;
+
+    logger.info(`[STRATEGY]
+Symbol: ${symbol}
+Timeframe: 1H
+OB: ${activeZone?.id || 'NONE'}
+Type: ${activeZone?.type || 'UNKNOWN'}
+Live Price: ${currentPrice}
+OB Range: ${activeZone ? `${activeZone.upperPrice}–${activeZone.lowerPrice}` : 'N/A'}
+Width: ${widthPct}%
+Touch: FIRST_TOUCH
+Market: ${marketResult.marketRegime}
+News: ${reasonCodes.includes('NEWS_FILTER_BLOCKING' as any) ? 'BLOCKED' : 'ALLOWED'}
+Confidence: ${aiResult.confidenceScore}
+Entry: ${entryPrice}
+SL: ${stopLossPrice}
+TP: ${takeProfitPrice}
+Leverage: ${sizingResult.leverage}x
+Account: $${accountBalance}
+Risk: 35%
+Decision: ${isExecuted ? 'EXECUTE' : 'REJECT'}
+Reason: ${isExecuted ? 'STRATEGY_RULES_PASSED' : reasonCodes.join(', ')}`);
 
     decisionLogs.unshift(decision);
     if (decisionLogs.length > 1000) decisionLogs.pop();

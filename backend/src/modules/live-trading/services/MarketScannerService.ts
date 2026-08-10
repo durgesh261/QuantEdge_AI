@@ -1,10 +1,4 @@
 import { eventBus } from '../../../services/EventBus.js';
-import { IndicatorEngineService } from '../../indicator-engine/services/indicatorEngine.service.js';
-import { candleEngine } from '../../../engine/CandleEngine.js';
-import { AIDecisionCenterService } from '../../ai-decision/services/aiDecisionCenter.service.js';
-import { ZoneDetectorService } from '../../strategy/services/zoneDetector.service.js';
-
-import { StrategySignalOutcome } from '@algoapp/shared';
 
 const SCANNER_SYMBOLS = ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'];
 
@@ -42,7 +36,7 @@ export class MarketScannerService {
       };
     }
 
-    // Listen to tick events from Delta WebSocket
+    // Listen to tick events from Delta WebSocket for telemetry tracking
     eventBus.on('ticker:live', (data: any) => {
       this.ticksProcessed++;
       const sym = this.normalizeSymbol(data.symbol);
@@ -52,108 +46,20 @@ export class MarketScannerService {
       }
     });
 
-    // Listen to candle updates
-    eventBus.on('candle:1H:update', (data: any) => {
-      if (this.state === 'RUNNING') {
-        this.evaluatePair(data.symbol);
+    // Listen to OB touched events from canonical ScannerEngine
+    eventBus.on('ob:touched', (data: any) => {
+      const sym = this.normalizeSymbol(data.symbol);
+      if (this.pairTelemetry[sym]) {
+        this.pairTelemetry[sym].scanState = 'EVALUATING';
       }
     });
   }
 
-  /**
-   * Called every time a new 1H candle is built
-   */
-  private static async evaluatePair(symbol: string): Promise<void> {
-    const normSymbol = this.normalizeSymbol(symbol);
-    const telemetry = this.pairTelemetry[normSymbol];
-    if (!telemetry || telemetry.userStatus !== 'RUNNING') return;
-
-    const candles = candleEngine.get1HCandles(normSymbol);
-    if (!candles || candles.length < 10) {
-      telemetry.scanState = 'NO_DATA';
-      return;
+  public static updateTelemetry(symbol: string, data: Partial<PairTelemetry>): void {
+    const sym = this.normalizeSymbol(symbol);
+    if (this.pairTelemetry[sym]) {
+      Object.assign(this.pairTelemetry[sym]!, data, { lastScanAt: new Date().toISOString() });
     }
-
-    telemetry.scanState = 'SCANNING';
-
-    try {
-      // 1. Detect zones and persist
-      const zones = await ZoneDetectorService.detectZones(normSymbol);
-      const activeZones = zones.filter(
-        (z: any) => z.status === 'FRESH' || z.status === 'TOUCHED'
-      );
-      telemetry.activeOrderBlocksCount = activeZones.length;
-
-      if (activeZones.length > 0) {
-        const latestZone = activeZones[activeZones.length - 1]!;
-        telemetry.orderBlockWidthPercent = parseFloat(
-          (((latestZone.upperPrice - latestZone.lowerPrice) / latestZone.upperPrice) * 100).toFixed(2)
-        );
-      }
-
-      // 2. Run indicator engine for AI score
-      const indicators = IndicatorEngineService.computeIndicators(candles, '1H');
-      const currentPrice = telemetry.livePrice || candles[candles.length - 1]?.close || 0;
-
-      if (currentPrice <= 0) {
-        telemetry.scanState = 'NO_DATA';
-        return;
-      }
-
-      // 3. Check if price is touching any zone
-      let touchingZone = false;
-      let bestZone = null;
-
-      for (const zone of activeZones) {
-        if (currentPrice >= zone.lowerPrice && currentPrice <= zone.upperPrice) {
-          touchingZone = true;
-          bestZone = zone;
-          break;
-        }
-      }
-
-      if (!touchingZone || !bestZone) {
-        telemetry.scanState = 'SCANNING';
-        telemetry.latestConfidenceScore = 0;
-        return;
-      }
-
-      // 4. AI Evaluation
-      telemetry.scanState = 'EVALUATING';
-      const outcome = bestZone.type === 'DEMAND' ? StrategySignalOutcome.BUY : StrategySignalOutcome.SELL;
-
-      const aiResult = await AIDecisionCenterService.confirmDecision({
-        symbol: normSymbol,
-        timeframe: '1H',
-        outcome,
-        activeZone: bestZone,
-        indicators,
-        riskRewardRatio: 1.71,
-        sessionAllowed: true,
-        marketAllowed: true,
-      });
-
-      telemetry.latestConfidenceScore = aiResult.confidenceScore;
-
-      if (aiResult.approved && aiResult.confidenceScore >= 85) {
-        telemetry.scanState = 'SIGNAL_TRIGGERED';
-        this.signalsTriggered++;
-        eventBus.emit('scanner:signal', {
-          symbol: normSymbol,
-          confidence: aiResult.confidenceScore,
-          zone: bestZone,
-          outcome,
-        });
-      } else {
-        telemetry.scanState = 'SCANNING';
-      }
-    } catch (err: any) {
-      telemetry.scanState = 'ERROR';
-      telemetry.error = err.message;
-      console.error(`[Scanner] Error evaluating ${normSymbol}:`, err);
-    }
-
-    telemetry.lastScanAt = new Date().toISOString();
   }
 
   public static getTelemetry(): PairTelemetry[] {

@@ -3,10 +3,11 @@ import { DecisionReasonCode, IndicatorEngineOutput, MarketFilterResultDto } from
 export class MarketFilterEngine {
   /**
    * Deterministically evaluates market regime and volatility suitability.
+   * Strategy PART 8: RANGING markets are strictly NOT ALLOWED for live strategy execution.
    */
   public static evaluateMarket(
     indicators: IndicatorEngineOutput,
-    allowRanging: boolean = true
+    allowRanging: boolean = false
   ): MarketFilterResultDto {
     const atr14 = indicators.atr14 || 1;
     const atr200 = indicators.atr200 || 1;
@@ -50,6 +51,7 @@ export class MarketFilterEngine {
         atr14,
         atr200,
         atrRatio,
+        reasonCode: 'MARKET_REGIME_UNSUITABLE' as any,
       };
     }
 
