@@ -1,3 +1,11 @@
+// backend/src/modules/scanner/services/scannerEngine.service.ts
+// DEFINITIVE FIX — NO FAKE TRADES:
+// 1. ONLY evaluates DecisionEngine on FIRST-TOUCHED OBs
+// 2. feedStrategyEngine ONLY records signal to DB — ZERO order execution
+// 3. triggerExecution is the SOLE path that calls placeOrder (confidence >= 85 required)
+// 4. triggerSignal in tick() DOES NOT call feedStrategyEngine (no double-run)
+// 5. Paper trading mode guard on executionEngineService
+
 import { OrderBlockService } from './orderBlock.service.js';
 import { CanonicalOBRegistry } from '../../indicator-engine/services/canonicalOBRegistry.js';
 import { Server } from 'socket.io';
@@ -116,7 +124,7 @@ export class ScannerEngine {
         return;
       }
 
-      const results = await Promise.all(
+      await Promise.all(
         pairs.map((pair) =>
           this.processPair(pair.symbol).catch((err) => {
             logger.error(`[ScannerEngine] Pair ${pair.symbol} crashed:`, err);
@@ -125,24 +133,6 @@ export class ScannerEngine {
         )
       );
 
-      // Phase 3 Rule: Stop scanning for new entries if a trade is already open
-      const openPositionCount = deltaSyncService.getPositions().length;
-      if (openPositionCount > 0) {
-        return;
-      }
-
-      const signals = results
-        .filter((r): r is NonNullable<typeof r> => r !== null)
-        .filter(r => r.activeOBs > 0 && r.bestScore && r.bestScore >= 85);
-
-      if (signals.length > 0) {
-        // Phase 3 Rule: Simultaneous Signals -> Compare confidence scores
-        signals.sort((a, b) => (b.bestScore || 0) - (a.bestScore || 0));
-        const topSignal = signals[0];
-
-        await this.triggerSignal(topSignal);
-      }
-
     } catch (err) {
       logger.error('[ScannerEngine] Tick error:', err);
     } finally {
@@ -150,53 +140,9 @@ export class ScannerEngine {
     }
   }
 
-  private static async triggerSignal(signal: any) {
-    const { symbol, ticker, bestScore, activeOBs, bestOB, indicators } = signal;
-
-    const recentSignal = await prisma.scannerSignal.findFirst({
-      where: { symbol, createdAt: { gte: new Date(Date.now() - 300000) } },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!recentSignal) {
-      await prisma.scannerSignal.create({
-        data: {
-          symbol,
-          type: 'OB_DETECTED',
-          aiScore: bestScore,
-          metadata: JSON.stringify({ blocks: activeOBs, price: ticker.price }),
-        },
-      });
-
-      await prisma.scannerPair.update({
-        where: { symbol },
-        data: { signalsTriggered: { increment: 1 }, lastSignalAt: new Date() },
-      });
-
-      const globalState = await prisma.scannerState.findFirst();
-      if (globalState) {
-        await prisma.scannerState.update({
-          where: { id: globalState.id },
-          data: { signalsTotal: { increment: 1 } },
-        });
-      }
-
-      await this.feedStrategyEngine(symbol, ticker.price, bestScore, bestOB, indicators);
-
-      this.io?.of('/scanner').emit('signal', {
-        symbol,
-        type: 'OB_DETECTED',
-        aiScore: bestScore,
-        price: ticker.price,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }
-
   private static async processPair(symbol: string) {
     const ticker = await this.fetchDeltaTicker(symbol);
     if (!ticker) {
-      // If ticker fails, update pair status without breaking
       await prisma.scannerPair.update({
         where: { symbol },
         data: { lastTickAt: new Date() },
@@ -223,25 +169,26 @@ export class ScannerEngine {
       }
 
       if (candles.length >= 10) {
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         // 1. RUN CANONICAL INDICATOR ENGINE (LuxAlgo SMC ONLY)
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         indicators = IndicatorEngineService.computeIndicators(candles, '1H', symbol);
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         // 2. SYNC CANONICAL OB REGISTRY with current indicator state
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         CanonicalOBRegistry.syncFromIndicator(symbol, indicators.orderBlocks || []);
 
-        // ═════════════════════════════════════════════════════════════════════
-        // 3. LIVE PRICE TOUCH DETECTION (WebSocket-driven, not candle-close)
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // 3. LIVE PRICE TOUCH DETECTION (candle-based, WebSocket handles real-time)
+        // ═══════════════════════════════════════════════════════════════════
         const livePrice = ticker.price;
         const touchedNow = CanonicalOBRegistry.checkLiveTouch(
           symbol, livePrice, new Date().toISOString()
         );
 
         for (const touched of touchedNow) {
+          logger.info(`[ScannerEngine] TICK FIRST-TOUCH ${touched.id} @ ${livePrice}`);
           eventBus.emit('ob:touched', {
             symbol,
             orderBlockId: touched.id,
@@ -253,13 +200,12 @@ export class ScannerEngine {
           });
         }
 
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         // 4. READ ACTIVE OBs FROM CANONICAL REGISTRY
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
         const activeEntries = CanonicalOBRegistry.getActive(symbol);
         activeOBs = activeEntries.length;
 
-        // Calculate average width for display
         if (activeOBs > 0) {
           const avgWidth = activeEntries.reduce(
             (sum, e) => sum + (((e.upperPrice - e.lowerPrice) / e.upperPrice) * 100), 0
@@ -267,39 +213,64 @@ export class ScannerEngine {
           obWidthPct = Number(avgWidth.toFixed(3));
         }
 
-        // ═════════════════════════════════════════════════════════════════════
-        // 5. DECISION ENGINE — evaluate touched or best active OB
-        // ═════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════
+        // 5. DECISION ENGINE — ONLY evaluate FIRST-TOUCHED OBs
+        //    NEVER evaluate non-touched active OBs to avoid fake signals
+        // ═══════════════════════════════════════════════════════════════════
         const touchedEntries = CanonicalOBRegistry.getTouched(symbol);
-        const candidate = touchedEntries.length > 0
-          ? touchedEntries[touchedEntries.length - 1]!
-          : activeEntries[0];
 
-        if (candidate) {
-          const activeZone = {
-            id: candidate.id,
-            symbol: candidate.symbol,
-            type: candidate.direction === 'BULLISH' ? 'DEMAND' : 'SUPPLY',
-            upperPrice: candidate.upperPrice,
-            lowerPrice: candidate.lowerPrice,
-            touchCount: candidate.touched ? 1 : 0,
-            freshness: 100,
-          };
+        // GUARD: only proceed if there is an actual first-touch event
+        if (touchedEntries.length > 0) {
+          // Phase 3 Rule: Stop scanning for new entries if a trade is already open
+          const openPositionCount = deltaSyncService.getPositions().length;
+          if (openPositionCount > 0) {
+            logger.info(`[ScannerEngine] Skipping decision — ${openPositionCount} open position(s)`);
+          } else {
+            const candidate = touchedEntries[touchedEntries.length - 1]!;
 
-          const decision = await DecisionEngineService.evaluateDecision({
-            symbol,
-            timeframe: '1H',
-            currentPrice: livePrice,
-            indicators,
-            activeZone: activeZone as any,
-          });
+            const activeZone = {
+              id: candidate.id,
+              symbol: candidate.symbol,
+              type: candidate.direction === 'BULLISH' ? 'DEMAND' : 'SUPPLY',
+              upperPrice: candidate.upperPrice,
+              lowerPrice: candidate.lowerPrice,
+              touchCount: 1,
+              freshness: 100,
+            };
 
-          bestScore = decision.confidenceScore;
-          bestOB = candidate;
+            logger.info(
+              `[ScannerEngine] DECISION EVAL: ${symbol} OB=${candidate.id} price=${livePrice} type=${activeZone.type}`
+            );
 
-          if ((decision.state as any) === 'APPROVED' && bestScore >= 85) {
-            CanonicalOBRegistry.markTraded(candidate.id);
-            await this.triggerExecution(symbol, livePrice, decision);
+            const decision = await DecisionEngineService.evaluateDecision({
+              symbol,
+              timeframe: '1H',
+              currentPrice: livePrice,
+              indicators,
+              activeZone: activeZone as any,
+            });
+
+            bestScore = decision.confidenceScore;
+            bestOB = candidate;
+
+            logger.info(
+              `[ScannerEngine] DECISION RESULT: ${symbol} confidence=${bestScore} state=${decision.state} reasons=${decision.reasonCodes.join(',')}`
+            );
+
+            // ═══════════════════════════════════════════════════════════════
+            // 6. EXECUTE — ONLY if APPROVED AND confidence >= 85
+            //    This is the SOLE execution path. feedStrategyEngine does NOT execute.
+            // ═══════════════════════════════════════════════════════════════
+            if ((decision.state as any) === 'APPROVED' && bestScore >= 85) {
+              CanonicalOBRegistry.markTraded(candidate.id);
+              await this.triggerExecution(symbol, livePrice, decision);
+            } else {
+              logger.info(
+                `[ScannerEngine] REJECTED: ${symbol} confidence=${bestScore} < 85 OR state=${decision.state} — NO TRADE`
+              );
+              // Record signal to DB for analysis (NO order placed here)
+              await this.recordRejectedSignal(symbol, livePrice, bestScore, decision.reasonCodes);
+            }
           }
         }
 
@@ -359,12 +330,22 @@ export class ScannerEngine {
     return { symbol, ticker, bestScore, activeOBs, bestOB, indicators };
   }
 
+  /**
+   * SOLE EXECUTION PATH — Called ONLY when:
+   *   - decision.state === 'APPROVED'
+   *   - confidence >= 85
+   *   - OB was first-touched (never on non-touched active OBs)
+   */
   private static async triggerExecution(
     symbol: string,
     price: number,
     decision: any
   ) {
     try {
+      logger.info(
+        `[Scanner→Execution] PLACING ORDER: ${symbol} @ ${price} side=${decision.outcome} confidence=${decision.confidenceScore}`
+      );
+
       await executionEngineService.placeOrder({
         symbol,
         side: decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
@@ -387,81 +368,35 @@ export class ScannerEngine {
         data: { tradesExecuted: { increment: 1 } },
       });
 
-      logger.info(`[Scanner→Execution] Trade executed for ${symbol} @ ${price}`);
+      logger.info(`[Scanner→Execution] Trade EXECUTED for ${symbol} @ ${price}`);
     } catch (err) {
       logger.error(`[Scanner→Execution] Failed for ${symbol}:`, err);
     }
   }
 
-  private static async feedStrategyEngine(
+  /**
+   * Records a rejected signal to the DB for analysis.
+   * DOES NOT place any order — purely for audit trail.
+   */
+  private static async recordRejectedSignal(
     symbol: string,
     price: number,
-    aiScore: number,
-    bestOB: any,
-    indicators: any
+    score: number | null,
+    reasonCodes: string[]
   ) {
     try {
       await prisma.strategySignalRecord.create({
         data: {
           symbol,
           timeframe: TIMEFRAME,
-          outcome: 'PENDING',
+          outcome: 'REJECTED',
           price,
-          rationale: `Scanner OB_DETECTED — AI Score ${aiScore}/100`,
-          confidenceScore: aiScore / 100,
+          rationale: `REJECTED confidence=${score ?? 0} reasons=${reasonCodes.join(',')}`,
+          confidenceScore: (score ?? 0) / 100,
         },
       });
-
-      logger.info(`[Scanner→Strategy/Algo] Signal fed for ${symbol} @ ${price} (score: ${aiScore})`);
-
-      if (!bestOB || !indicators) {
-        return;
-      }
-
-      // Step 2-4: CONFIDENCE_CHECK -> RISK_CHECK -> ENTRY_PENDING via Decision Engine
-      const decision = await DecisionEngineService.evaluateDecision({
-        symbol,
-        timeframe: '1H',
-        currentPrice: price,
-        indicators,
-        activeZone: bestOB,
-      });
-
-      if (decision.state === 'APPROVED' as any) {
-        logger.info(`[Scanner→Execution] Signal APPROVED for ${symbol}. Dispatching order.`);
-
-        // Execute the trade (ENTRY_PENDING -> OPEN)
-        await executionEngineService.placeOrder({
-          symbol,
-          side: decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
-          orderType: 'market',
-          size: decision.positionSize ?? 0,
-          leverage: decision.leverage,
-          stopLossPrice: decision.stopLossPrice,
-          takeProfitPrice: decision.takeProfitPrice,
-        });
-
-        const globalState = await prisma.scannerState.findFirst();
-        if (globalState) {
-          await prisma.scannerState.update({
-            where: { id: globalState.id },
-            data: { tradesTotal: { increment: 1 } },
-          });
-        }
-        await prisma.scannerPair.update({
-          where: { symbol },
-          data: { tradesExecuted: { increment: 1 } },
-        });
-
-        // NOTE: OB is already marked used on first-touch above.
-        // markUsed is NOT called here again — touch already consumed the OB.
-      } else {
-        logger.warn(`[Scanner→Execution] Signal REJECTED for ${symbol}. Reason: ${decision.reasonCodes.join(', ')}`);
-        // OB was already consumed on first-touch above. No re-entry possible.
-      }
-
-    } catch (err) {
-      logger.error('[Scanner→Strategy/Algo] Failed to feed signal:', err);
+    } catch {
+      // ignore DB errors for signal recording
     }
   }
 
@@ -532,7 +467,29 @@ export class ScannerEngine {
     this.io?.of('/scanner').emit('control', { action: 'RESUME_PAIR', symbol });
   }
 
-  static async globalPause() { await prisma.scannerState.updateMany({ data: { isPaused: true } }); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_PAUSE' }); } static async globalResume() { await prisma.scannerState.updateMany({ data: { isPaused: false } }); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_RESUME' }); } static async globalStop() { await prisma.scannerState.updateMany({ data: { isRunning: false } }); this.stop(); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_STOP' }); } static async globalStart() { await prisma.scannerState.updateMany({ data: { isRunning: true } }); this.start(); this.io?.of('/scanner').emit('control', { action: 'GLOBAL_START' }); } static async stopPair(symbol: string) {
+  static async globalPause() {
+    await prisma.scannerState.updateMany({ data: { isPaused: true } });
+    this.io?.of('/scanner').emit('control', { action: 'GLOBAL_PAUSE' });
+  }
+
+  static async globalResume() {
+    await prisma.scannerState.updateMany({ data: { isPaused: false } });
+    this.io?.of('/scanner').emit('control', { action: 'GLOBAL_RESUME' });
+  }
+
+  static async globalStop() {
+    await prisma.scannerState.updateMany({ data: { isRunning: false } });
+    this.stop();
+    this.io?.of('/scanner').emit('control', { action: 'GLOBAL_STOP' });
+  }
+
+  static async globalStart() {
+    await prisma.scannerState.updateMany({ data: { isRunning: true } });
+    this.start();
+    this.io?.of('/scanner').emit('control', { action: 'GLOBAL_START' });
+  }
+
+  static async stopPair(symbol: string) {
     await prisma.scannerPair.update({
       where: { symbol },
       data: { isActive: false, status: 'STOPPED' },
@@ -546,5 +503,3 @@ export class ScannerEngine {
     this.io?.of('/scanner').emit('inspect', { symbol, pair, blocks });
   }
 }
-
-

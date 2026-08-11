@@ -33,8 +33,20 @@ export class CanonicalOBRegistry {
 
   public static async loadFromDb(): Promise<void> {
     try {
+      // ─── STARTUP CLEANUP ────────────────────────────────────────────────
+      // Mark any stale TOUCHED OBs from previous sessions as TRADED.
+      // If an OB was TOUCHED but never TRADED (server crashed / was killed),
+      // it must be consumed on restart to prevent infinite re-evaluation.
+      await prisma.canonicalOrderBlock.updateMany({
+        where: { status: 'TOUCHED', mitigated: false },
+        data: { status: 'TRADED', traded: true },
+      }).catch((e: any) => logger.warn('[CanonicalOBRegistry] Stale TOUCHED cleanup failed:', e));
+
+      // Only load ACTIVE OBs on startup.
+      // TOUCHED/TRADED OBs from previous sessions must NOT be reloaded —
+      // they would fire as "first-touched" again every tick.
       const blocks = await prisma.canonicalOrderBlock.findMany({
-        where: { mitigated: false },
+        where: { mitigated: false, status: 'ACTIVE' },
       });
       for (const b of blocks) {
         const existing = this.registry.get(b.symbol) || [];
@@ -64,6 +76,7 @@ export class CanonicalOBRegistry {
           this.registry.set(b.symbol, existing);
         }
       }
+      logger.info(`[CanonicalOBRegistry] Loaded ${blocks.length} ACTIVE OBs from DB`);
     } catch (err) {
       logger.warn('[CanonicalOBRegistry] Failed to load from DB:', err);
     }
@@ -161,7 +174,9 @@ export class CanonicalOBRegistry {
     const newlyTouched: CanonicalOBEntry[] = [];
 
     for (const entry of entries) {
-      if (!entry.mitigated && !entry.touched) {
+      // GUARD: skip mitigated, already-touched, OR already-traded OBs
+      // An OB can only be FIRST-TOUCHED once in its lifetime
+      if (!entry.mitigated && !entry.touched && !entry.traded) {
         // Price touches range (between lowerPrice and upperPrice)
         if (livePrice >= entry.lowerPrice && livePrice <= entry.upperPrice) {
           entry.touched = true;
@@ -169,6 +184,10 @@ export class CanonicalOBRegistry {
           entry.firstTouchPrice = livePrice;
           entry.status = 'TOUCHED';
           newlyTouched.push(entry);
+
+          logger.info(
+            `[CanonicalOBRegistry] FIRST-TOUCH: ${entry.id} price=${livePrice} range=[${entry.lowerPrice},${entry.upperPrice}]`
+          );
 
           prisma.canonicalOrderBlock
             .update({
@@ -208,12 +227,15 @@ export class CanonicalOBRegistry {
 
   public static getActive(symbol: string): CanonicalOBEntry[] {
     const entries = this.registry.get(symbol) || [];
-    return entries.filter((e) => !e.mitigated);
+    // Active = not mitigated AND not traded (traded OBs are consumed)
+    return entries.filter((e) => !e.mitigated && !e.traded);
   }
 
   public static getTouched(symbol: string): CanonicalOBEntry[] {
     const entries = this.registry.get(symbol) || [];
-    return entries.filter((e) => e.touched && !e.mitigated);
+    // Touched = touched flag set, not mitigated, NOT yet traded
+    // Once markTraded is called, this OB will NOT appear here again
+    return entries.filter((e) => e.touched && !e.mitigated && !e.traded);
   }
 
   public static clear(symbol?: string): void {
