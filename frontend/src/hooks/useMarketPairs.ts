@@ -48,16 +48,17 @@ export function useMarketPairs(pollMs = 2000) {
       const results = await Promise.all(
         WATCHLIST_SYMBOLS.map(async (symbol) => {
           const [snapshotRes, candlesRes, zonesRes, signalsRes] = await Promise.all([
-            marketDataApi.getSnapshot(symbol),
+            marketDataApi.getSnapshot(symbol).catch(() => null),
             marketDataApi.getCandles(symbol, '1H', 24).catch(() => ({ data: [] as CandleDto[] })),
             strategyApi.getZones(symbol).catch(() => ({ data: [] as ZoneDto[] })),
             strategyApi.getSignals().catch(() => ({ data: [] as any[] })),
           ]);
 
-          const snapshot = snapshotRes.data;
-          const candles = candlesRes.data ?? [];
-          const zones = zonesRes.data ?? [];
-          const signals = (signalsRes.data ?? []).filter((s: any) => s.symbol === symbol);
+          const snapshot = snapshotRes?.data ?? (snapshotRes as any) ?? {};
+          const currentPrice = snapshot.currentPrice ?? 0;
+          const candles = candlesRes?.data ?? (candlesRes as any) ?? [];
+          const zones = zonesRes?.data ?? (zonesRes as any) ?? [];
+          const signals = (signalsRes?.data ?? (signalsRes as any) ?? []).filter((s: any) => s.symbol === symbol);
 
           let change24h = 0;
           if (candles.length >= 2) {
@@ -74,8 +75,8 @@ export function useMarketPairs(pollMs = 2000) {
           const pair: LiveMarketPair = {
             symbol,
             name: SYMBOL_NAMES[symbol] ?? symbol,
-            price: snapshot.currentPrice,
-            priceLabel: formatPrice(snapshot.currentPrice),
+            price: currentPrice,
+            priceLabel: formatPrice(currentPrice),
             change24h,
             changeLabel: `${change24h >= 0 ? '+' : ''}${change24h.toFixed(2)}%`,
             isPositive: change24h >= 0,
