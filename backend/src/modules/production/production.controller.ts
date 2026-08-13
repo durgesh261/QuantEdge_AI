@@ -11,20 +11,20 @@ let activeExecutionMode: ExecutionMode = ExecutionMode.PAPER;
 
 export const initializeExecutionModeFromPersistence = async (): Promise<ExecutionMode> => {
   const savedMode = await ProductionModeStore.getPersistedExecutionMode();
+
+  // Always clear authorization flags on startup — persisted preference is NOT authorization.
+  // The user must re-confirm LIVE via the UI after every backend restart.
+  LiveTradingGuard.setExplicitUserConfirmed(false);
+  LiveTradingGuard.setLiveModeActive(false);
+
   if (savedMode === ExecutionMode.LIVE) {
-    LiveTradingGuard.setExplicitUserConfirmed(true);
-    LiveTradingGuard.setLiveModeActive(true);
-    const safety = await LiveTradingGuard.evaluateSafety(ExecutionMode.LIVE);
+    // Restore the user's selected preference so the UI shows the right mode,
+    // but LIVE execution remains BLOCKED until the user re-confirms via the UI.
     activeExecutionMode = ExecutionMode.LIVE;
-    if (!safety.isAllowed) {
-      LiveTradingGuard.setExplicitUserConfirmed(false);
-      LiveTradingGuard.setLiveModeActive(false);
-    }
   } else {
     activeExecutionMode = ExecutionMode.PAPER;
-    LiveTradingGuard.setExplicitUserConfirmed(false);
-    LiveTradingGuard.setLiveModeActive(false);
   }
+
   return activeExecutionMode;
 };
 
