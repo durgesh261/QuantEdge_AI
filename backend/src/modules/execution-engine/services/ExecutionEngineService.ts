@@ -1,10 +1,12 @@
 import crypto from 'crypto';
+import { ExecutionMode } from '@algoapp/shared';
 import { deltaSyncService } from '../../delta-exchange/index.js';
 import { DeltaProduct } from '../../delta-exchange/services/DeltaRestClient.js';
 import { orderLifecycleService } from './OrderLifecycleService.js';
 import { tradeAccountingTrigger } from '../../trade-accounting/TradeAccountingTrigger.js';
 import { candleEngine } from '../../../engine/CandleEngine.js';
 import { eventBus } from '../../../services/EventBus.js';
+import { LiveTradingGuard } from '../../production/services/liveTradingGuard.js';
 export interface OrderExecutionRequest {
   symbol: string;
   side: 'buy' | 'sell';
@@ -18,6 +20,14 @@ export interface OrderExecutionRequest {
   stopLossPrice?: number | undefined;
   takeProfitPrice?: number | undefined;
   clientOrderId?: string | undefined;
+  /**
+   * Set ONLY by KillSwitchService.emergencyCloseAllPositions().
+   * Allows flattening an existing LIVE position when the kill switch fires,
+   * even if normal LIVE authorization has been cleared.
+   * MUST NOT be set by any user-facing or strategy-driven caller.
+   * When true the request MUST have reduceOnly=true and match an existing position.
+   */
+  isEmergencyClose?: boolean | undefined;
 }
 
 export interface ValidationRuleResult {
@@ -327,10 +337,84 @@ export class ExecutionEngineService {
 
   /**
    * Submit Real Order to Delta Exchange
+   *
+   * Gate order: ALL callers must pass LiveTradingGuard.
+   * Exception: isEmergencyClose=true (set exclusively by KillSwitchService)
+   * permits position flattening even when normal LIVE authorization is absent.
    */
   public async placeOrder(req: OrderExecutionRequest): Promise<ExecutionResult> {
     const startTime = Date.now();
     const clientOrderId = req.clientOrderId || `ORD-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+    // ── 0. MANDATORY LIVE SAFETY GUARD ──────────────────────────────────────
+    // Emergency close (KillSwitchService only) skips normal auth so existing
+    // LIVE positions can still be flattened after the kill switch fires.
+    // Every other caller — including manual routes and ScannerEngine — MUST
+    // pass LiveTradingGuard before any downstream logic runs.
+    if (!req.isEmergencyClose) {
+      const liveSafety = await LiveTradingGuard.evaluateSafety(ExecutionMode.LIVE);
+      if (!liveSafety.isAllowed) {
+        const latencyMs = Date.now() - startTime;
+        const result: ExecutionResult = {
+          success: false,
+          clientOrderId,
+          symbol: req.symbol,
+          side: req.side,
+          orderType: req.orderType,
+          size: req.size,
+          state: 'REJECTED',
+          latencyMs,
+          message: `LIVE_SAFETY_REJECTED: ${liveSafety.rejectionReasons.join('; ')}`,
+        };
+        this.recordHistory(result);
+        return result;
+      }
+    } else {
+      // Emergency-close sanity checks — enforce capital-preservation constraints.
+      // Must be reduce-only; must match an existing open position.
+      if (!req.reduceOnly) {
+        const latencyMs = Date.now() - startTime;
+        const result: ExecutionResult = {
+          success: false,
+          clientOrderId,
+          symbol: req.symbol,
+          side: req.side,
+          orderType: req.orderType,
+          size: req.size,
+          state: 'REJECTED',
+          latencyMs,
+          message: 'EMERGENCY_CLOSE_REJECTED: isEmergencyClose requires reduceOnly=true',
+        };
+        this.recordHistory(result);
+        return result;
+      }
+      const positions = deltaSyncService.getPositions();
+      const matchingPosition = positions.find(
+        (p) => (p.product_symbol || '').toLowerCase() === (req.symbol || '').toLowerCase()
+      );
+      if (!matchingPosition || Number(matchingPosition.size) <= 0) {
+        const latencyMs = Date.now() - startTime;
+        const result: ExecutionResult = {
+          success: false,
+          clientOrderId,
+          symbol: req.symbol,
+          side: req.side,
+          orderType: req.orderType,
+          size: req.size,
+          state: 'REJECTED',
+          latencyMs,
+          message: `EMERGENCY_CLOSE_REJECTED: No open position found for ${req.symbol} — cannot emergency close`,
+        };
+        this.recordHistory(result);
+        return result;
+      }
+      // Clamp size to actual position size — never allow size expansion
+      const actualPositionSize = Number(matchingPosition.size);
+      if (req.size > actualPositionSize) {
+        req = { ...req, size: actualPositionSize };
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // Run Pre-Flight Validation
     const validation = await this.validateOrder({ ...req, clientOrderId });

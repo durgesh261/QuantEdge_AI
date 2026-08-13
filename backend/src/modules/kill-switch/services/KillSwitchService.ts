@@ -75,9 +75,10 @@ export class KillSwitchService {
   private static async emergencyCloseAllPositions(): Promise<void> {
     try {
       const positions = deltaSyncService.getPositions();
-      
+
       for (const position of positions) {
         const symbol = position.product_symbol;
+        // Reverse the open side to flatten the position
         const side = position.side === 'buy' ? 'sell' : 'buy';
         const size = Number(position.size || 0);
 
@@ -87,10 +88,11 @@ export class KillSwitchService {
             side,
             orderType: 'market',
             size,
-            reduceOnly: true,
+            reduceOnly: true,         // Never expand — flatten only
+            isEmergencyClose: true,   // Grants emergency exemption from LIVE auth guard
             clientOrderId: `KILL-${symbol}-${Date.now()}`,
           });
-          
+
           logger.warn({ symbol, size, side }, 'Emergency position closure executed');
         }
       }
