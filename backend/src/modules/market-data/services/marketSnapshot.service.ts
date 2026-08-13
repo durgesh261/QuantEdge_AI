@@ -1,65 +1,33 @@
 import { MarketSnapshotDto } from '@algoapp/shared';
+import { deltaSyncService } from '../../delta-exchange/index.js';
 
-let snapshotCache: Record<string, MarketSnapshotDto> = {
-  'BTCUSD.P': {
-    id: 'SNAP-BTC',
-    symbol: 'BTCUSD.P',
-    currentPrice: 64250.0,
-    spread: 0.5,
-    session: 'NEW_YORK',
-    trend: 'BULLISH',
-    volatility: 'MEDIUM',
-    timestamp: new Date().toISOString(),
-  },
-  'ETHUSD.P': {
-    id: 'SNAP-ETH',
-    symbol: 'ETHUSD.P',
-    currentPrice: 3480.25,
-    spread: 0.25,
-    session: 'NEW_YORK',
-    trend: 'BULLISH',
-    volatility: 'MEDIUM',
-    timestamp: new Date().toISOString(),
-  },
-  'SOLUSD.P': {
-    id: 'SNAP-SOL',
-    symbol: 'SOLUSD.P',
-    currentPrice: 142.1,
-    spread: 0.05,
-    session: 'NEW_YORK',
-    trend: 'BEARISH',
-    volatility: 'HIGH',
-    timestamp: new Date().toISOString(),
-  },
-  'XRPUSD.P': {
-    id: 'SNAP-XRP',
-    symbol: 'XRPUSD.P',
-    currentPrice: 0.584,
-    spread: 0.0001,
-    session: 'NEW_YORK',
-    trend: 'BULLISH',
-    volatility: 'MEDIUM',
-    timestamp: new Date().toISOString(),
-  },
-};
+interface SnapshotCacheEntry {
+  snapshot: MarketSnapshotDto;
+  timestamp: number;
+}
+
+const snapshotCache: Record<string, SnapshotCacheEntry> = {};
+const CACHE_TTL_MS = 5000;
 
 export class MarketSnapshotService {
-  public static async getSnapshot(symbol: string): Promise<MarketSnapshotDto> {
-    const symbolMap: Record<string, string> = {
-      'BTCUSD.P': 'BTCUSD',
-      'ETHUSD.P': 'ETHUSD',
-      'SOLUSD.P': 'SOLUSD',
-      'XRPUSD.P': 'XRPUSD',
-    };
-    const deltaSymbol = symbolMap[symbol] || symbol.replace('.P', '');
+  public static async getSnapshot(symbol: string): Promise<MarketSnapshotDto | null> {
+    const cached = snapshotCache[symbol];
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      return cached.snapshot;
+    }
+
+    const restClient = deltaSyncService.getRestClient();
+    if (!restClient.isConfigured()) {
+      return null;
+    }
 
     try {
-      const res = await fetch(`https://api.india.delta.exchange/v2/tickers/${deltaSymbol}`)
-        .catch(() => fetch(`https://api.delta.exchange/v2/tickers/${deltaSymbol}`));
-      const data: any = await res.json();
-      if (data && data.success && data.result) {
-        const t = data.result;
+      const deltaSymbol = restClient.toExchangeSymbol(symbol);
+      const t = await restClient.getTicker(deltaSymbol);
+
+      if (t && (t.mark_price || t.close || t.spot_price)) {
         const livePrice = parseFloat(t.close || t.mark_price || t.spot_price);
+
         if (!isNaN(livePrice) && livePrice > 0) {
           const updated: MarketSnapshotDto = {
             id: `SNAP-${symbol}`,
@@ -71,35 +39,48 @@ export class MarketSnapshotService {
             volatility: 'MEDIUM',
             timestamp: new Date().toISOString(),
           };
-          snapshotCache[symbol] = updated;
+
+          snapshotCache[symbol] = { snapshot: updated, timestamp: Date.now() };
           return updated;
         }
       }
-    } catch {
-      // Fallback to cache if network fails
+    } catch (err) {
     }
 
-    return snapshotCache[symbol] || {
-      id: `SNAP-${symbol}`,
-      symbol,
-      currentPrice: 64000.0,
-      spread: 0.5,
-      session: 'NEW_YORK',
-      trend: 'NEUTRAL',
-      volatility: 'MEDIUM',
-      timestamp: new Date().toISOString(),
-    };
+    return null;
   }
 
-  public static async updateSnapshot(symbol: string, currentPrice: number, spread?: number): Promise<MarketSnapshotDto> {
-    const existing = await this.getSnapshot(symbol);
+  public static updateSnapshot(symbol: string, currentPrice: number, spread?: number): MarketSnapshotDto {
+    const cached = snapshotCache[symbol];
+    const existing = cached?.snapshot;
+
     const updated: MarketSnapshotDto = {
-      ...existing,
+      id: `SNAP-${symbol}`,
+      symbol,
       currentPrice,
-      spread: spread ?? existing.spread,
+      spread: spread ?? existing?.spread ?? 0.5,
+      session: existing?.session ?? 'NEW_YORK',
+      trend: existing?.trend ?? 'NEUTRAL',
+      volatility: existing?.volatility ?? 'MEDIUM',
       timestamp: new Date().toISOString(),
     };
-    snapshotCache[symbol] = updated;
+
+    snapshotCache[symbol] = { snapshot: updated, timestamp: Date.now() };
     return updated;
+  }
+
+  public static isAvailable(symbol: string): boolean {
+    const cached = snapshotCache[symbol];
+    return !!cached && Date.now() - cached.timestamp < 10000;
+  }
+
+  public static getDataStatus(symbol: string): { available: boolean; ageMs: number; source: 'DELTA_API' | 'WS_TICK' | 'STALE' | 'UNAVAILABLE' } {
+    const cached = snapshotCache[symbol];
+    if (!cached) return { available: false, ageMs: 0, source: 'UNAVAILABLE' };
+
+    const ageMs = Date.now() - cached.timestamp;
+    if (ageMs < 5000) return { available: true, ageMs, source: 'WS_TICK' };
+    if (ageMs < 30000) return { available: true, ageMs, source: 'DELTA_API' };
+    return { available: false, ageMs, source: 'STALE' };
   }
 }

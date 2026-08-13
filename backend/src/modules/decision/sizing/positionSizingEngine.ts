@@ -29,6 +29,7 @@ export class PositionSizingEngine {
     return {
       positionSize: riskResult.notionalValue,
       contractQuantity: riskResult.positionSize,
+      notionalValue: riskResult.notionalValue,
       riskAmount: riskResult.riskAmount,
       marginRequired: riskResult.marginRequired,
       leverage: riskResult.leverage,

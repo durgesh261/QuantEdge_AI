@@ -72,7 +72,7 @@ export const DeltaConnectionPanel: React.FC = () => {
       addToast(
         isMatched ? 'State Reconciliation PASSED' : 'State Mismatch Detected',
         isMatched
-          ? `Local Engine & Sandbox matched (${res.data.localOrdersCount} orders, ${res.data.localPositionsCount} positions)`
+          ? `Local Engine & Delta Exchange matched (${res.data.localOrdersCount} orders, ${res.data.localPositionsCount} positions)`
           : `Found ${res.data.mismatches.length} state mismatches.`,
         isMatched ? 'success' : 'danger'
       );
@@ -104,31 +104,25 @@ export const DeltaConnectionPanel: React.FC = () => {
         <div className="flex items-center space-x-2">
           <Zap className="w-5 h-5 text-[#3B82F6]" />
           <div>
-            <h3 className="font-bold text-[#F8FAFC] text-sm">Delta Exchange Sandbox Testnet Specification</h3>
+            <h3 className="font-bold text-[#F8FAFC] text-sm">Delta Exchange India Production Specification</h3>
             <p className="text-[10px] text-[#94A3B8]">
-              Target: https://cdn.testnet.delta.exchange | Authenticated via HMAC-SHA256 headers.
+              Target: https://api.india.delta.exchange | Authenticated via HMAC-SHA256 headers.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() =>
-              connectMutation.mutate(
-                health?.environment === DeltaEnvironment.SANDBOX
-                  ? DeltaEnvironment.PRODUCTION
-                  : DeltaEnvironment.SANDBOX
-              )
-            }
+            onClick={() => connectMutation.mutate(DeltaEnvironment.PRODUCTION)}
             disabled={connectMutation.isPending}
             className="px-2.5 py-1 bg-[#1E293B] hover:bg-[#334155] text-[#3B82F6] font-bold rounded border border-[#3B82F6]/30 text-[11px] transition-colors"
           >
-            ENV: {health?.environment ?? 'SANDBOX'}
+            ENV: PRODUCTION
           </button>
 
           {!isConnected ? (
             <button
-              onClick={() => connectMutation.mutate(health?.environment || DeltaEnvironment.SANDBOX)}
+              onClick={() => connectMutation.mutate(DeltaEnvironment.PRODUCTION)}
               disabled={connectMutation.isPending}
               className="px-3 py-1 bg-[#00C896] hover:bg-[#00B084] text-[#0B0E14] font-bold rounded text-xs transition-colors flex items-center gap-1.5"
             >
@@ -229,7 +223,7 @@ export const DeltaConnectionPanel: React.FC = () => {
             <span>{reconcileMutation.isPending ? 'RECONCILING...' : 'RECONCILE STATE'}</span>
           </button>
           <span className="text-[10px] text-[#94A3B8]">
-            Compares Execution Engine state vs Sandbox Testnet state.
+            Compares Execution Engine state vs Delta Exchange state.
           </span>
         </div>
 

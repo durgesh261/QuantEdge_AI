@@ -15,6 +15,7 @@ import { ExecutionValidator } from './executionValidator.js';
 import { IdempotencyManager } from './idempotencyManager.js';
 import { ExecutionStateMachine } from '../state-machine/executionStateMachine.js';
 import { TradingRulesService } from '../../rules/services/tradingRules.service.js';
+import { deltaSyncService } from '../../delta-exchange/index.js';
 
 let sessionStore: ExecutionSessionDto[] = [];
 let requestStore: ExecutionRequestDto[] = [];
@@ -23,7 +24,15 @@ let journalStore: ExecutionJournalDto[] = [];
 let processedIdempotencyKeys = new Set<string>();
 
 const paperAdapter = new PaperAdapter();
-const deltaAdapter = new DeltaAdapter();
+// DeltaAdapter will be initialized lazily with restClient
+let deltaAdapter: DeltaAdapter | null = null;
+
+function getDeltaAdapter(): DeltaAdapter {
+  if (!deltaAdapter) {
+    deltaAdapter = new DeltaAdapter(deltaSyncService.getRestClient());
+  }
+  return deltaAdapter;
+}
 
 export class ExecutionEngineService {
   public static async submitExecution(input: SubmitExecutionInput): Promise<{
@@ -52,7 +61,7 @@ export class ExecutionEngineService {
 
     const ruleConfig = await TradingRulesService.getRuleConfig();
     const mode = input.mode || ExecutionMode.PAPER;
-    const adapter: IExecutionAdapter = mode === ExecutionMode.LIVE ? deltaAdapter : paperAdapter;
+    const adapter: IExecutionAdapter = ExecutionEngineService.getAdapter(mode);
 
     // 2. Create Execution Session
     const session: ExecutionSessionDto = {
@@ -242,6 +251,9 @@ export class ExecutionEngineService {
   }
 
   public static getAdapter(mode: ExecutionMode): IExecutionAdapter {
-    return mode === ExecutionMode.LIVE ? deltaAdapter : paperAdapter;
+    if (mode === ExecutionMode.LIVE) {
+      return getDeltaAdapter();
+    }
+    return paperAdapter;
   }
 }

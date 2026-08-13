@@ -18,6 +18,8 @@ import { DecisionEngineService } from '../../decision/services/decisionEngine.se
 import { executionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
 import { StrategySignalOutcome } from '@algoapp/shared';
 import { eventBus } from '../../../services/EventBus.js';
+import { PositionMonitorService } from '../../position-monitor/services/PositionMonitorService.js';
+import crypto from 'crypto';
 
 const SCAN_INTERVAL_MS = 5000;
 const TIMEFRAME = '1H';
@@ -263,7 +265,7 @@ export class ScannerEngine {
             // ═══════════════════════════════════════════════════════════════
             if ((decision.state as any) === 'APPROVED' && bestScore >= 85) {
               CanonicalOBRegistry.markTraded(candidate.id);
-              await this.triggerExecution(symbol, livePrice, decision);
+              await this.triggerExecution(symbol, livePrice, decision, candidate.id);
             } else {
               logger.info(
                 `[ScannerEngine] REJECTED: ${symbol} confidence=${bestScore} < 85 OR state=${decision.state} — NO TRADE`
@@ -339,22 +341,89 @@ export class ScannerEngine {
   private static async triggerExecution(
     symbol: string,
     price: number,
-    decision: any
+    decision: any,
+    orderBlockId: string
   ) {
     try {
+      const contractQuantity = decision.contractQuantity ?? decision.positionSize ?? 0;
       logger.info(
-        `[Scanner→Execution] PLACING ORDER: ${symbol} @ ${price} side=${decision.outcome} confidence=${decision.confidenceScore}`
+        `[Scanner→Execution] PLACING ORDER: ${symbol} @ ${price} side=${decision.outcome} size=${contractQuantity} confidence=${decision.confidenceScore}`
       );
+
+      const clientOrderId = `AUTO-${symbol}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
 
       await executionEngineService.placeOrder({
         symbol,
         side: decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY ? 'buy' : 'sell',
         orderType: 'market',
-        size: decision.positionSize ?? 0,
+        size: contractQuantity,
         leverage: decision.leverage,
         stopLossPrice: decision.stopLossPrice,
         takeProfitPrice: decision.takeProfitPrice,
+        clientOrderId,
       });
+
+      // Create TradeLedger entry for the executed trade
+      const tradeId = clientOrderId;
+      const balances = deltaSyncService.getBalances();
+      const usdtBalance = balances.find((b) => b.asset_symbol === 'USDT' || b.asset_symbol === 'USD');
+      const accountBalance = usdtBalance ? parseFloat(usdtBalance.balance || '0') : 0;
+      const entryPrice = price;
+      const notional = entryPrice * contractQuantity;
+      const marginUsed = notional / (decision.leverage || 1);
+      const riskPercent = decision.stopLossPrice
+        ? (Math.abs(entryPrice - decision.stopLossPrice) * contractQuantity) / accountBalance * 100
+        : 0;
+
+      await prisma.tradeLedger.create({
+        data: {
+          tradeId,
+          exchangeOrderId: clientOrderId,
+          symbol,
+          timeframe: '1H',
+          executionMode: 'LIVE',
+          side: (decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY) ? 'LONG' : 'SHORT',
+          entryPrice,
+          quantity: contractQuantity,
+          marginUsed,
+          leverage: decision.leverage || 1,
+          riskPercent,
+          stopLoss: decision.stopLossPrice ?? 0,
+          takeProfit: decision.takeProfitPrice ?? 0,
+          decisionConfidence: decision.confidenceScore ?? 0,
+          decisionExplanation: `Auto-execution from scanner: ${decision.reasonCodes?.join(', ') || 'N/A'}`,
+          resultStatus: 'OPEN',
+          syncStatus: 'SYNCED',
+          executedAt: new Date(),
+        },
+      });
+
+      // Add position to monitoring for SL/TP
+      const side: 'LONG' | 'SHORT' = (decision.outcome === 'BUY' || decision.outcome === StrategySignalOutcome.BUY) ? 'LONG' : 'SHORT';
+      const positions = deltaSyncService.getPositions();
+      const deltaPos = positions.find((p: any) =>
+        p.product_symbol === symbol &&
+        ((side === 'LONG' && p.side === 'buy') || (side === 'SHORT' && p.side === 'sell'))
+      );
+
+      if (deltaPos) {
+        PositionMonitorService.addPosition({
+          symbol,
+          side,
+          entryPrice,
+          stopLossPrice: decision.stopLossPrice ?? 0,
+          takeProfitPrice: decision.takeProfitPrice ?? 0,
+          quantity: contractQuantity,
+          leverage: decision.leverage || 1,
+          tradeId,
+          orderBlockId,
+          entryTime: new Date().toISOString(),
+          deltaProductSymbol: deltaPos.product_symbol,
+          deltaPositionId: deltaPos.product_id,
+        });
+      } else {
+        logger.warn(`[ScannerEngine] Position not found on Delta after execution for ${symbol}`);
+      }
 
       const globalState = await prisma.scannerState.findFirst();
       if (globalState) {
@@ -402,11 +471,10 @@ export class ScannerEngine {
 
   private static async fetchDeltaTicker(symbol: string) {
     try {
-      const deltaSymbol = symbol.replace('.P', '');
       const restClient = deltaSyncService.getRestClient();
       if (restClient.isConfigured()) {
         try {
-          const tData = await restClient.getTicker(deltaSymbol);
+          const tData = await restClient.getTicker(symbol);
           if (tData?.mark_price || tData?.close || tData?.spot_price) {
             const p = parseFloat(tData.close || tData.mark_price || tData.spot_price);
             if (!isNaN(p) && p > 0) {
@@ -414,15 +482,11 @@ export class ScannerEngine {
             }
           }
         } catch {
-          // ignore REST client error and try MarketSnapshotService
+          // REST client error - no fallback
         }
       }
-
-      const { MarketSnapshotService } = await import('../../market-data/services/marketSnapshot.service.js');
-      const snap = await MarketSnapshotService.getSnapshot(symbol);
-      if (snap && snap.currentPrice > 0) {
-        return { price: snap.currentPrice, change_24h: 0 };
-      }
+      
+      // NO fake/fallback market data - return null if Delta unavailable
       return null;
     } catch {
       return null;

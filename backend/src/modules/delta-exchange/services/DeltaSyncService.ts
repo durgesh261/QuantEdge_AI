@@ -2,6 +2,9 @@ import { DeltaRestClient, DeltaWalletBalance, DeltaPosition, DeltaOrder } from '
 import { DeltaWebSocketClient } from './DeltaWebSocketClient.js';
 import { candleEngine } from '../../../engine/CandleEngine.js';
 import { eventBus } from '../../../services/EventBus.js';
+import { HistoricalBackfillService } from '../../market-data/services/historicalBackfill.service.js';
+import { MarketSnapshotService } from '../../market-data/services/marketSnapshot.service.js';
+import { logger } from '../../../logger/index.js';
 
 export interface DeltaHealthStatus {
   status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
@@ -10,6 +13,8 @@ export interface DeltaHealthStatus {
   lastSyncTime: string;
   reconcileCount: number;
 }
+
+export type WsPositionCallback = (position: DeltaPosition) => void;
 
 export class DeltaSyncService {
   private rest: DeltaRestClient;
@@ -23,6 +28,7 @@ export class DeltaSyncService {
   private latestHistory: any[] = [];
 
   private priceTickCallbacks: ((tick: { symbol: string; price: number; timestamp: number }) => void)[] = [];
+  private wsPositionCallbacks: WsPositionCallback[] = [];
 
   private health: DeltaHealthStatus = {
     status: 'DISCONNECTED',
@@ -32,8 +38,8 @@ export class DeltaSyncService {
     reconcileCount: 0,
   };
 
-  constructor(credentials: { apiKey: string; apiSecret: string }, isTestnet: boolean = false) {
-    this.rest = new DeltaRestClient(credentials, isTestnet);
+  constructor(credentials: { apiKey: string; apiSecret: string }) {
+    this.rest = new DeltaRestClient(credentials);
     this.ws = new DeltaWebSocketClient(
       credentials,
       {
@@ -61,8 +67,7 @@ export class DeltaSyncService {
           this.health.wsStatus = 'RECONNECTING';
           this.updateAggregateStatus();
         },
-      },
-      isTestnet
+      }
     );
   }
 
@@ -92,13 +97,26 @@ export class DeltaSyncService {
     this.ws.subscribe('v2/orders');
     this.ws.subscribe('v2/wallet');
 
-    // Run reconciliation immediately and every 30s
+    const hasData = await HistoricalBackfillService.hasSufficientData();
+    if (!hasData) {
+      console.log('[DeltaSyncService] Insufficient historical data, running backfill...');
+      await HistoricalBackfillService.backfillAll(this.rest);
+    }
+
     await this.reconcile();
     this.syncTimer = setInterval(() => this.reconcile(), 30000);
   }
 
   public async reconcile(): Promise<void> {
     try {
+      if (!this.rest.isProductsCacheFresh()) {
+        try {
+          await this.rest.loadProducts();
+        } catch (err) {
+          console.warn('[DeltaSyncService] Product metadata refresh notice during reconcile:', err instanceof Error ? err.message : err);
+        }
+      }
+
       const [balances, positions, orders, history] = await Promise.all([
         this.rest.getWalletBalances().catch(() => []),
         this.rest.getPositions().catch(() => []),
@@ -167,12 +185,66 @@ export class DeltaSyncService {
     this.priceTickCallbacks.push(callback);
   }
 
+  public onWsPositionUpdate(callback: WsPositionCallback): void {
+    this.wsPositionCallbacks.push(callback);
+  }
+
+  public async getMarkPrice(symbol: string): Promise<number | null> {
+    try {
+      const ticker = await this.rest.getTicker(symbol);
+      if (ticker?.mark_price) {
+        return parseFloat(ticker.mark_price);
+      }
+      if (ticker?.close) {
+        return parseFloat(ticker.close);
+      }
+      if (ticker?.spot_price) {
+        return parseFloat(ticker.spot_price);
+      }
+    } catch (err) {
+      logger.warn(`[DeltaSyncService] Failed to get mark price for ${symbol}:`, err);
+    }
+    return null;
+  }
+
+  public async closePosition(symbol: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const positions = this.getPositions();
+      const pos = positions.find(p => this.rest.toInternalSymbol(p.product_symbol) === symbol);
+      if (!pos || Math.abs(pos.size) === 0) {
+        return { success: false, error: 'No open position to close' };
+      }
+
+      const closeSide = pos.side === 'buy' ? 'sell' : 'buy';
+      const size = Math.abs(pos.size);
+
+      const result = await this.rest.placeOrder({
+        product_id: pos.product_id,
+        product_symbol: pos.product_symbol,
+        side: closeSide,
+        order_type: 'market',
+        size,
+        reduce_only: true,
+      });
+
+      logger.info(`[DeltaSyncService] Close position order placed: ${symbol} ${closeSide} ${size}`, result);
+      return { success: true };
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.error?.message || err?.message || 'Failed to close position';
+      logger.error(`[DeltaSyncService] Close position failed for ${symbol}:`, errorMsg);
+      return { success: false, error: errorMsg };
+    }
+  }
+
   private handleTicker(data: any): void {
     if (!data?.symbol || !data?.price) return;
     const price = parseFloat(data.price);
     const volume = parseFloat(data.volume_24h || '0');
     candleEngine.ingestTick(data.symbol, price, volume, new Date());
     eventBus.emit('ticker:live', data);
+
+    MarketSnapshotService.updateSnapshot(data.symbol, price);
+
     const tickObj = { symbol: data.symbol, price, timestamp: Date.now() };
     for (const cb of this.priceTickCallbacks) {
       try { cb(tickObj); } catch { /* ignore error */ }
@@ -182,6 +254,13 @@ export class DeltaSyncService {
   private handleWsPosition(data: any): void {
     eventBus.emit('position:live', data);
     void this.reconcile();
+
+    try {
+      const position: DeltaPosition = data;
+      for (const cb of this.wsPositionCallbacks) {
+        try { cb(position); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
   }
 
   private handleWsOrder(data: any): void {
@@ -195,12 +274,11 @@ export class DeltaSyncService {
   }
 
   public async updateCredentials(
-    credentials: { apiKey: string; apiSecret: string },
-    isTestnet: boolean = false
+    credentials: { apiKey: string; apiSecret: string }
   ): Promise<{ success: boolean; message?: string }> {
     this.stop();
 
-    this.rest = new DeltaRestClient(credentials, isTestnet);
+    this.rest = new DeltaRestClient(credentials);
     this.ws = new DeltaWebSocketClient(
       credentials,
       {
@@ -222,8 +300,7 @@ export class DeltaSyncService {
           this.health.wsStatus = 'RECONNECTING';
           this.updateAggregateStatus();
         },
-      },
-      isTestnet
+      }
     );
 
     if (!credentials.apiKey || !credentials.apiSecret) {
@@ -247,19 +324,18 @@ export class DeltaSyncService {
   }
 
   public static async testCredentials(
-    credentials: { apiKey: string; apiSecret: string },
-    isTestnet: boolean = false
+    credentials: { apiKey: string; apiSecret: string }
   ): Promise<{ success: boolean; latencyMs: number; message: string; data?: any }> {
     const startTime = Date.now();
     try {
-      const testRest = new DeltaRestClient(credentials, isTestnet);
+      const testRest = new DeltaRestClient(credentials);
       await testRest.loadProducts();
       const balances = await testRest.getWalletBalances();
       const latencyMs = Date.now() - startTime;
       return {
         success: true,
         latencyMs,
-        message: `Successfully connected to Delta Exchange (${isTestnet ? 'Testnet' : 'Live India'}). Retrieved ${balances.length} balance assets.`,
+        message: `Successfully connected to Delta Exchange (Live India). Retrieved ${balances.length} balance assets.`,
         data: {
           balancesCount: balances.length,
           productsCount: testRest.getAllSupportedPairs().length,

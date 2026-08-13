@@ -22,7 +22,7 @@ export class SettingsController {
 
   public static async saveDeltaCredentials(req: Request, res: Response): Promise<void> {
     const requestId = (req.headers[config.correlationHeader.toLowerCase()] as string) || 'req-settings-save-delta';
-    const { apiKey, apiSecret, environment } = req.body;
+    const { apiKey, apiSecret } = req.body;
 
     if (!apiKey || typeof apiKey !== 'string') {
       res.status(400).json({
@@ -42,11 +42,10 @@ export class SettingsController {
       return;
     }
 
-    const env = environment === 'SANDBOX' ? 'SANDBOX' : 'PRODUCTION';
     const result = await SettingsService.saveDeltaCredentials({
       apiKey,
       apiSecret,
-      environment: env,
+      environment: 'PRODUCTION',
     });
 
     const response: ApiResponse<typeof result> = {
@@ -63,7 +62,7 @@ export class SettingsController {
 
   public static async testDeltaCredentials(req: Request, res: Response): Promise<void> {
     const requestId = (req.headers[config.correlationHeader.toLowerCase()] as string) || 'req-settings-test-delta';
-    const { apiKey, apiSecret, environment } = req.body;
+    const { apiKey, apiSecret } = req.body;
 
     if (!apiKey || typeof apiKey !== 'string') {
       res.status(400).json({
@@ -83,11 +82,10 @@ export class SettingsController {
       return;
     }
 
-    const env = environment === 'SANDBOX' ? 'SANDBOX' : 'PRODUCTION';
     const result = await SettingsService.testDeltaCredentials({
       apiKey,
       apiSecret,
-      environment: env,
+      environment: 'PRODUCTION',
     });
 
     const response: ApiResponse<typeof result> = {

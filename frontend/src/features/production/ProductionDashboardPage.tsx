@@ -11,7 +11,6 @@ import {
   CheckCircle2, 
   XCircle, 
   Cpu, 
-  Activity, 
   Database, 
   HardDrive, 
   Lock, 
@@ -67,7 +66,7 @@ export const ProductionDashboardPage: React.FC = () => {
 
   const safetyGuards = [
     { label: 'Explicit User Confirmation', pass: safety?.checks.explicitUserConfirmed },
-    { label: 'Environment Profile (Prod/Sandbox/Dev)', pass: safety?.checks.validEnvironment },
+    { label: 'Environment Profile (Production)', pass: safety?.checks.validEnvironment },
     { label: 'Production API Credentials', pass: safety?.checks.productionApiKeysPresent },
     { label: 'Emergency Kill Switch (Inactive)', pass: safety?.checks.killSwitchInactive },
     { label: 'Challenge Guard Rules', pass: safety?.checks.challengeGuardEnabled },
@@ -95,13 +94,11 @@ export const ProductionDashboardPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold border ${
+<div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold border ${
             overview?.activeExecutionMode === ExecutionMode.LIVE
               ? 'bg-[#EF4444]/15 border-[#EF4444]/40 text-[#EF4444]'
-              : overview?.activeExecutionMode === ExecutionMode.SANDBOX
-              ? 'bg-[#3B82F6]/15 border-[#3B82F6]/40 text-[#3B82F6]'
               : 'bg-[#00C896]/15 border-[#00C896]/40 text-[#00C896]'
-          }`}>
+        }`}>
             <Radio className="w-3.5 h-3.5 animate-pulse" />
             <span>MODE: {overview?.activeExecutionMode ?? 'PAPER'}</span>
           </div>
@@ -115,7 +112,7 @@ export const ProductionDashboardPage: React.FC = () => {
             Execution Mode Selector
           </span>
           <span className="text-[10px] text-[#94A3B8]">
-            ENV PROFILE: {overview?.environment?.toUpperCase() ?? 'PRODUCTION'}
+            ENV PROFILE: PRODUCTION
           </span>
         </div>
 
@@ -133,21 +130,6 @@ export const ProductionDashboardPage: React.FC = () => {
               <ShieldCheck className="w-4 h-4" />
             </div>
             <p className="text-[10px] opacity-80">Virtual balance simulation ($10.00 equity). Zero financial risk.</p>
-          </button>
-
-          <button
-            onClick={() => setModeMutation.mutate({ mode: ExecutionMode.SANDBOX, userConfirmed: false })}
-            className={`p-3 rounded-xl border text-left font-mono text-xs transition-colors ${
-              overview?.activeExecutionMode === ExecutionMode.SANDBOX
-                ? 'bg-[#3B82F6]/10 border-[#3B82F6] text-[#3B82F6]'
-                : 'bg-[#0B0E14] border-[#1E293B] text-[#94A3B8] hover:border-[#334155]'
-            }`}
-          >
-            <div className="flex items-center justify-between font-bold text-sm mb-1">
-              <span>SANDBOX TESTNET</span>
-              <Activity className="w-4 h-4" />
-            </div>
-            <p className="text-[10px] opacity-80">Delta Exchange Testnet integration (testnet.delta.exchange).</p>
           </button>
 
           <button

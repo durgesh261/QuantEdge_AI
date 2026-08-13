@@ -37,7 +37,6 @@ export const SettingsPage: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
-  const [environment, setEnvironment] = useState<'PRODUCTION' | 'SANDBOX'>('PRODUCTION');
   const [testResult, setTestResult] = useState<{
     success: boolean;
     latencyMs?: number;
@@ -67,9 +66,6 @@ export const SettingsPage: React.FC = () => {
       if (settingsData.data.deltaApiKey && !apiKey) {
         setApiKey(settingsData.data.deltaApiKey);
       }
-      if (settingsData.data.deltaEnvironment) {
-        setEnvironment(settingsData.data.deltaEnvironment);
-      }
     }
   }, [settingsData?.data]);
 
@@ -97,13 +93,13 @@ export const SettingsPage: React.FC = () => {
 
   const saveCredentialsMutation = useMutation({
     mutationFn: settingsApi.saveDeltaCredentials,
-    onSuccess: async (_, variables) => {
+    onSuccess: async () => {
       addToast('Credentials Saved', 'Delta API Key and Secret updated and synchronized.', 'success');
       setTestResult(null);
       
       // Auto-connect the execution adapter so the UI immediately shows DELTA LIVE
       try {
-        await deltaApi.connect(variables.environment as DeltaEnvironment);
+        await deltaApi.connect(DeltaEnvironment.PRODUCTION);
       } catch (err) {
         console.error('Failed to auto-connect adapter', err);
       }
@@ -153,7 +149,6 @@ export const SettingsPage: React.FC = () => {
     testConnectionMutation.mutate({
       apiKey,
       apiSecret,
-      environment,
     });
   };
 
@@ -166,7 +161,6 @@ export const SettingsPage: React.FC = () => {
     saveCredentialsMutation.mutate({
       apiKey,
       apiSecret,
-      environment,
     });
   };
 
@@ -301,48 +295,15 @@ export const SettingsPage: React.FC = () => {
                 <Server className="w-3.5 h-3.5 text-[#3B82F6]" />
                 Trading Environment Target
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEnvironment('PRODUCTION')}
-                  className={`p-3 rounded-lg border text-left transition-all flex items-start gap-2.5 ${
-                    environment === 'PRODUCTION'
-                      ? 'bg-[#3B82F6]/10 border-[#3B82F6] text-[#F8FAFC]'
-                      : 'bg-[#0B0E14] border-[#1E293B] text-[#94A3B8] hover:border-[#334155]'
-                  }`}
-                >
-                  <Radio className={`w-4 h-4 mt-0.5 ${environment === 'PRODUCTION' ? 'text-[#3B82F6]' : 'text-[#64748B]'}`} />
-                  <div>
-                    <div className="text-xs font-bold flex items-center gap-1.5">
-                      <span>🇮🇳 Delta Exchange India (Live)</span>
-                      {environment === 'PRODUCTION' && (
-                        <span className="text-[9px] bg-[#3B82F6] text-white px-1.5 py-0.2 rounded font-bold">ACTIVE</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-[#64748B] mt-0.5">api.india.delta.exchange (Real INR/USDT Capital)</div>
+              <div className="p-3 rounded-lg border bg-[#3B82F6]/10 border-[#3B82F6] text-[#F8FAFC] transition-all flex items-start gap-2.5">
+                <Radio className="w-4 h-4 mt-0.5 text-[#3B82F6]" />
+                <div>
+                  <div className="text-xs font-bold flex items-center gap-1.5">
+                    <span>🇮🇳 Delta Exchange India (Live)</span>
+                    <span className="text-[9px] bg-[#3B82F6] text-white px-1.5 py-0.2 rounded font-bold">ACTIVE</span>
                   </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setEnvironment('SANDBOX')}
-                  className={`p-3 rounded-lg border text-left transition-all flex items-start gap-2.5 ${
-                    environment === 'SANDBOX'
-                      ? 'bg-[#F59E0B]/10 border-[#F59E0B] text-[#F8FAFC]'
-                      : 'bg-[#0B0E14] border-[#1E293B] text-[#94A3B8] hover:border-[#334155]'
-                  }`}
-                >
-                  <Radio className={`w-4 h-4 mt-0.5 ${environment === 'SANDBOX' ? 'text-[#F59E0B]' : 'text-[#64748B]'}`} />
-                  <div>
-                    <div className="text-xs font-bold flex items-center gap-1.5">
-                      <span>🧪 Delta Sandbox / Testnet</span>
-                      {environment === 'SANDBOX' && (
-                        <span className="text-[9px] bg-[#F59E0B] text-black px-1.5 py-0.2 rounded font-bold">ACTIVE</span>
-                      )}
-                    </div>
-                    <div className="text-[10px] text-[#64748B] mt-0.5">testnet-api.delta.exchange (Simulated Testnet)</div>
-                  </div>
-                </button>
+                  <div className="text-[10px] text-[#64748B] mt-0.5">api.india.delta.exchange (Real INR/USDT Capital)</div>
+                </div>
               </div>
             </div>
 

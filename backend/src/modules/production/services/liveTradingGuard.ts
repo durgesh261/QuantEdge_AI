@@ -20,11 +20,13 @@ export class LiveTradingGuard {
 
     const env = process.env.NODE_ENV || 'development';
     const hasDeltaKeys = Boolean(process.env.DELTA_API_KEY && process.env.DELTA_API_SECRET);
+    const isAllowLiveTradingEnvSet = process.env.ALLOW_LIVE_TRADING === 'true';
 
     const checks = {
       explicitUserConfirmed: isExplicitUserConfirmed,
       validEnvironment: env === 'production' || env === 'sandbox' || env === 'development',
       productionApiKeysPresent: hasDeltaKeys || env !== 'production',
+      allowLiveTradingEnvSet: requestedMode === ExecutionMode.LIVE ? isAllowLiveTradingEnvSet : true,
       killSwitchInactive: !isKillSwitchActive,
       challengeGuardEnabled: true,
       liveModeActive: requestedMode === ExecutionMode.LIVE ? isLiveModeActive : true,
@@ -35,6 +37,9 @@ export class LiveTradingGuard {
     const rejectionReasons: string[] = [];
     if (!checks.explicitUserConfirmed && requestedMode === ExecutionMode.LIVE) {
       rejectionReasons.push('Explicit user confirmation is missing for Live Trading.');
+    }
+    if (!checks.allowLiveTradingEnvSet && requestedMode === ExecutionMode.LIVE) {
+      rejectionReasons.push('ALLOW_LIVE_TRADING environment variable is not set to true.');
     }
     if (!checks.killSwitchInactive) {
       rejectionReasons.push('Platform Emergency Kill Switch is ACTIVE.');

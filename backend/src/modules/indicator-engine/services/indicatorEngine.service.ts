@@ -54,7 +54,7 @@ export class IndicatorEngineService {
         marketStructure: { symbol, timeframe, trend: "BULLISH", internalTrend: "BULLISH", swingTrend: "BULLISH", liquiditySwept: false },
         pivotsInternal: [], pivotsSwing: [], zigzagLegs: [], structureEvents: [],
         orderBlocks: [], liquiditySweeps: [], fairValueGaps: [], equalHighLows: [],
-        atr14: 0, atr200: 0, evaluatedAt: new Date().toISOString(),
+        atr14: 1, atr200: 1, evaluatedAt: new Date().toISOString(),
       };
     }
 
@@ -161,7 +161,7 @@ export class IndicatorEngineService {
       liquiditySweeps: [],
       fairValueGaps: [],
       equalHighLows: smcResult.equalHighLows,
-      atr14: 0,
+      atr14: smcResult.atr14,
       atr200: smcResult.atr200,
       evaluatedAt: new Date().toISOString(),
     };

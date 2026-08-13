@@ -39,7 +39,7 @@ export interface BackupStatusDto {
 
 export interface ProductionOverviewDto {
   environment: AppEnvironment;
-  activeExecutionMode: 'PAPER' | 'SANDBOX' | 'LIVE';
+  activeExecutionMode: 'PAPER' | 'LIVE';
   isLiveTradingAllowed: boolean;
   safetyCheck: LiveTradingSafetyCheckDto;
   metrics: ProductionMetricsDto;

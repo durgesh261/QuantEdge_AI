@@ -61,6 +61,8 @@ const REASON_EXPLANATION_MAP: Record<DecisionReasonCode, string> = {
     'AI Confirmation layer approved the proposed strategy setup.',
   [DecisionReasonCode.AI_CONFIRMATION_REJECTED]:
     'AI Confirmation layer rejected the setup due to insufficient confidence or structural divergence.',
+  [DecisionReasonCode.NEWS_MACRO_BLOCKED]:
+    'Trade rejected: High-impact news or macroeconomic event blocking window is active.',
 };
 
 export class ReasonBuilder {

@@ -2,7 +2,6 @@ import { ExecutionResultDto, SubmitExecutionInput } from './execution.js';
 import { PaperOrderDto, PaperPositionDto } from './paper.js';
 
 export enum DeltaEnvironment {
-  SANDBOX = 'SANDBOX',
   PRODUCTION = 'PRODUCTION',
 }
 

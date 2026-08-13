@@ -3,7 +3,7 @@ import { PivotEngine } from '../../backend/src/modules/indicator-engine/engines/
 import { SwingEngine } from '../../backend/src/modules/indicator-engine/engines/swingEngine';
 import { MarketStructureEngine } from '../../backend/src/modules/indicator-engine/engines/marketStructureEngine';
 import { PatZoneEngine } from '../../backend/src/modules/indicator-engine/engines/patZoneEngine';
-import { SmcZoneEngine } from '../../backend/src/modules/indicator-engine/engines/smcZoneEngine';
+import { LuxAlgoSMCEngine } from '../../backend/src/modules/indicator-engine/engines/LuxAlgoSMCEngine';
 import { LiquiditySweepEngine } from '../../backend/src/modules/indicator-engine/engines/liquiditySweepEngine';
 import { FvgEngine } from '../../backend/src/modules/indicator-engine/engines/fvgEngine';
 import { EqhEqlEngine } from '../../backend/src/modules/indicator-engine/engines/eqhEqlEngine';
@@ -93,17 +93,19 @@ describe('IndicatorEngine - Comprehensive Validation Test Suite (Module 7)', () 
     expect(atr).toBeGreaterThan(0);
   });
 
-  it('5. SmcZoneEngine - extracts LuxAlgo Smart Money Concepts Order Blocks with 200-period ATR filter', () => {
-    const pivotsInternal = PivotEngine.findPivots(mockCandles, 5, 5);
-    const pivotsSwing = PivotEngine.findPivots(mockCandles, 15, 15);
-    const { events } = MarketStructureEngine.evaluateStructure('BTCUSD.P', mockCandles, pivotsInternal, pivotsSwing, '1H');
+  it('5. LuxAlgoSMCEngine - produces bounded supply-side (BEARISH) and demand-side (BULLISH) order blocks with positive ATR200', () => {
+    const smcResult = LuxAlgoSMCEngine.run('BTCUSD.P', mockCandles, '1H');
 
-    const smcResult = SmcZoneEngine.extractSmcZones('BTCUSD.P', mockCandles, events, '1H');
-    expect(smcResult.supplyZones.length).toBeLessThanOrEqual(5);
-    expect(smcResult.demandZones.length).toBeLessThanOrEqual(5);
+    // Supply-side = BEARISH order blocks (old: supplyZones)
+    const supplyBlocks = smcResult.orderBlocks.filter(ob => ob.type === 'BEARISH');
+    // Demand-side = BULLISH order blocks (old: demandZones)
+    const demandBlocks = smcResult.orderBlocks.filter(ob => ob.type === 'BULLISH');
 
-    const atr200 = SmcZoneEngine.calculateAtr200(mockCandles, 200);
-    expect(atr200).toBeGreaterThan(0);
+    expect(supplyBlocks.length).toBeLessThanOrEqual(5);
+    expect(demandBlocks.length).toBeLessThanOrEqual(5);
+
+    // ATR200 is the last value of the Wilder RMA series — must be > 0
+    expect(smcResult.atr200).toBeGreaterThan(0);
   });
 
   it('6. LiquiditySweepEngine - detects High and Low liquidity sweeps', () => {

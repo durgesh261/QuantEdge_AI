@@ -5,15 +5,19 @@ import { DeltaConnectionState } from '@algoapp/shared';
 export class DeltaRecoverySimulator {
   public static async simulateScenario(
     scenario: 'WS_DISCONNECT' | 'DUPLICATE_MESSAGE' | 'DELAYED_ACK',
-    connectionManager: DeltaConnectionManager
+    connectionManager?: DeltaConnectionManager
   ): Promise<DeltaRecoveryTestDto> {
     const t0 = Date.now();
 
     if (scenario === 'WS_DISCONNECT') {
-      connectionManager.transitionTo(DeltaConnectionState.DEGRADED);
-      connectionManager.transitionTo(DeltaConnectionState.RECONNECTING);
+      if (connectionManager) {
+        connectionManager.transitionTo(DeltaConnectionState.DEGRADED);
+        connectionManager.transitionTo(DeltaConnectionState.RECONNECTING);
+      }
       await new Promise((r) => setTimeout(r, 50));
-      connectionManager.transitionTo(DeltaConnectionState.CONNECTED);
+      if (connectionManager) {
+        connectionManager.transitionTo(DeltaConnectionState.CONNECTED);
+      }
       const elapsed = Date.now() - t0;
       return {
         scenario,

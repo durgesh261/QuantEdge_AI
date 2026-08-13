@@ -1,6 +1,8 @@
 import { OrderBlockDto } from '@algoapp/shared';
 import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
+import { OrderBlockMergeEngine } from '../engines/orderBlockMergeEngine.js';
+import { eventBus } from '../../../services/EventBus.js';
 
 export interface CanonicalOBEntry {
   id: string;
@@ -22,10 +24,14 @@ export interface CanonicalOBEntry {
   firstTouchTime?: string | undefined;
   firstTouchPrice?: number | undefined;
   traded: boolean;
-  status: 'ACTIVE' | 'TOUCHED' | 'TRADED' | 'MITIGATED';
+  status: 'ACTIVE' | 'TOUCHED' | 'TRADED' | 'MITIGATED' | 'MERGED';
   sourceBarTime: string;
   createdFromStructure: string;
   structureType: 'INTERNAL' | 'SWING';
+  // Merge tracking
+  sourceIds?: string[];
+  mergedZoneId?: string;
+  isMerged?: boolean;
 }
 
 export class CanonicalOBRegistry {
@@ -72,6 +78,9 @@ export class CanonicalOBRegistry {
             sourceBarTime: b.sourceBarTime ? b.sourceBarTime.toISOString() : b.createdAt.toISOString(),
             createdFromStructure: b.createdFromStructure,
             structureType: b.structureType as any,
+            sourceIds: (b as any).sourceIds,
+            mergedZoneId: (b as any).mergedZoneId,
+            isMerged: (b as any).isMerged,
           });
           this.registry.set(b.symbol, existing);
         }
@@ -84,19 +93,28 @@ export class CanonicalOBRegistry {
 
   public static syncFromIndicator(symbol: string, activeOBs: OrderBlockDto[]): void {
     const existing = this.registry.get(symbol) || [];
-    const activeIds = new Set(activeOBs.map((ob) => ob.id));
+    
+    // ── MERGE OVERLAPPING ORDER BLOCKS ────────────────────────────────────
+    const demandOBs = activeOBs.filter(ob => ob.type === 'BULLISH');
+    const supplyOBs = activeOBs.filter(ob => ob.type === 'BEARISH');
+    const mergeResult = OrderBlockMergeEngine.merge(demandOBs, supplyOBs);
+    const merged = mergeResult.merged;
+    
+    const activeIds = new Set(merged.map((ob) => ob.id));
 
-    // 1. Add new OBs from indicator
-    for (const ob of activeOBs) {
+    // 1. Add new merged OBs from indicator
+    for (const ob of merged) {
       let entry = existing.find((e) => e.id === ob.id);
-      if (!entry) {
-        const isInternal = ob.id.includes('INT') || ob.id.includes('INTERNAL');
+      const isNew = !entry;
+      const isMerged = ob.isMerged && ob.sourceIds && ob.sourceIds.length > 1;
+      
+      if (isNew) {
         const newEntry: CanonicalOBEntry = {
           id: ob.id,
           symbol,
           timeframe: ob.timeframe || '1H',
           direction: ob.type,
-          sourceType: isInternal ? 'INTERNAL' : 'SWING',
+          sourceType: ob.id.includes('INT') ? 'INTERNAL' : 'SWING',
           upperPrice: ob.upperPrice,
           lowerPrice: ob.lowerPrice,
           barHigh: ob.upperPrice,
@@ -111,7 +129,10 @@ export class CanonicalOBRegistry {
           status: 'ACTIVE',
           sourceBarTime: ob.createdAt,
           createdFromStructure: 'BOS',
-          structureType: isInternal ? 'INTERNAL' : 'SWING',
+          structureType: ob.id.includes('INT') ? 'INTERNAL' : 'SWING',
+          sourceIds: ob.sourceIds,
+          mergedZoneId: ob.mergedZoneId,
+          isMerged: ob.isMerged,
         };
         existing.push(newEntry);
 
@@ -148,6 +169,21 @@ export class CanonicalOBRegistry {
           .catch((err) => {
             logger.warn(`[CanonicalOBRegistry] DB upsert failed for ${newEntry.id}:`, err);
           });
+
+        // Emit OB created/merged event
+        eventBus.emit('ob:created', {
+          symbol,
+          orderBlockId: ob.id,
+          type: ob.type,
+          upperPrice: ob.upperPrice,
+          lowerPrice: ob.lowerPrice,
+          widthPercent: ob.widthPercent,
+          baseCandleIndex: ob.baseCandleIndex,
+          breakCandleIndex: ob.breakCandleIndex,
+          sourceIds: ob.sourceIds,
+          isMerged: isMerged,
+          timestamp: new Date().toISOString(),
+        });
       }
     }
 
@@ -163,10 +199,42 @@ export class CanonicalOBRegistry {
             data: { status: 'MITIGATED', mitigated: true, mitigatedAt: new Date() },
           })
           .catch(() => {});
+
+        // Emit OB invalidated event
+        eventBus.emit('ob:invalidated', {
+          symbol,
+          orderBlockId: entry.id,
+          type: entry.direction,
+          upperPrice: entry.upperPrice,
+          lowerPrice: entry.lowerPrice,
+          reason: 'mitigated_by_price',
+          timestamp: new Date().toISOString(),
+        });
       }
     }
 
     this.registry.set(symbol, existing);
+
+    // Emit zones updated event with all active OBs
+    const activeEntries = existing.filter(e => !e.mitigated && !e.traded);
+    eventBus.emit('zones:updated', {
+      symbol,
+      zones: activeEntries.map(e => ({
+        id: e.id,
+        type: e.direction === 'BULLISH' ? 'DEMAND' : 'SUPPLY',
+        upperPrice: e.upperPrice,
+        lowerPrice: e.lowerPrice,
+        widthPercent: ((e.upperPrice - e.lowerPrice) / e.upperPrice) * 100,
+        baseCandleIndex: e.baseCandleIndex,
+        breakCandleIndex: e.breakCandleIndex,
+        sourceIds: e.sourceIds,
+        isMerged: e.isMerged,
+        createdAt: e.createdAt,
+        touched: e.touched,
+        traded: e.traded,
+      })),
+      timestamp: new Date().toISOString(),
+    });
   }
 
   public static checkLiveTouch(symbol: string, livePrice: number, timestamp: string): CanonicalOBEntry[] {

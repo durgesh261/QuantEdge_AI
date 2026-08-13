@@ -18,17 +18,12 @@ export class DeltaWebSocketClient {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private isExplicitDisconnect = false;
   private reconnectAttempts = 0;
-  private readonly wsUrl: string;
+  private readonly wsUrl = 'wss://socket.india.delta.exchange';
 
   constructor(
     private credentials: { apiKey: string; apiSecret: string },
-    private callbacks: DeltaWsCallbacks,
-    isTestnet: boolean = false
-  ) {
-    this.wsUrl = isTestnet
-      ? 'wss://testnet-socket.delta.exchange'
-      : 'wss://socket.india.delta.exchange';
-  }
+    private callbacks: DeltaWsCallbacks
+  ) {}
 
   public connect(): void {
     this.isExplicitDisconnect = false;

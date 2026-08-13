@@ -9,6 +9,21 @@ export const getMarketSnapshot = async (req: Request, res: Response): Promise<vo
   const symbol = (req.query['symbol'] as string) || 'BTCUSD.P';
   const snapshot = await MarketSnapshotService.getSnapshot(symbol);
 
+  if (!snapshot) {
+    const response = {
+      success: false,
+      data: null,
+      error: 'MARKET_DATA_UNAVAILABLE',
+      message: `Real-time market data for ${symbol} unavailable from Delta Exchange India`,
+      meta: {
+        requestId: (req as any).correlationId || 'req-market-snapshot',
+        timestamp: new Date().toISOString(),
+      },
+    };
+    res.status(503).json(response);
+    return;
+  }
+
   const response: ApiResponse<typeof snapshot> = {
     success: true,
     data: snapshot,
@@ -58,6 +73,21 @@ export const getMarketEvents = async (req: Request, res: Response): Promise<void
     data: events,
     meta: {
       requestId: (req as any).correlationId || 'req-market-events',
+      timestamp: new Date().toISOString(),
+    },
+  };
+  res.json(response);
+};
+
+export const getMarketDataStatus = async (req: Request, res: Response): Promise<void> => {
+  const symbol = (req.query['symbol'] as string) || 'BTCUSD.P';
+  const status = MarketSnapshotService.getDataStatus(symbol);
+  
+  const response: ApiResponse<typeof status> = {
+    success: true,
+    data: status,
+    meta: {
+      requestId: (req as any).correlationId || 'req-market-status',
       timestamp: new Date().toISOString(),
     },
   };

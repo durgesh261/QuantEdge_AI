@@ -24,6 +24,7 @@ model SystemSettings {
   timezone              String   @default("Asia/Kolkata")
   maxStaleSignalSeconds Int      @default(60) @map("max_stale_signal_seconds")
   isKillSwitchActive    Boolean  @default(false) @map("is_kill_switch_active")
+  executionMode         String   @default("PAPER") @map("execution_mode")
   deltaApiKey           String?  @map("delta_api_key")
   deltaApiSecret        String?  @map("delta_api_secret")
   deltaEnvironment      String   @default("PRODUCTION") @map("delta_environment")
@@ -390,38 +391,77 @@ model ScannerSignal {
   @@map("scanner_signals")
 }
 
-model NewsEvent {
-  id             String   @id @default(uuid())
-  articleId      String   @unique @map("article_id")
+model NewsArticle {
+  id            String   @id @default(cuid())
+  articleId     String   @unique @map("article_id")
+  headline      String
+  summary       String?
+  url           String   @unique
+  source        String
+  category      String   // CRYPTO, BITCOIN, ETHEREUM, MACRO_ECONOMY, REGULATORY, MARKETS, TECH
+  importance    String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  sentiment     String?  // BULLISH, BEARISH, NEUTRAL
+  impactScore   Int?     // 1-10
+  symbols       String?  @map("symbols_json") // JSON array of affected symbols
+  publishedAt   DateTime @map("published_at")
+  receivedAt    DateTime @default(now()) @map("received_at")
+  imageUrl      String?  @map("image_url")
+  tickers       String?  @map("tickers_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([publishedAt, category])
+  @@index([category, importance])
+  @@index([receivedAt])
+  @@map("news_articles")
+}
+
+model EconomicEvent {
+  id              String   @id @default(cuid())
+  eventId         String   @unique @map("event_id") // unique identifier from provider
+  title           String
+  country         String
+  currency        String
+  category        String   // INFLATION, EMPLOYMENT, GDP, RATES, PMI, RETAIL, TRADE, etc.
+  importance      String   @default("MEDIUM") // HIGH, MEDIUM, LOW
+  scheduledAt     DateTime @map("scheduled_at") // UTC
+  timezone        String   @default("UTC") @map("timezone")
+  previousValue   String?  @map("previous_value")
+  forecastValue   String?  @map("forecast_value")
+  actualValue     String?  @map("actual_value")
+  unit            String?
+  status          String   @default("UPCOMING") // UPCOMING, RELEASED
+  source          String
+  sourceUrl       String?  @map("source_url")
+  releasedAt      DateTime? @map("released_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  expiresAt       DateTime? @map("expires_at") // for cleanup
+
+  @@index([scheduledAt, status])
+  @@index([country, currency])
+  @@index([category, importance])
+  @@index([expiresAt])
+  @@map("economic_events")
+}
+
+model NewsFilterEvent {
+  id             String   @id @default(cuid())
+  eventId        String   @unique @map("event_id")
   title          String
-  content        String?
-  source         String
-  category       String   @default("GENERAL")
-  impactLevel    String   @default("MEDIUM") @map("impact_level")
-  publishedAt    DateTime @map("published_at")
-  sentimentScore Float?   @map("sentiment_score")
-  sentimentLabel String?  @map("sentiment_label")
+  category       String   // CPI, PPI, NFP, FOMC, INTEREST_RATE, SEC, ETF, REGULATORY, CRYPTO_MAJOR, EXCHANGE
+  impactLevel    String   @default("MEDIUM") // HIGH, MEDIUM, LOW
   isBlocking     Boolean  @default(false) @map("is_blocking")
+  publishedAt    DateTime @map("published_at")
+  blockStart     DateTime @map("block_start")
+  blockEnd       DateTime @map("block_end")
+  source         String
+  sourceUrl      String?  @map("source_url")
   metadataJson   String?  @map("metadata_json")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([publishedAt, category, impactLevel])
-  @@map("news_events")
-}
-
-model NewsArticle {
-  id          String   @id
-  title       String
-  description String
-  url         String   @unique
-  source      String
-  category    String
-  publishedAt DateTime @map("published_at")
-  imageUrl    String?  @map("image_url")
-  tickers     String?  @map("tickers_json") // JSON string
-
-  @@index([publishedAt, category])
-  @@map("news_articles")
+  @@index([isBlocking])
+  @@map("news_filter_events")
 }
 
 model PortfolioSnapshot {
@@ -898,6 +938,34 @@ model ShadowDecisionRecord {
   timestamp         DateTime @default(now())
 
   @@map("shadow_decision_records")
+}
+
+model ShadowPosition {
+  id                String   @id @default(uuid())
+  decisionId        String   @unique @map("decision_id")
+  symbol            String
+  timeframe         String   @default("1H")
+  side              String   // LONG | SHORT
+  entryPrice        Float    @map("entry_price")
+  stopLossPrice     Float    @map("stop_loss_price")
+  takeProfitPrice   Float    @map("take_profit_price")
+  quantity          Float
+  leverage          Float
+  riskPercent       Float    @map("risk_percent")
+  confidenceScore   Float    @map("confidence_score")
+  reasonCodesJson   String   @map("reason_codes_json")
+  status            String   @default("OPEN") // OPEN | TP_HIT | SL_HIT | EXPIRED | CANCELLED
+  tpHitAt           DateTime? @map("tp_hit_at")
+  slHitAt           DateTime? @map("sl_hit_at")
+  holdDurationMinutes Int?   @map("hold_duration_minutes")
+  mfe               Float?
+  mae               Float?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([symbol, status])
+  @@index([decisionId])
+  @@map("shadow_positions")
 }
 
 model MarketOutcomeValidation {

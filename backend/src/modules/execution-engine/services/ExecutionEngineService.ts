@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { deltaSyncService } from '../../delta-exchange/index.js';
+import { DeltaProduct } from '../../delta-exchange/services/DeltaRestClient.js';
 import { orderLifecycleService } from './OrderLifecycleService.js';
 import { tradeAccountingTrigger } from '../../trade-accounting/TradeAccountingTrigger.js';
 import { candleEngine } from '../../../engine/CandleEngine.js';
@@ -63,6 +64,89 @@ export class ExecutionEngineService {
     return this.isKillSwitchActive;
   }
 
+  public static normalizeContractQuantity(
+    symbol: string,
+    quantity: number,
+    customProduct?: DeltaProduct
+  ): {
+    isValid: boolean;
+    normalizedQuantity: number;
+    step: number;
+    reason?: string;
+  } {
+    if (typeof quantity !== 'number' || isNaN(quantity) || quantity <= 0) {
+      return { isValid: false, normalizedQuantity: 0, step: 0, reason: 'Order size must be greater than 0' };
+    }
+
+    let product: DeltaProduct | undefined = customProduct;
+    if (!product) {
+      try {
+        const restClient = deltaSyncService.getRestClient();
+        product = restClient.getProduct(symbol);
+      } catch {
+        // Handled below if product is missing
+      }
+    }
+
+    if (!product) {
+      return {
+        isValid: false,
+        normalizedQuantity: 0,
+        step: 0,
+        reason: `MISSING_EXCHANGE_METADATA: Authoritative product metadata unavailable from Delta Exchange for ${symbol}`,
+      };
+    }
+
+    const rawContractValue = product.contract_value;
+    if (rawContractValue === undefined || rawContractValue === null || String(rawContractValue).trim() === '') {
+      return {
+        isValid: false,
+        normalizedQuantity: 0,
+        step: 0,
+        reason: `MISSING_EXCHANGE_METADATA: Authoritative product contract_value metadata unavailable from Delta Exchange for ${symbol}`,
+      };
+    }
+
+    const step = parseFloat(String(rawContractValue));
+    if (isNaN(step) || step <= 0) {
+      return {
+        isValid: false,
+        normalizedQuantity: 0,
+        step: 0,
+        reason: `MISSING_EXCHANGE_METADATA: Authoritative product contract_value metadata unavailable from Delta Exchange for ${symbol}`,
+      };
+    }
+
+    if (quantity < step) {
+      return {
+        isValid: false,
+        normalizedQuantity: 0,
+        step,
+        reason: `Order quantity ${quantity} is below exchange minimum contract step of ${step} for ${symbol}`,
+      };
+    }
+
+    // Floor rounding to nearest step (never rounds up to avoid exceeding risk ceiling)
+    const steps = Math.floor(quantity / step);
+    const normalizedQuantity = Number((steps * step).toFixed(8));
+
+    if (normalizedQuantity <= 0) {
+      return {
+        isValid: false,
+        normalizedQuantity: 0,
+        step,
+        reason: `Normalized quantity for ${symbol} evaluated to 0`,
+      };
+    }
+
+    return { isValid: true, normalizedQuantity, step };
+  }
+
+  public static getContractStep(symbol: string, customProduct?: DeltaProduct): number | null {
+    const res = this.normalizeContractQuantity(symbol, 1, customProduct);
+    return res.step > 0 ? res.step : null;
+  }
+
   /**
    * 10-Rule Institutional Pre-Flight Validation
    * Strategy-aligned: 35% risk, 100% balance, max 100x leverage
@@ -110,13 +194,15 @@ export class ExecutionEngineService {
       message: isSymbolValid ? `Symbol valid: ${req.symbol}` : `Invalid symbol: ${req.symbol}. Only BTCUSD.P, ETHUSD.P, SOLUSD.P, XRPUSD.P allowed.`,
     });
 
-    // 4. Quantity / Lot Size Check
-    const isQuantityValid = typeof req.size === 'number' && req.size > 0 && !isNaN(req.size);
+    // 4. Quantity / Lot Size Check against Exchange Minimum and Step
+    const qtyCheck = ExecutionEngineService.normalizeContractQuantity(req.symbol, req.size);
     results.push({
       ruleNumber: 4,
-      ruleName: 'Order Size Positive',
-      passed: isQuantityValid,
-      message: isQuantityValid ? `Order size valid: ${req.size}` : `Order size must be greater than 0`,
+      ruleName: 'Order Size Minimum & Step Compliance',
+      passed: qtyCheck.isValid,
+      message: qtyCheck.isValid
+        ? `Order size valid: ${req.size} (normalized to ${qtyCheck.normalizedQuantity} with step ${qtyCheck.step})`
+        : qtyCheck.reason || 'Order size invalid',
     });
 
     // 5. Price Check for Limit / Stop orders
@@ -287,12 +373,15 @@ export class ExecutionEngineService {
         throw new Error(`Product not found for symbol: ${req.symbol}`);
       }
 
+      const qtyCheck = ExecutionEngineService.normalizeContractQuantity(req.symbol, req.size);
+      const normalizedSize = qtyCheck.isValid ? qtyCheck.normalizedQuantity : req.size;
+
       const orderPayload: any = {
         product_id: product.id,
         product_symbol: req.symbol,
         side: req.side,
         order_type: req.orderType,
-        size: req.size,
+        size: normalizedSize,
         client_order_id: clientOrderId,
         reduce_only: req.reduceOnly || false,
         post_only: req.postOnly || false,

@@ -125,7 +125,7 @@ export class WebSocketServer {
         type: 'zones',
         symbol: data.symbol,
         zones: data.zones,
-        timestamp: Date.now(),
+        timestamp: data.timestamp,
       });
     });
 
@@ -167,33 +167,51 @@ export class WebSocketServer {
       });
     });
 
+    // Order Block created/merged
+    eventBus.on('ob:created', (data: any) => {
+      this.broadcast('zones', {
+        type: 'ob_created',
+        symbol: data.symbol,
+        orderBlockId: data.orderBlockId,
+        obType: data.type,
+        upperPrice: data.upperPrice,
+        lowerPrice: data.lowerPrice,
+        widthPercent: data.widthPercent,
+        baseCandleIndex: data.baseCandleIndex,
+        breakCandleIndex: data.breakCandleIndex,
+        sourceIds: data.sourceIds,
+        isMerged: data.isMerged,
+        timestamp: data.timestamp,
+      });
+    });
+
     // Order Block first-touch — immediately remove from active chart/scanner
     eventBus.on('ob:touched', (data: any) => {
       this.broadcast('zones', {
         type: 'ob_touched',
-        symbol:        data.symbol,
-        orderBlockId:  data.orderBlockId,
-        touchPrice:    data.touchPrice,
-        obType:        data.type,
-        upperPrice:    data.upperPrice,
-        lowerPrice:    data.lowerPrice,
-        isUsed:        true,
-        timestamp:     data.timestamp,
+        symbol: data.symbol,
+        orderBlockId: data.orderBlockId,
+        touchPrice: data.touchPrice,
+        obType: data.type,
+        upperPrice: data.upperPrice,
+        lowerPrice: data.lowerPrice,
+        isUsed: true,
+        timestamp: data.timestamp,
       });
     });
 
     // Order Block structural invalidation — price closed through zone boundary
     eventBus.on('ob:invalidated', (data: any) => {
       this.broadcast('zones', {
-        type:          'ob_invalidated',
-        symbol:        data.symbol,
-        orderBlockId:  data.orderBlockId,
-        obType:        data.type,
-        upperPrice:    data.upperPrice,
-        lowerPrice:    data.lowerPrice,
-        reason:        data.reason,
+        type: 'ob_invalidated',
+        symbol: data.symbol,
+        orderBlockId: data.orderBlockId,
+        obType: data.type,
+        upperPrice: data.upperPrice,
+        lowerPrice: data.lowerPrice,
+        reason: data.reason,
         isInvalidated: true,
-        timestamp:     data.timestamp,
+        timestamp: data.timestamp,
       });
     });
   }

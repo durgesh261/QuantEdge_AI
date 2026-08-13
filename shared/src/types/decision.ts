@@ -53,6 +53,7 @@ export enum DecisionReasonCode {
   // AI Confirmation
   AI_CONFIRMATION_APPROVED = 'AI_CONFIRMATION_APPROVED',
   AI_CONFIRMATION_REJECTED = 'AI_CONFIRMATION_REJECTED',
+  NEWS_MACRO_BLOCKED = 'NEWS_MACRO_BLOCKED',
 }
 
 export interface SessionFilterResultDto {
@@ -87,6 +88,7 @@ export interface RiskValidationResultDto {
 export interface PositionSizingResultDto {
   positionSize: number;
   contractQuantity: number;
+  notionalValue?: number | undefined;
   riskAmount: number;
   marginRequired: number;
   leverage: number;
@@ -116,6 +118,8 @@ export interface DecisionDto {
   stopLossPrice?: number | undefined;
   takeProfitPrice?: number | undefined;
   positionSize?: number | undefined;
+  contractQuantity?: number | undefined;
+  notionalValue?: number | undefined;
   leverage?: number | undefined;
   riskPercent?: number | undefined;
   confidenceScore: number; // 0 to 100

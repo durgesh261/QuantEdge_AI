@@ -136,10 +136,9 @@ export const settingsApi = {
     const res = await apiClient.get('/settings');
     return res.data;
   },
-  saveDeltaCredentials: async (payload: {
+saveDeltaCredentials: async (payload: {
     apiKey: string;
     apiSecret: string;
-    environment: 'PRODUCTION' | 'SANDBOX';
   }): Promise<ApiResponse<{ success: boolean; message: string; settings: SystemSettingsDto }>> => {
     const res = await apiClient.post('/settings/delta-credentials', payload);
     return res.data;
@@ -147,7 +146,6 @@ export const settingsApi = {
   testDeltaCredentials: async (payload: {
     apiKey: string;
     apiSecret: string;
-    environment: 'PRODUCTION' | 'SANDBOX';
   }): Promise<ApiResponse<{ success: boolean; latencyMs: number; message: string; data?: any }>> => {
     const res = await apiClient.post('/settings/delta-credentials/test', payload);
     return res.data;
@@ -686,6 +684,59 @@ export const shadowTradingApi = {
   },
   triggerCycle: async (): Promise<ApiResponse<{ status: string; record: ShadowDecisionRecordDto }>> => {
     const res = await apiClient.post('/shadow-trading/cycle');
+    return res.data;
+  },
+  getPositions: async (): Promise<
+    ApiResponse<Array<{
+      id: string;
+      decisionId: string;
+      symbol: string;
+      timeframe: string;
+      side: string;
+      entryPrice: number;
+      stopLossPrice: number;
+      takeProfitPrice: number;
+      quantity: number;
+      leverage: number;
+      riskPercent: number;
+      confidenceScore: number;
+      reasonCodesJson: string;
+      status: string;
+      tpHitAt: string | null;
+      slHitAt: string | null;
+      holdDurationMinutes: number | null;
+      mfe: number | null;
+      mae: number | null;
+      createdAt: string;
+      updatedAt: string;
+      currentPrice: number | null;
+      hypotheticalPnl: number;
+      hypotheticalPnlPercent: number;
+    }>>
+  > => {
+    const res = await apiClient.get('/shadow-trading/positions');
+    return res.data;
+  },
+  getOutcomes: async (): Promise<
+    ApiResponse<Array<{
+      id: string;
+      decisionId: string;
+      tpHit: boolean;
+      slHit: boolean;
+      mfe: number;
+      mae: number;
+      holdDurationMinutes: number;
+      accuracyPercent: number;
+      createdAt: string;
+      symbol: string;
+      side: string;
+      entryPrice: number;
+      exitPrice: number;
+      quantity: number;
+      leverage: number;
+    }>>
+  > => {
+    const res = await apiClient.get('/shadow-trading/outcomes');
     return res.data;
   },
 };

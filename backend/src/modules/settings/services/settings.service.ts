@@ -11,7 +11,7 @@ export interface SystemSettingsDto {
   isKillSwitchActive: boolean;
   deltaApiKey: string;
   hasDeltaApiSecret: boolean;
-  deltaEnvironment: 'PRODUCTION' | 'SANDBOX';
+  deltaEnvironment: 'PRODUCTION';
   deltaHealth: ReturnType<typeof deltaSyncService.getHealth>;
   updatedAt: string;
 }
@@ -44,8 +44,6 @@ export class SettingsService {
     const settings = await this.getOrCreateSettings();
     const effectiveApiKey = settings.deltaApiKey || process.env['DELTA_API_KEY'] || '';
     const hasSecret = Boolean(settings.deltaApiSecret || process.env['DELTA_API_SECRET']);
-    const effectiveEnv = (settings.deltaEnvironment as 'PRODUCTION' | 'SANDBOX') || 
-      (process.env['DELTA_ENVIRONMENT'] === 'SANDBOX' ? 'SANDBOX' : 'PRODUCTION');
 
     return {
       id: settings.id,
@@ -55,7 +53,7 @@ export class SettingsService {
       isKillSwitchActive: settings.isKillSwitchActive,
       deltaApiKey: effectiveApiKey,
       hasDeltaApiSecret: hasSecret,
-      deltaEnvironment: effectiveEnv,
+      deltaEnvironment: 'PRODUCTION',
       deltaHealth: deltaSyncService.getHealth(),
       updatedAt: settings.updatedAt.toISOString(),
     };
@@ -64,9 +62,9 @@ export class SettingsService {
   public static async saveDeltaCredentials(input: {
     apiKey: string;
     apiSecret: string;
-    environment: 'PRODUCTION' | 'SANDBOX';
+    environment: 'PRODUCTION';
   }): Promise<{ success: boolean; message: string; settings: SystemSettingsDto }> {
-    const { apiKey, apiSecret, environment } = input;
+    const { apiKey, apiSecret } = input;
 
     const trimmedKey = apiKey.trim();
     const trimmedSecret = apiSecret.trim();
@@ -77,30 +75,28 @@ export class SettingsService {
       update: {
         deltaApiKey: trimmedKey,
         deltaApiSecret: trimmedSecret,
-        deltaEnvironment: environment,
+        deltaEnvironment: 'PRODUCTION',
         updatedAt: new Date(),
       },
       create: {
         id: 'default-settings',
         deltaApiKey: trimmedKey,
         deltaApiSecret: trimmedSecret,
-        deltaEnvironment: environment,
+        deltaEnvironment: 'PRODUCTION',
       },
     });
 
     // Update in memory env for any existing modules
     process.env['DELTA_API_KEY'] = trimmedKey;
     process.env['DELTA_API_SECRET'] = trimmedSecret;
-    process.env['DELTA_ENVIRONMENT'] = environment;
+    process.env['DELTA_ENVIRONMENT'] = 'PRODUCTION';
 
     // Dynamically update DeltaSyncService daemon
-    const isTestnet = environment === 'SANDBOX';
     const syncResult = await deltaSyncService.updateCredentials(
-      { apiKey: trimmedKey, apiSecret: trimmedSecret },
-      isTestnet
+      { apiKey: trimmedKey, apiSecret: trimmedSecret }
     );
 
-    logger.info({ apiKeyPrefix: trimmedKey.substring(0, 6), environment }, 'Delta API credentials saved and synchronized');
+    logger.info({ apiKeyPrefix: trimmedKey.substring(0, 6), environment: 'PRODUCTION' }, 'Delta API credentials saved and synchronized');
 
     const settingsDto: SystemSettingsDto = {
       id: updated.id,
@@ -110,7 +106,7 @@ export class SettingsService {
       isKillSwitchActive: updated.isKillSwitchActive,
       deltaApiKey: trimmedKey,
       hasDeltaApiSecret: Boolean(trimmedSecret),
-      deltaEnvironment: environment,
+      deltaEnvironment: 'PRODUCTION',
       deltaHealth: deltaSyncService.getHealth(),
       updatedAt: updated.updatedAt.toISOString(),
     };
@@ -125,14 +121,12 @@ export class SettingsService {
   public static async testDeltaCredentials(input: {
     apiKey: string;
     apiSecret: string;
-    environment: 'PRODUCTION' | 'SANDBOX';
+    environment: 'PRODUCTION';
   }): Promise<{ success: boolean; latencyMs: number; message: string; data?: any }> {
-    const { apiKey, apiSecret, environment } = input;
-    const isTestnet = environment === 'SANDBOX';
+    const { apiKey, apiSecret } = input;
 
     return DeltaSyncService.testCredentials(
-      { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() },
-      isTestnet
+      { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() }
     );
   }
 

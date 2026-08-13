@@ -160,7 +160,7 @@ export class DecisionEngineService {
 
     // ── News Filter Check (Strategy §21) ──
     const { NewsFilterEngine } = await import('../../news/services/NewsFilterEngine.js');
-    await NewsFilterEngine.fetchLatestEvents(); // Refresh if stale
+    // NewsFilterEngine is automatically updated by NewsService and EconomicCalendarService
     
     if (NewsFilterEngine.isBlocking()) {
       reasonCodes.push('NEWS_FILTER_BLOCKING' as any);
@@ -326,13 +326,16 @@ export class DecisionEngineService {
       entryPrice,
       stopLossPrice,
       takeProfitPrice,
-      positionSize: sizingResult.positionSize,
+      positionSize: sizingResult.contractQuantity,
+      contractQuantity: sizingResult.contractQuantity,
+      notionalValue: sizingResult.notionalValue ?? sizingResult.positionSize,
       leverage: sizingResult.leverage,
       riskPercent: 35.0,
       confidenceScore: aiResult.confidenceScore,
       reasonCodes,
       inputSnapshotHash,
       createdAt: new Date().toISOString(),
+      positionSizing: sizingResult,
     };
 
     const isExecuted = (decisionState as string) === 'APPROVED';

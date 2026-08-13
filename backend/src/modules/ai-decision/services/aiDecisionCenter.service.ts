@@ -39,6 +39,37 @@ export class AIDecisionCenterService {
   public static confirmDecision(input: AiConfirmationInput): AIConfirmationResultDto & { breakdown: any } {
     const reasonCodes: DecisionReasonCode[] = [];
 
+    // HARD VETO: Market not allowed (news/macro blocking) → immediate rejection
+    if (!input.marketAllowed) {
+      const breakdown = {
+        trendScore: { name: '1H Trend Alignment (Swing & Internal)', maxScore: 15, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        obFreshnessScore: { name: 'Order Block Freshness', maxScore: 15, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        firstTouchScore: { name: 'First Touch Verification', maxScore: 15, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        marketStructureScore: { name: 'Market Structure (BOS / CHoCH)', maxScore: 15, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        liquiditySweepScore: { name: 'Liquidity Sweep Confirmation', maxScore: 10, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        premDiscScore: { name: 'Premium / Discount Pricing', maxScore: 10, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        sessionScore: { name: 'Session & Volatility Regime', maxScore: 5, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        riskRewardScore: { name: 'Risk:Reward & Growth Target Path', maxScore: 10, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        newsScore: { name: 'Macro & News Sentiment Safety', maxScore: 5, score: 0, passed: false, explanation: 'Market blocked by news/macro filter' },
+        totalScore: 0,
+        threshold: 85,
+        isApproved: false,
+      };
+
+      reasonCodes.push(DecisionReasonCode.AI_CONFIRMATION_REJECTED);
+      reasonCodes.push(DecisionReasonCode.NEWS_MACRO_BLOCKED);
+
+      return {
+        approved: false,
+        confidenceScore: 0,
+        ruleAgreementScore: 0,
+        setupQuality: 'POOR',
+        reasonCodes,
+        breakdown,
+        rationale: `AI Validation rejected setup for ${input.symbol} (market blocked by news/macro filter).`,
+      };
+    }
+
     // Factor 1: Trend Alignment (15 pts)
     const isBullish = input.indicators.marketStructure.trend === 'BULLISH';
     const isBearish = input.indicators.marketStructure.trend === 'BEARISH';
@@ -218,7 +249,7 @@ export class AIDecisionCenterService {
     // Total Score calculation
     const totalScore = trendPoints + freshnessPoints + firstTouchPoints + structPoints + sweepPoints + premDiscPoints + sessionPoints + rrPoints + newsPoints;
     const confidenceScore = Math.min(100, Math.max(0, totalScore));
-    const approved = confidenceScore >= 75;
+    const approved = confidenceScore >= 85; // 85% threshold per strategy
 
     let setupQuality: 'INSTITUTIONAL' | 'HIGH' | 'MEDIUM' | 'POOR' = 'POOR';
     if (confidenceScore >= 90) setupQuality = 'INSTITUTIONAL';

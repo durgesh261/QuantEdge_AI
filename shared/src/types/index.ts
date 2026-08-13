@@ -79,7 +79,7 @@ export interface SystemSettingsDto {
   isKillSwitchActive: boolean;
   deltaApiKey?: string;
   hasDeltaApiSecret?: boolean;
-  deltaEnvironment?: 'PRODUCTION' | 'SANDBOX';
+  deltaEnvironment?: 'PRODUCTION';
   deltaHealth?: {
     status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
     restStatus: 'CONNECTED' | 'DEGRADED' | 'ERROR' | 'UNCONFIGURED';

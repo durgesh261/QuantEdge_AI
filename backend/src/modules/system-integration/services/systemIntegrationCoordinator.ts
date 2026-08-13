@@ -5,7 +5,6 @@ import {
 } from '@algoapp/shared';
 
 import { CandleStoreService } from '../../market-data/services/candleStore.service.js';
-import { MarketSnapshotService } from '../../market-data/services/marketSnapshot.service.js';
 import { ZoneDetectorService } from '../../strategy/services/zoneDetector.service.js';
 import { StrategySignalService } from '../../strategy/services/strategySignal.service.js';
 import { DecisionEngineService } from '../../decision/services/decisionEngine.service.js';
@@ -19,21 +18,16 @@ export class SystemIntegrationCoordinator {
     const mode = input.mode || ExecutionMode.SHADOW;
     const symbol = input.symbol;
 
-    // 1. Stage 1: Market Data Engine
+    // 1. Stage 1: Market Data Engine - REAL Delta data only
     const t0 = Date.now();
     const candles = await CandleStoreService.getCandles(symbol, 1);
-    const candle = candles[0] || {
-      id: `CNDL-${symbol}-${Date.now()}`,
-      symbol,
-      timeframe: '1H',
-      open: 64000.0,
-      high: 64500.0,
-      low: 63800.0,
-      close: input.price || 64200.0,
-      volume: 1200.0,
-      timestamp: new Date().toISOString(),
-    };
-    const snapshot = await MarketSnapshotService.getSnapshot(symbol);
+    
+    // NO fake candle fallback - fail if no real data
+    if (!candles || candles.length === 0) {
+      throw new Error(`No real market data available for ${symbol} from Delta Exchange. Pipeline aborted.`);
+    }
+    
+    const candle = candles[0]!;
     const marketDataLatencyMs = Date.now() - t0;
 
     // 2. Stage 2: Market Structure Engine
@@ -53,7 +47,6 @@ export class SystemIntegrationCoordinator {
     // 5. Stage 5: Decision Engine
     const t4 = Date.now();
     
-    // Compute indicators to pass to Decision Engine (as per new requirements)
     const { IndicatorEngineService } = await import('../../indicator-engine/services/indicatorEngine.service.js');
     const indicators = IndicatorEngineService.computeIndicators(candles, '1H');
 
@@ -87,7 +80,7 @@ export class SystemIntegrationCoordinator {
     const explanation = await AIDecisionCenterService.explainDecision(decision.id);
     const aiDecisionLatencyMs = Date.now() - t5;
 
-    // 7. Stage 7 & 8: Execution Engine & Paper Adapter
+    // 6. Stage 6 & 7: Execution Engine & Paper Adapter
     const t6 = Date.now();
 
     // Map SHADOW mode to route to Paper Adapter without live exchange risks
@@ -96,7 +89,7 @@ export class SystemIntegrationCoordinator {
       symbol: decision.symbol,
       side: signal && signal.outcome === 'BUY' ? ('LONG' as const) : ('SHORT' as const),
       mode: mode === ExecutionMode.LIVE ? ExecutionMode.LIVE : ExecutionMode.PAPER,
-      quantity: input.quantity || 0.1,
+      quantity: input.quantity || decision.contractQuantity || decision.positionSize || 0.1,
       price: candle.close,
     };
 
@@ -105,7 +98,7 @@ export class SystemIntegrationCoordinator {
 
     const totalLatencyMs = Date.now() - pipelineStart;
 
-    // 8. Stage 9: Pipeline Trace Recording
+    // 8. Stage 8: Pipeline Trace Recording
     const trace: PipelineTraceDto = {
       id: `TRACE-${Date.now()}`,
       traceId: `TRC-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -113,7 +106,16 @@ export class SystemIntegrationCoordinator {
       timeframe: '1H',
       mode,
       candle,
-      marketSnapshot: snapshot,
+      marketSnapshot: {
+        id: `SNAP-${symbol}-UNAVAILABLE`,
+        symbol,
+        currentPrice: 0,
+        spread: 0,
+        session: 'UNAVAILABLE',
+        trend: 'NEUTRAL',
+        volatility: 'UNKNOWN',
+        timestamp: new Date().toISOString(),
+      }, // Real-time data comes from WS; this indicates no REST snapshot available
       zones,
       strategySignal: signal as any,
       decision,

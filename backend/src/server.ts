@@ -6,24 +6,28 @@ import { MarketScannerService } from './modules/live-trading/services/MarketScan
 import { WebSocketServer } from './websocket/WebSocketServer.js';
 import { Server as SocketIOServer } from 'socket.io';
 import { setupNewsWebSocket } from './modules/news/services/wsNews.service.js';
-import { NewsAggregatorService } from './modules/news/services/newsAggregator.service.js';
 import { ScannerEngine } from './modules/scanner/services/scannerEngine.service.js';
 import { tradeAccountingTrigger } from './modules/trade-accounting/TradeAccountingTrigger.js';
 import { OrderBlockWidthEngine } from './modules/indicator-engine/engines/orderBlockWidthEngine.js';
 import { PersistentOBRegistry } from './modules/scanner/services/PersistentOBRegistry.js';
+import { NewsService } from './modules/news/services/NewsService.js';
+import { EconomicCalendarService } from './modules/news/services/EconomicCalendarService.js';
+import { PositionMonitorService } from './modules/position-monitor/services/PositionMonitorService.js';
+import { ShadowTriggerService } from './modules/shadow-trading/services/ShadowTriggerService.js';
 
 const app = createApp();
 
 JournalAutomationService.initialize();
 MarketScannerService.initialize();
 
-// ── BOOT: restore persisted OB lifecycle state from DB ────────────────────
-// Both must run so the registry and width-engine cache agree on consumed IDs.
+import { initializeExecutionModeFromPersistence } from './modules/production/production.controller.js';
+
 Promise.all([
   OrderBlockWidthEngine.loadUsedFromDb(),
   PersistentOBRegistry.loadFromDb(),
-]).then(() => {
-  logger.info('[Boot] OB lifecycle state restored from DB');
+  initializeExecutionModeFromPersistence(),
+]).then(([_, __, mode]) => {
+  logger.info(`[Boot] OB lifecycle and execution mode (${mode}) state restored from DB`);
 }).catch((err) => {
   logger.warn({ err }, '[Boot] OB lifecycle state partial load — proceeding');
 });
@@ -39,15 +43,12 @@ async function bootstrapDelta(): Promise<void> {
 
     const apiKey = settings?.deltaApiKey || process.env['DELTA_API_KEY'] || '';
     const apiSecret = settings?.deltaApiSecret || process.env['DELTA_API_SECRET'] || '';
-    const env = settings?.deltaEnvironment || process.env['DELTA_ENVIRONMENT'] || 'PRODUCTION';
-    const isTestnet = env === 'SANDBOX';
 
     if (apiKey && apiSecret) {
       process.env['DELTA_API_KEY'] = apiKey;
       process.env['DELTA_API_SECRET'] = apiSecret;
-      process.env['DELTA_ENVIRONMENT'] = env;
-      await deltaSyncService.updateCredentials({ apiKey, apiSecret }, isTestnet);
-      logger.info({ environment: env, apiKeyPrefix: apiKey.substring(0, 6) }, 'Delta Exchange daemon initialized from configuration');
+      await deltaSyncService.updateCredentials({ apiKey, apiSecret });
+      logger.info({ apiKeyPrefix: apiKey.substring(0, 6) }, 'Delta Exchange daemon initialized from configuration');
     } else {
       logger.info('Delta Exchange not yet configured. Users can input API keys in Settings.');
     }
@@ -66,11 +67,18 @@ const server = app.listen(config.port, () => {
   }, 'QuantEdge AI Backend Server Initialized');
 });
 
-// ── NEW: WebSocket Server for Frontend ─────────────────────────────
+setTimeout(() => {
+  PositionMonitorService.start().catch(err =>
+    logger.error('[PositionMonitor] Failed to start:', err)
+  );
+  ShadowTriggerService.start().catch(err =>
+    logger.error('[ShadowTrigger] Failed to start:', err)
+  );
+}, 5000);
+
 const wsServer = new WebSocketServer(server);
 wsServer.initialize();
 
-// ── NEW: Socket.io Server for News ───────────────────────────────
 const io = new SocketIOServer(server, {
   cors: {
     origin: '*',
@@ -81,12 +89,14 @@ setupNewsWebSocket(io);
 ScannerEngine.initialize(io);
 tradeAccountingTrigger.initialize();
 
-// Start News Aggregator
-NewsAggregatorService.start();
+NewsService.start();
+EconomicCalendarService.start();
 function handleShutdown(signal: string): void {
   logger.info(`Received ${signal}. Initiating graceful shutdown...`);
   wsServer.shutdown();
   deltaSyncService.stop();
+  ShadowTriggerService.stop();
+  PositionMonitorService.stop();
   server.close(() => {
     logger.info('HTTP server closed successfully.');
     process.exit(0);
@@ -100,4 +110,3 @@ function handleShutdown(signal: string): void {
 
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('SIGINT', () => handleShutdown('SIGINT'));
-

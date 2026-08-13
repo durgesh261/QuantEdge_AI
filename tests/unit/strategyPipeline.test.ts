@@ -19,7 +19,7 @@ import { AIDecisionCenterService } from '../../backend/src/modules/ai-decision/s
 import { StrategyPipelineService } from '../../backend/src/modules/strategy/services/strategyPipeline.service.js';
 import { IndicatorEngineService } from '../../backend/src/modules/indicator-engine/services/indicatorEngine.service.js';
 
-// Helper to generate deterministic synthetic candles
+// Helper to generate deterministic synthetic candles for ranging market (legacy)
 function generateSyntheticCandles(count: number, basePrice: number, step: number = 10): Candle[] {
   const candles: Candle[] = [];
   let current = basePrice;
@@ -43,6 +43,83 @@ function generateSyntheticCandles(count: number, basePrice: number, step: number
       volume,
     });
     current = close + (i % 3 === 0 ? step * 1.5 : -step * 0.5);
+  }
+  return candles;
+}
+
+// Helper to generate deterministic trending candles that produce BOS/CHoCH and liquidity sweeps
+// No Math.random(), no Date.now(), fully deterministic fixed values
+function generateDeterministicTrendingCandles(count: number, basePrice: number): Candle[] {
+  const candles: Candle[] = [];
+  const startTime = new Date('2026-08-01T12:00:00Z').getTime();
+  const step = basePrice * 0.0015; // 0.15% per candle ~97.5 at 65000
+
+  // Pre-calculate all OHLCV values deterministically
+  // Phase 1 (0-59): Downtrend - establishes internal highs, swing high at bar 0
+  // Phase 2 (60-89): Uptrend - establishes internal lows, swing low at bar 59
+  // Phase 3 (90-104): Pullback - creates equal low (liquidity) at bar 95 ~ bar 59 level
+  // Phase 4 (105-119): Rally - breaks internal highs (CHoCH), sweeps equal low liquidity
+
+  for (let i = 0; i < count; i++) {
+    const time = new Date(startTime + i * 3600 * 1000).toISOString();
+    let open: number;
+    let close: number;
+    let high: number;
+    let low: number;
+    const volume = 1000 + (i % 10) * 50; // deterministic volume pattern
+
+    if (i === 0) {
+      open = basePrice;
+    } else {
+      open = candles[i - 1]!.close;
+    }
+
+    if (i < 60) {
+      // Phase 1: Downtrend (60 bars)
+      // Each bar: lower high, lower low, close near low
+      const progress = i / 59; // 0 to 1
+      const trendDrop = step * 60 * progress; // total drop ~5850 over 60 bars
+      close = open - step * (1.1 + 0.3 * progress); // accelerating downtrend
+      high = open + step * 0.15;
+      low = close - step * 0.25;
+    } else if (i < 90) {
+      // Phase 2: Uptrend (30 bars)
+      // Each bar: higher high, higher low, close near high
+      const uptrendIdx = i - 60;
+      const progress = uptrendIdx / 29;
+      close = open + step * (1.3 + 0.4 * progress); // accelerating uptrend
+      high = close + step * 0.2;
+      low = open - step * 0.15;
+    } else if (i < 105) {
+      // Phase 3: Pullback (15 bars) - creates equal low liquidity at bar 95
+      const pullbackIdx = i - 90;
+      // Bar 95 (pullbackIdx=5) targets the swing low area from bar 59
+      if (pullbackIdx === 5) {
+        // Bar 95: equal low - low matches bar 59 low within 0.1*ATR200 threshold
+        close = open - step * 1.8;
+        high = open + step * 0.1;
+        low = candles[59]!.low + step * 0.05; // within EQ threshold
+      } else {
+        close = open - step * (1.0 + pullbackIdx * 0.15);
+        high = open + step * 0.15;
+        low = close - step * 0.2;
+      }
+    } else {
+      // Phase 4: Rally (15 bars) - breaks internal highs (CHoCH), sweeps liquidity
+      const rallyIdx = i - 105;
+      close = open + step * (2.0 + rallyIdx * 0.1);
+      high = close + step * 0.3;
+      low = open - step * 0.1;
+    }
+
+    candles.push({
+      timestamp: time,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    });
   }
   return candles;
 }
@@ -248,7 +325,7 @@ describe('Module 8: Deterministic Strategy Engine & Decision Pipeline', () => {
 
   describe('6. Deterministic AI Confirmation Layer', () => {
     const sampleIndicators = IndicatorEngineService.computeIndicators(
-      generateSyntheticCandles(100, 65000),
+      generateDeterministicTrendingCandles(120, 65000),
       '1H'
     );
 

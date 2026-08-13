@@ -1,6 +1,5 @@
 export enum ExecutionMode {
   PAPER = 'PAPER',
-  SANDBOX = 'SANDBOX',
   LIVE = 'LIVE',
   SHADOW = 'SHADOW',
 }

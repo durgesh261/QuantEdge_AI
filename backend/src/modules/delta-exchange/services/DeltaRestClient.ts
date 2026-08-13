@@ -66,23 +66,38 @@ export interface DeltaOrder {
   updated_at: string;
 }
 
+export interface DeltaCandle {
+  t: number;
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+}
+
+export interface SymbolMapping {
+  internal: string;
+  exchange: string;
+}
+
+export const PRODUCT_METADATA_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
+
 export class DeltaRestClient {
   private client: AxiosInstance;
   private productsCache = new Map<string, DeltaProduct>();
-  private readonly baseUrl: string;
-  private tokens: number = 10;
-  private lastTokenRefill: number = Date.now();
-  private readonly maxTokens: number = 10;
-  private readonly refillRatePerSec: number = 10;
+  private lastProductsRefreshTimestamp = 0;
+  private readonly baseUrl = 'https://api.india.delta.exchange';
+
+  private readonly symbolMappings: SymbolMapping[] = [
+    { internal: 'BTCUSD.P', exchange: 'BTCUSD' },
+    { internal: 'ETHUSD.P', exchange: 'ETHUSD' },
+    { internal: 'SOLUSD.P', exchange: 'SOLUSD' },
+    { internal: 'XRPUSD.P', exchange: 'XRPUSD' },
+  ];
 
   constructor(
-    private credentials: { apiKey: string; apiSecret: string },
-    isTestnet: boolean = false
+    private credentials: { apiKey: string; apiSecret: string }
   ) {
-    this.baseUrl = isTestnet
-      ? 'https://testnet-api.delta.exchange'
-      : 'https://api.india.delta.exchange';
-
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: 10000,
@@ -96,6 +111,17 @@ export class DeltaRestClient {
 
   public isConfigured(): boolean {
     return !!(this.credentials.apiKey && this.credentials.apiSecret);
+  }
+
+  public isProductsCacheFresh(): boolean {
+    if (this.productsCache.size === 0) return false;
+    if (this.lastProductsRefreshTimestamp === 0) return false;
+    const age = Date.now() - this.lastProductsRefreshTimestamp;
+    return age >= 0 && age < PRODUCT_METADATA_TTL_MS;
+  }
+
+  public getLastProductsRefreshTimestamp(): number {
+    return this.lastProductsRefreshTimestamp;
   }
 
   private async waitForRateLimitToken(): Promise<void> {
@@ -112,6 +138,11 @@ export class DeltaRestClient {
       this.tokens -= 1;
     }
   }
+
+  private tokens: number = 10;
+  private lastTokenRefill: number = Date.now();
+  private readonly maxTokens: number = 10;
+  private readonly refillRatePerSec: number = 10;
 
   private signRequest(reqConfig: InternalAxiosRequestConfig): InternalAxiosRequestConfig {
     if (!this.credentials.apiKey || !this.credentials.apiSecret) {
@@ -161,36 +192,77 @@ export class DeltaRestClient {
   public async loadProducts(): Promise<void> {
     try {
       const res = await this.executeWithRetry(() => this.client.get('/v2/products'));
-      if (res.data?.result) {
-        for (const p of res.data.result) {
-          this.productsCache.set(p.symbol, p);
+      if (!res.data || !Array.isArray(res.data.result) || res.data.result.length === 0) {
+        throw new Error('Invalid or empty product metadata response from Delta Exchange');
+      }
+
+      // Build a new temporary Map first (Atomic Build)
+      const newProductsCache = new Map<string, DeltaProduct>();
+      for (const p of res.data.result) {
+        if (p && p.symbol) {
+          newProductsCache.set(p.symbol, p);
         }
       }
+
+      if (newProductsCache.size === 0) {
+        throw new Error('No valid products parsed from Delta Exchange response');
+      }
+
+      // Atomic Swap ONLY after complete validation
+      this.productsCache = newProductsCache;
+      this.lastProductsRefreshTimestamp = Date.now();
     } catch (err) {
       console.warn('[DeltaRestClient] Load products notice:', err instanceof Error ? err.message : err);
+      if (!this.isProductsCacheFresh()) {
+        throw err;
+      }
     }
   }
 
   public getProduct(symbol: string): DeltaProduct | undefined {
-    return this.productsCache.get(symbol);
+    if (!this.isProductsCacheFresh()) {
+      return undefined;
+    }
+    const exchangeSymbol = this.toExchangeSymbol(symbol);
+    return this.productsCache.get(exchangeSymbol);
+  }
+
+  public setProduct(product: DeltaProduct, timestamp?: number): void {
+    if (product && product.symbol) {
+      this.productsCache.set(product.symbol, product);
+      this.lastProductsRefreshTimestamp = timestamp ?? Date.now();
+    }
   }
 
   public getAllSupportedPairs(): string[] {
     const list = Array.from(this.productsCache.keys());
     if (list.length > 0) {
-      return list.filter((s) => ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'].includes(s));
+      const targetSymbols = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+      return list.filter((s) => targetSymbols.includes(s));
     }
-    return ['BTCUSD.P', 'ETHUSD.P', 'SOLUSD.P', 'XRPUSD.P'];
+    return ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'];
+  }
+
+  public toExchangeSymbol(internalSymbol: string): string {
+    const mapping = this.symbolMappings.find(m => m.internal === internalSymbol);
+    return mapping?.exchange ?? internalSymbol;
+  }
+
+  public toInternalSymbol(exchangeSymbol: string): string {
+    const mapping = this.symbolMappings.find(m => m.exchange === exchangeSymbol);
+    return mapping?.internal ?? exchangeSymbol;
+  }
+
+  public getSymbolMappings(): SymbolMapping[] {
+    return [...this.symbolMappings];
   }
 
   public async getWalletBalances(): Promise<DeltaWalletBalance[]> {
     const res = await this.executeWithRetry(() => this.client.get('/v2/wallet/balances'));
     const raw = res.data;
-    // Delta India API returns { result: [...] } or { result: { [currency]: {...} } }
     if (Array.isArray(raw?.result)) {
       return raw.result;
     }
-    // Object format: { result: { USDT: { balance: '...' }, BTC: {...} } }
     if (raw?.result && typeof raw.result === 'object') {
       return Object.entries(raw.result).map(([assetSymbol, data]: [string, any]) => ({
         asset_id: data.asset_id || 0,
@@ -209,7 +281,6 @@ export class DeltaRestClient {
     const res = await this.executeWithRetry(() => this.client.get('/v2/positions/margined'));
     const raw = res.data;
     if (Array.isArray(raw?.result)) return raw.result;
-    // Some Delta endpoints return { result: { BTCUSD: { ... } } }
     if (raw?.result && typeof raw.result === 'object') {
       return Object.values(raw.result) as DeltaPosition[];
     }
@@ -242,7 +313,46 @@ export class DeltaRestClient {
   }
 
   public async getTicker(symbol: string): Promise<any> {
-    const res = await this.executeWithRetry(() => this.client.get(`/v2/tickers/${symbol}`));
+    const exchangeSymbol = this.toExchangeSymbol(symbol);
+    const res = await this.executeWithRetry(() => this.client.get(`/v2/tickers/${exchangeSymbol}`));
     return res.data?.result;
+  }
+
+  public async getHistoricalCandles(
+    symbol: string,
+    resolution: '15' | '60' | '240' | 'D' = '60',
+    from: number,
+    to: number
+  ): Promise<DeltaCandle[]> {
+    const exchangeSymbol = this.toExchangeSymbol(symbol);
+    const res = await this.executeWithRetry(() =>
+      this.client.get('/v2/chart/history', {
+        params: {
+          resolution,
+          symbol: exchangeSymbol,
+          from,
+          to,
+        },
+      })
+    );
+
+    const data = res.data;
+    if (!data?.success || !data.result || !Array.isArray(data.result.c)) {
+      return [];
+    }
+
+    const candles: DeltaCandle[] = [];
+    for (let i = 0; i < data.result.c.length; i++) {
+      candles.push({
+        t: data.result.t[i],
+        o: data.result.o[i],
+        h: data.result.h[i],
+        l: data.result.l[i],
+        c: data.result.c[i],
+        v: data.result.v[i],
+      });
+    }
+
+    return candles;
   }
 }

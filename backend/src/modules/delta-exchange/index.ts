@@ -5,11 +5,9 @@ import { createDeltaExchangeRouter } from './deltaExchange.routes.js';
 
 const deltaApiKey = process.env['DELTA_API_KEY'] || '';
 const deltaApiSecret = process.env['DELTA_API_SECRET'] || '';
-const isTestnet = process.env['DELTA_ENVIRONMENT'] === 'SANDBOX';
 
 export const deltaSyncService = new DeltaSyncService(
-  { apiKey: deltaApiKey, apiSecret: deltaApiSecret },
-  isTestnet
+  { apiKey: deltaApiKey, apiSecret: deltaApiSecret }
 );
 
 export const deltaExecutionService = new DeltaExecutionService(deltaSyncService.getRestClient());

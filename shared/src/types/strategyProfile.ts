@@ -27,7 +27,7 @@ export interface RiskConfig {
 }
 
 export interface ExecutionConfig {
-  defaultMode: 'PAPER' | 'SANDBOX' | 'LIVE';
+  defaultMode: 'PAPER' | 'LIVE';
 }
 
 export interface IndicatorConfig {

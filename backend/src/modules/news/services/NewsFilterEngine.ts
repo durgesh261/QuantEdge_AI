@@ -1,34 +1,79 @@
-import { eventBus } from '../../../services/EventBus.js';
+import { prisma } from '../../../db.js';
 import { logger } from '../../../logger/index.js';
+import { eventBus } from '../../../services/EventBus.js';
+import type { NewsFilterEventDto, NewsFilterStatusDto } from '@algoapp/shared';
 
-export interface NewsEvent {
-  id: string;
-  title: string;
-  category: 'CPI' | 'PPI' | 'NFP' | 'FOMC' | 'ETF' | 'SEC' | 'DELTA' | 'INTEREST_RATE' | 'GENERAL';
-  impactLevel: 'LOW' | 'MEDIUM' | 'HIGH';
-  publishedAt: Date;
-  isBlocking: boolean;
-}
+const BLOCK_BEFORE_MINUTES = 30;
+const BLOCK_AFTER_MINUTES = 60;
 
-/**
- * News Filter Engine
- * 
- * Strategy §21: Monitor high-impact news. Can prevent new entries.
- * 
- * Blocking categories: CPI, PPI, NFP, FOMC, Interest Rate, SEC announcements
- * Blocking window: 30 minutes before to 60 minutes after event
- */
+const BLOCKING_CATEGORIES = new Set([
+  'CPI', 'PPI', 'NFP', 'FOMC', 'INTEREST_RATE', 'SEC', 'ETF', 'REGULATORY', 'RATES'
+]);
+
 export class NewsFilterEngine {
-  private static blockingCategories = new Set([
-    'CPI', 'PPI', 'NFP', 'FOMC', 'INTEREST_RATE', 'SEC'
-  ]);
-  
-  private static readonly BLOCK_BEFORE_MINUTES = 30;
-  private static readonly BLOCK_AFTER_MINUTES = 60;
-  private static recentEvents: NewsEvent[] = [];
+  private static isInitialized = false;
+  private static initializationPromise: Promise<void> | null = null;
+
+  static async initialize() {
+    if (this.isInitialized) return;
+    if (this.initializationPromise) return this.initializationPromise;
+    
+    this.initializationPromise = this.loadFromDatabase();
+    await this.initializationPromise;
+    this.isInitialized = true;
+  }
+
+  private static async loadFromDatabase() {
+    try {
+      const now = new Date();
+      const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      
+      const dbEvents = await prisma.newsFilterEvent.findMany({
+        where: {
+          publishedAt: { gte: cutoff },
+          blockEnd: { gte: now }, // Only load events that could still be blocking
+        },
+        orderBy: { publishedAt: 'desc' },
+        take: 200,
+      });
+
+      for (const e of dbEvents) {
+        this.addEventToMemory({
+          id: e.id,
+          eventId: e.eventId,
+          title: e.title,
+          category: e.category,
+          impactLevel: e.impactLevel as any,
+          isBlocking: e.isBlocking,
+          publishedAt: e.publishedAt.toISOString(),
+          blockStart: e.blockStart.toISOString(),
+          blockEnd: e.blockEnd.toISOString(),
+          source: e.source,
+          sourceUrl: e.sourceUrl ?? undefined,
+        });
+      }
+      
+      logger.info(`[NewsFilterEngine] Loaded ${dbEvents.length} events from database`);
+    } catch (err) {
+      logger.warn(`[NewsFilterEngine] Failed to load from database: ${(err as Error).message}`);
+    }
+  }
+
+  private static recentEvents: NewsFilterEventDto[] = [];
+
+  private static addEventToMemory(event: NewsFilterEventDto) {
+    this.recentEvents.push(event);
+    this.recentEvents.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+    
+    // Keep only last 200 events
+    if (this.recentEvents.length > 200) {
+      this.recentEvents = this.recentEvents.slice(0, 200);
+    }
+  }
 
   /**
    * Check if new entries should be blocked right now.
+   * Returns true if any high-impact event is within its blocking window.
    */
   public static isBlocking(): boolean {
     this.cleanupOldEvents();
@@ -38,8 +83,8 @@ export class NewsFilterEngine {
     for (const event of this.recentEvents) {
       if (!event.isBlocking) continue;
       
-      const blockStart = new Date(event.publishedAt.getTime() - this.BLOCK_BEFORE_MINUTES * 60000);
-      const blockEnd = new Date(event.publishedAt.getTime() + this.BLOCK_AFTER_MINUTES * 60000);
+      const blockStart = new Date(event.blockStart);
+      const blockEnd = new Date(event.blockEnd);
       
       if (now >= blockStart && now <= blockEnd) {
         logger.info(
@@ -56,93 +101,141 @@ export class NewsFilterEngine {
   /**
    * Get current blocking status with details.
    */
-  public static getStatus(): { isBlocking: boolean; activeEvents: NewsEvent[]; nextEvent?: NewsEvent } {
+  public static getStatus(): NewsFilterStatusDto {
     this.cleanupOldEvents();
     
     const now = new Date();
     const activeEvents = this.recentEvents.filter(e => {
       if (!e.isBlocking) return false;
-      const blockStart = new Date(e.publishedAt.getTime() - this.BLOCK_BEFORE_MINUTES * 60000);
-      const blockEnd = new Date(e.publishedAt.getTime() + this.BLOCK_AFTER_MINUTES * 60000);
+      const blockStart = new Date(e.blockStart);
+      const blockEnd = new Date(e.blockEnd);
       return now >= blockStart && now <= blockEnd;
     });
 
     // Find next upcoming blocking event
     const upcoming = this.recentEvents
-      .filter(e => e.isBlocking && e.publishedAt > now)
-      .sort((a, b) => a.publishedAt.getTime() - b.publishedAt.getTime())[0];
+      .filter(e => e.isBlocking && new Date(e.publishedAt) > now)
+      .sort((a, b) => new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime())[0];
 
-    const result: { isBlocking: boolean; activeEvents: NewsEvent[]; nextEvent?: NewsEvent } = {
+    return {
       isBlocking: activeEvents.length > 0,
       activeEvents,
+      nextBlockingEvent: upcoming ?? undefined,
+      newsProviderStatus: [], // Will be populated by API
+      economicCalendarProviderStatus: { provider: 'unknown', connected: false, lastFetch: null, articlesFetched: 0, error: undefined },
     };
-    if (upcoming) {
-      result.nextEvent = upcoming;
-    }
-    return result;
   }
 
   /**
-   * Add a news event (from RSS, API, or manual input).
+   * Add a news/economic event to the filter engine.
+   * Called by NewsService and EconomicCalendarService when new events arrive.
    */
-  public static addEvent(event: NewsEvent): void {
-    // Auto-determine if blocking
-    if (this.blockingCategories.has(event.category) && event.impactLevel === 'HIGH') {
-      event.isBlocking = true;
-    }
-
-    this.recentEvents.push(event);
-    this.recentEvents.sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime());
+  public static addEvent(event: {
+    eventId: string;
+    title: string;
+    category: string;
+    impactLevel: 'HIGH' | 'MEDIUM' | 'LOW';
+    publishedAt: string; // ISO
+    source: string;
+    sourceUrl?: string;
+    scheduledAt?: string; // For economic events
+  }): void {
+    const isBlocking = BLOCKING_CATEGORIES.has(event.category) && event.impactLevel === 'HIGH';
     
-    // Keep only last 100 events
-    if (this.recentEvents.length > 100) {
-      this.recentEvents = this.recentEvents.slice(0, 100);
+    let blockStart: Date;
+    let blockEnd: Date;
+    const publishedAt = new Date(event.publishedAt);
+    
+    if (event.scheduledAt) {
+      // Economic event: block around scheduled time
+      const scheduled = new Date(event.scheduledAt);
+      blockStart = new Date(scheduled.getTime() - BLOCK_BEFORE_MINUTES * 60000);
+      blockEnd = new Date(scheduled.getTime() + BLOCK_AFTER_MINUTES * 60000);
+    } else {
+      // News event: block around publication time
+      blockStart = new Date(publishedAt.getTime() - BLOCK_BEFORE_MINUTES * 60000);
+      blockEnd = new Date(publishedAt.getTime() + BLOCK_AFTER_MINUTES * 60000);
     }
 
-    if (event.isBlocking) {
-      eventBus.emit('news:blocking_event', event);
+    const filterEvent: NewsFilterEventDto = {
+      id: `filter-${event.eventId}`,
+      eventId: event.eventId,
+      title: event.title,
+      category: event.category,
+      impactLevel: event.impactLevel,
+      isBlocking,
+      publishedAt: publishedAt.toISOString(),
+      blockStart: blockStart.toISOString(),
+      blockEnd: blockEnd.toISOString(),
+      source: event.source,
+      sourceUrl: event.sourceUrl ?? undefined,
+    };
+
+    this.addEventToMemory(filterEvent);
+
+    // Persist to database
+    this.persistEvent(filterEvent).catch(err => 
+      logger.warn(`[NewsFilterEngine] Failed to persist event: ${err.message}`)
+    );
+
+    if (isBlocking) {
+      eventBus.emit('news:blocking_event', filterEvent);
     }
 
-    logger.info({ event: event.title, category: event.category, blocking: event.isBlocking }, 'News event added');
+    logger.info(
+      { event: event.title, category: event.category, blocking: isBlocking, blockStart, blockEnd },
+      'News filter event added'
+    );
   }
 
-  /**
-   * Fetch latest events from external sources.
-   * Call this periodically (e.g., every 5 minutes).
-   */
-  public static async fetchLatestEvents(): Promise<void> {
-    // TODO: Integrate with actual news APIs (CryptoPanic, CoinDesk RSS, etc.)
-    // For now, this is a placeholder that loads from DB if available
-    
+  private static async persistEvent(event: NewsFilterEventDto) {
     try {
-      const { prisma } = await import('../../../db.js');
-      const dbEvents = await prisma.newsEvent.findMany({
-        where: {
-          publishedAt: {
-            gte: new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours
-          },
+      await prisma.newsFilterEvent.upsert({
+        where: { eventId: event.eventId },
+        create: {
+          eventId: event.eventId,
+          title: event.title,
+          category: event.category,
+          impactLevel: event.impactLevel,
+          isBlocking: event.isBlocking,
+          publishedAt: new Date(event.publishedAt),
+          blockStart: new Date(event.blockStart),
+          blockEnd: new Date(event.blockEnd),
+          source: event.source,
+          sourceUrl: event.sourceUrl || null,
+          metadataJson: JSON.stringify(event),
         },
-        orderBy: { publishedAt: 'desc' },
-        take: 50,
+        update: {
+          isBlocking: event.isBlocking,
+          blockStart: new Date(event.blockStart),
+          blockEnd: new Date(event.blockEnd),
+        },
       });
-
-      for (const e of dbEvents) {
-        this.addEvent({
-          id: e.id,
-          title: e.title,
-          category: e.category as any,
-          impactLevel: e.impactLevel as any,
-          publishedAt: e.publishedAt,
-          isBlocking: e.isBlocking,
-        });
-      }
     } catch (err) {
-      logger.warn({ err }, 'Failed to fetch news events from DB');
+      logger.warn(`[NewsFilterEngine] Persist error: ${(err as Error).message}`);
     }
   }
 
   private static cleanupOldEvents(): void {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 hours ago
-    this.recentEvents = this.recentEvents.filter(e => e.publishedAt > cutoff);
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    this.recentEvents = this.recentEvents.filter(e => new Date(e.publishedAt) > cutoff);
+  }
+
+  /**
+   * Called when an economic event is released with actual data.
+   * Updates the blocking window if needed.
+   */
+  public static onEventReleased(eventId: string): void {
+    const event = this.recentEvents.find(e => e.eventId === eventId);
+    if (event) {
+      // Keep blocking for BLOCK_AFTER_MINUTES after release
+      const newBlockEnd = new Date(Date.now() + BLOCK_AFTER_MINUTES * 60000);
+      event.blockEnd = newBlockEnd.toISOString();
+      event.isBlocking = true; // Still blocking after release
+      
+      this.persistEvent(event).catch(err => 
+        logger.warn(`[NewsFilterEngine] Failed to update released event: ${err.message}`)
+      );
+    }
   }
 }
