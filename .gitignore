@@ -13,6 +13,9 @@ build/
 .env.production
 .env.development
 
+# Test output artifacts
+test-output.txt
+
 # Logs
 logs/
 *.log
@@ -25,6 +28,7 @@ yarn-error.log*
 *.sqlite
 *.sqlite3
 backend/prisma/*.db
+backend/prisma/*.journal
 
 # IDE & Editor
 .vscode/

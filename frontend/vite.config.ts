@@ -56,11 +56,11 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: process.env.VITE_PROXY_API_URL || 'http://localhost:4000',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:4000',
+        target: process.env.VITE_PROXY_WS_URL || 'ws://localhost:4000',
         changeOrigin: true,
         ws: true,
       },
