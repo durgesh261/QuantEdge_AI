@@ -57,7 +57,7 @@ export const IndicatorValidationPage: React.FC = () => {
 
   const handleExportCsv = () => {
     if (!latestReport) return;
-    const downloadUrl = `http://localhost:4000/api/v1/indicator-validation/export-csv/${latestReport.id}`;
+    const downloadUrl = `/api/v1/indicator-validation/export-csv/${latestReport.id}`;
     window.open(downloadUrl, '_blank');
     addToast('Export Started', 'Validation Report CSV download initiated', 'info');
   };

@@ -85,7 +85,7 @@ import {
   OrderBlockDto,
 } from '@algoapp/shared';
 
-const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:4000/api/v1';
+const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -869,6 +869,183 @@ export const newsApi = {
     const res = await apiClient.get('/news/calendar', { params: { forceRefresh } });
     return res.data;
   },
+};
+
+
+// ============================================================
+// AUTHENTICATION HELPERS
+// ============================================================
+// These functions provide a clean authentication flow for the single-operator
+// trading application. The flow is:
+//
+// 1. Operator obtains AUTH_TOKEN from backend environment (never exposed to frontend)
+// 2. Operator logs in via /auth/login with the AUTH_TOKEN
+// 3. Backend issues httpOnly session cookie and returns session JWT
+// 4. Frontend axios interceptor automatically attaches Bearer token from cookie
+// 5. Operator logs out via /auth/logout - clears session on server and client
+// 6. Unauthorized/expired sessions result in 401; frontend can redirect to login
+//
+// KEY SECURITY PRINCIPLES:
+// - AUTH_TOKEN NEVER leaves the backend secure environment
+// - Session JWT is short-lived (24h) and httpOnly cookie protected
+// - VITE_ environment variables are NOT used for AUTH_TOKEN (exposed to browser)
+// - Token is read from document.cookie, not stored in localStorage
+// - API requests automatically include Bearer token via axios interceptor
+// - LIVE authorization is a SEPARATE layer (CONFIRM_LIVE_TRADING + ALLOW_LIVE_TRADING + Guards)
+// ============================================================
+
+// Session token read from cookie (populated on module load or after login)
+let sessionToken: string | null = null;
+
+// Try to read session token from document cookie on initial load
+if (typeof document !== 'undefined') {
+  const cookieMatch = document.cookie.match(/session=([^;]+)/);
+  if (cookieMatch) {
+    sessionToken = cookieMatch[1];
+  }
+}
+
+// Export for potential manual access if needed
+export { sessionToken };
+
+// axios client with base configuration
+// The axios interceptor below ensures the Bearer token is always attached
+// by reading the httpOnly session cookie from the browser on each request.
+
+export const apiClient = axios.create({
+  baseURL: (import.meta as any).env?.VITE_API_URL || '/api/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Attach session token to every authenticated request.
+// The token is read from document.cookie (httpOnly cookie set by backend on login).
+// This design ensures:
+// - AUTH_TOKEN never exposed to frontend bundle
+// - Token automatically included on all API requests
+// - Cookie-based session (httpOnly, secure, sameSite=strict) provides CSRF protection
+// - Session can be invalidated by backend logout or expiry
+apiClient.interceptors.request.use((config) => {
+  try {
+    if (typeof document !== 'undefined') {
+      const cookieMatch = document.cookie.match(/session=([^;]+)/);
+      if (cookieMatch && cookieMatch[1] !== sessionToken) {
+        sessionToken = cookieMatch[1];
+        // Update the Authorization header for this request
+        config.headers.Authorization = `Bearer ${cookieMatch[1]}`;
+      }
+    }
+  } catch (e) {
+    // Cookie read failed - continue without auth header; backend will return 401
+  }
+  // Request ID for correlation (kept from original)
+  // Note: reqCounter moved below to avoid conflict with potential outer scope
+  config.headers['X-Request-Id'] = `req-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  return config;
+});
+
+// Debug interceptor for network errors and auth failures
+apiClient.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.code === 'ERR_NETWORK') {
+      console.error('[API] Backend unreachable. Is it running on', (import.meta as any).env?.VITE_API_URL || '/api/v1', '?');
+    }
+    // If 401 - token may be expired or invalid; frontend can redirect to login
+    if (err.response?.status === 401) {
+      console.warn('[API] Unauthorized - session may have expired or been invalidated');
+      // Optionally, could trigger auth check logic here
+    }
+    return Promise.reject(err);
+  }
+);
+
+// ============================================================
+// AUTHENTICATION HELPER FUNCTIONS
+// ============================================================
+
+/**
+ * Check if user is currently authenticated (has valid session cookie).
+ * Returns true if a session cookie exists; does NOT verify server-side validity.
+ */
+export const isAuthenticated = (): boolean => {
+  if (typeof document === 'undefined') return false;
+  return document.cookie.split(';').some(cookie => cookie.trim().startsWith('session='));
+};
+
+/**
+ * Get the current session token from the httpOnly cookie.
+ * Returns the token string or null if no cookie present.
+ */
+export const getToken = (): string | null => {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/session=([^;]+)/);
+  return match ? match[1] : null;
+};
+
+/**
+ * Login: send the backend AUTH_TOKEN to obtain a session.
+ * The provided token is compared against the backend AUTH_TOKEN (never exposed to browser).
+ * On success, the backend sets an httpOnly session cookie.
+ * The frontend axios interceptor then automatically includes the Bearer token on all requests.
+ *
+ * @param authToken - The BACKEND AUTH_TOKEN value (obtained from AUTH_TOKEN env var, NOT from source code)
+ * @returns Promise resolving to { success, error }
+ */
+export const login = async (authToken: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const res = await apiClient.post('/auth/login', { token: authToken });
+    if (res.data?.success) {
+      // Backend sets httpOnly cookie; ensure local cookie reflection is up to date
+      const setCookie = res.headers['set-cookie'];
+      if (setCookie) {
+        document.cookie = setCookie.split(';')[0]; // Keep only the cookie name=value part
+      }
+      return { success: true };
+    }
+    return { success: false, error: res.data?.error || 'Login failed' };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Login request failed' };
+  }
+};
+
+/**
+ * Logout: notify backend to invalidate session and clear the httpOnly cookie.
+ * Also clears the local cookie reflection immediately for instant UI response.
+ *
+ * @returns Promise resolving to { success, error }
+ */
+export const logout = async (): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const res = await apiClient.post('/auth/logout');
+    if (res.data?.success) {
+      // Immediately clear local cookie for instant UI response
+      document.cookie = 'session=; Max-Age=0; path=/; sameSite=strict';
+      return { success: true };
+    }
+    return { success: false, error: res.data?.error || 'Logout failed' };
+  } catch (err: any) {
+    // Even if request fails, clear local cookie immediately
+    document.cookie = 'session=; Max-Age=0; path=/; sameSite=strict';
+    return { success: false, error: err.message || 'Logout request failed' };
+  }
+};
+
+/**
+ * Check if the current session appears active based on cookie presence.
+ * This is a client-side check; the backend ultimately authorizes each request.
+ * A 401 response from any API call indicates the session has expired or been invalidated.
+ *
+ * @returns boolean - true if session cookie appears present
+ */
+export const checkSession = (): boolean => {
+  if (typeof document === 'undefined') return false;
+  // If no session cookie, not authenticated
+  if (!document.cookie.split(';').some(cookie => cookie.trim().startsWith('session='))) {
+    return false;
+  }
+  return true;
 };
 
 

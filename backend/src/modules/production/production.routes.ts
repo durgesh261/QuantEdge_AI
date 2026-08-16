@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import authMiddleware from '../../middleware/authenticate.js';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import {
   getProductionOverview,
@@ -9,7 +10,7 @@ import {
 const router = Router();
 
 router.get('/overview', asyncHandler(getProductionOverview));
-router.post('/mode', asyncHandler(setExecutionMode));
-router.post('/backup', asyncHandler(triggerBackup));
+router.post('/mode', authMiddleware, asyncHandler(setExecutionMode));
+router.post('/backup', authMiddleware, asyncHandler(triggerBackup));
 
 export const productionRouter = router;

@@ -59,7 +59,7 @@ export const OperationsCenterPage: React.FC = () => {
   });
 
   const handleExportErrorsCsv = () => {
-    const downloadUrl = 'http://localhost:4000/api/v1/operations-center/export-errors-csv';
+    const downloadUrl = '/api/v1/operations-center/export-errors-csv';
     window.open(downloadUrl, '_blank');
     addToast('Export Started', 'System Error Log CSV export initiated', 'info');
   };

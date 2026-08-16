@@ -107,7 +107,7 @@ export const TradeAccountingPage: React.FC = () => {
     if (selectedMode) params.append('executionMode', selectedMode);
     if (selectedTimeframe) params.append('timeframe', selectedTimeframe);
 
-    const downloadUrl = `http://localhost:4000/api/v1/trade-accounting/export-ledger-csv?${params.toString()}`;
+    const downloadUrl = `/api/v1/trade-accounting/export-ledger-csv?${params.toString()}`;
     window.open(downloadUrl, '_blank');
     addToast('Export Started', '38-field institutional Trade Ledger CSV export initiated.', 'info');
   };
@@ -119,7 +119,7 @@ export const TradeAccountingPage: React.FC = () => {
     if (selectedResult) params.append('resultStatus', selectedResult);
     if (selectedMode) params.append('executionMode', selectedMode);
 
-    const downloadUrl = `http://localhost:4000/api/v1/trade-accounting/export-ledger-json?${params.toString()}`;
+    const downloadUrl = `/api/v1/trade-accounting/export-ledger-json?${params.toString()}`;
     window.open(downloadUrl, '_blank');
     addToast('JSON Export', 'Ledger JSON data download initiated.', 'info');
   };

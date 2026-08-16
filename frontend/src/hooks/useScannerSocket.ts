@@ -55,7 +55,7 @@ export function useScannerSocket() {
     const pollInterval = setInterval(() => fetchState(true), 3000);
 
     // 3. WebSocket (real-time enhancement)
-    const socketUrl = (import.meta as any).env?.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:4000';
+    const socketUrl = (import.meta as any).env?.VITE_API_URL?.replace('/api/v1', '') || '/';
     const socket = io(`${socketUrl}/scanner`, {
       transports: ['websocket'],
       reconnection: true,

@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { DesktopTerminalLayout } from './components/layout/DesktopTerminalLayout';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { LivePortfolio } from './features/portfolio/LivePortfolio';
@@ -12,6 +12,7 @@ import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 import { StrategyProfilesPage } from './features/strategy-profiles/StrategyProfilesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { LiveNewsCenterPage } from './features/news/LiveNewsCenterPage';
+import { LoginPage } from './features/auth/LoginPage';
 
 // Developer Mode Views
 import { PaperTradingPage } from './features/paper-trading/PaperTradingPage';
@@ -29,12 +30,39 @@ import { TradeReviewPage } from './features/review/TradeReviewPage';
 import { ChallengePage } from './features/challenge/ChallengePage';
 import { AnalysisPage } from './features/analysis/AnalysisPage';
 
+const navigate = useNavigate();
+
+useEffect(() => {
+  // Check authentication on app start
+  // If has session cookie but not on /login, redirect to dashboard
+  // If no session cookie and not on /login, redirect to login
+  const checkAuth = async () => {
+    // Check if session cookie exists
+    const hasSession = document.cookie.split(';').some(cookie => cookie.trim().startsWith('session='));
+    
+    // If has session but not on dashboard/login, redirect
+    if (hasSession && !window.location.pathname.startsWith('/dashboard') && window.location.pathname !== '/login') {
+      navigate('/dashboard');
+    }
+    
+    // If no session and on /dashboard or other protected routes, redirect to login
+    if (!hasSession && window.location.pathname !== '/login' && window.location.pathname !== '/') {
+      navigate('/login');
+    }
+  };
+
+  checkAuth();
+}, [navigate]);
+
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <DesktopTerminalLayout>
         <Routes>
-          {/* Primary Live Trading Routes */}
+          {/* Authentication Route */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* Primary Live Trading Routes (protected by backend auth) */}
           <Route path="/" element={<DashboardPage />} />
           <Route path="/portfolio" element={<LivePortfolio />} />
           <Route path="/live-trading" element={<LiveTradingPage />} />
@@ -47,7 +75,7 @@ export const App: React.FC = () => {
           <Route path="/strategy-profiles" element={<StrategyProfilesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
 
-          {/* Developer Mode Routes */}
+          {/* Developer Mode Routes (protected by backend auth) */}
           <Route path="/paper-trading" element={<PaperTradingPage />} />
           <Route path="/shadow-laboratory" element={<ShadowLaboratoryPage />} />
           <Route path="/replay" element={<ReplayPage />} />
@@ -62,6 +90,9 @@ export const App: React.FC = () => {
           <Route path="/trade-review" element={<TradeReviewPage />} />
           <Route path="/challenge" element={<ChallengePage />} />
           <Route path="/analysis" element={<AnalysisPage />} />
+
+          {/* If no session cookie and trying to access anything besides /login, 
+              the useEffect will redirect to /login above on app start. */}
         </Routes>
       </DesktopTerminalLayout>
     </BrowserRouter>

@@ -9,7 +9,6 @@ export interface SystemSettingsDto {
   timezone: string;
   maxStaleSignalSeconds: number;
   isKillSwitchActive: boolean;
-  deltaApiKey: string;
   hasDeltaApiSecret: boolean;
   deltaEnvironment: 'PRODUCTION';
   deltaHealth: ReturnType<typeof deltaSyncService.getHealth>;
@@ -42,7 +41,6 @@ export class SettingsService {
 
   public static async getSettings(): Promise<SystemSettingsDto> {
     const settings = await this.getOrCreateSettings();
-    const effectiveApiKey = settings.deltaApiKey || process.env['DELTA_API_KEY'] || '';
     const hasSecret = Boolean(settings.deltaApiSecret || process.env['DELTA_API_SECRET']);
 
     return {
@@ -51,7 +49,7 @@ export class SettingsService {
       timezone: settings.timezone,
       maxStaleSignalSeconds: settings.maxStaleSignalSeconds,
       isKillSwitchActive: settings.isKillSwitchActive,
-      deltaApiKey: effectiveApiKey,
+      // deltaApiKey intentionally omitted from frontend response - use backend endpoints only
       hasDeltaApiSecret: hasSecret,
       deltaEnvironment: 'PRODUCTION',
       deltaHealth: deltaSyncService.getHealth(),

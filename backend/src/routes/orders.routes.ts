@@ -41,19 +41,22 @@ router.post('/', async (req, res): Promise<any> => {
     });
   }
 
-  // TODO: Integrate with Delta Exchange API
-  console.log('[ORDER]', { symbol, side, type, size, leverage, price, stop_loss, take_profit, source });
+  // MOCK ENDPOINT - For development/demo only
+  // TODO: Replace with actual Delta Exchange API integration
+  // To use real orders, integrate with deltaSyncService.submitExecution()
+  console.log('[MOCK ORDER] - Not placed (mock mode):', { symbol, side, type, size, leverage, price, stop_loss, take_profit, source });
 
   res.json({
     success: true,
     data: {
-      order_id: `order-${Date.now()}`,
-      status: 'PENDING',
+      order_id: `mock-order-${Date.now()}`,
+      status: 'MOCK_PENDING',
       symbol,
       side,
       size,
       price: price || 'MARKET',
       source: source || 'manual',
+      mock: true,
     },
   });
 });

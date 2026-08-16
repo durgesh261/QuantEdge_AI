@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import authMiddleware from '../../middleware/authenticate.js';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { SettingsController } from './settings.controller.js';
 import { ApiResponse, getIsoUtcTimestamp } from '@algoapp/shared';
@@ -24,7 +25,7 @@ settingsRouter.get('/status', (req, res) => {
 });
 
 // Settings & Delta API Key Management
-settingsRouter.get('/', asyncHandler(SettingsController.getSettings));
-settingsRouter.post('/delta-credentials', asyncHandler(SettingsController.saveDeltaCredentials));
-settingsRouter.post('/delta-credentials/test', asyncHandler(SettingsController.testDeltaCredentials));
-settingsRouter.delete('/delta-credentials', asyncHandler(SettingsController.deleteDeltaCredentials));
+// These endpoints require authentication
+settingsRouter.post('/delta-credentials', authMiddleware, asyncHandler(SettingsController.saveDeltaCredentials));
+settingsRouter.post('/delta-credentials/test', authMiddleware, asyncHandler(SettingsController.testDeltaCredentials));
+settingsRouter.delete('/delta-credentials', authMiddleware, asyncHandler(SettingsController.deleteDeltaCredentials));

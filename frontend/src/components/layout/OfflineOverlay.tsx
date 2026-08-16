@@ -38,7 +38,7 @@ export const OfflineOverlay: React.FC = () => {
         <div className="bg-[#161D2A] border border-[#1E293B] rounded-xl p-4 mb-6 text-left space-y-2">
           <div className="flex items-center space-x-2 text-[10px] text-[#94A3B8]">
             <Server className="w-3.5 h-3.5 text-[#64748B]" />
-            <span>Expected: <code className="text-[#F8FAFC] bg-[#0B0E14] px-1 py-0.5 rounded">http://localhost:4000</code></span>
+            <span>Expected: <code className="text-[#F8FAFC] bg-[#0B0E14] px-1 py-0.5 rounded">/api/v1</code></span>
           </div>
           <div className="flex items-center space-x-2 text-[10px] text-[#94A3B8]">
             <WifiOff className="w-3.5 h-3.5 text-[#64748B]" />

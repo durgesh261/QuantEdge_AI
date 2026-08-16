@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ErrorSanitizer } = require('../src/modules/realtime-operations/services/errorSanitizer');
+const { ErrorSanitizer } = require('../../src/modules/realtime-operations/services/errorSanitizer');
 
 describe('C.17.1 Notification Safety - ErrorSanitizer', () => {
   describe('ErrorSanitizer exists', () => {
@@ -20,21 +20,21 @@ describe('C.17.1 Notification Safety - ErrorSanitizer', () => {
   describe('sanitizeError()', () => {
     it('should sanitize error with DELTA_API_KEY', () => {
       const result = ErrorSanitizer.sanitizeError({
-        message: 'Delta API key: txkBPYQiVlZIAiCbwx9UzWhhqHAlg5',
+        message: 'Delta API key: TEST_API_KEY_REDACTED',
         name: 'TestError',
       });
 
-      expect(result.message).not.toContain('txkBPYQiVlZIAiCbwx9UzWhhqHAlg5');
+      expect(result.message).not.toContain('TEST_API_KEY_REDACTED');
       expect(result.message).not.toContain('DELTA_API_KEY');
     });
 
     it('should sanitize error with DELTA_API_SECRET', () => {
       const result = ErrorSanitizer.sanitizeError({
-        message: 'Delta API secret: uWIKHspcDAdmtEpm39ITi0qygx1igEgOXfcsb31akY7UuG975LtEmJ9gd5iy',
+        message: 'Delta API secret: TEST_API_SECRET_REDACTED',
         name: 'TestError',
       });
 
-      expect(result.message).not.toContain('uWIKHspcDAdmtEpm39ITi0qygx1igEgOXfcsb31akY7UuG975LtEmJ9gd5iy');
+      expect(result.message).not.toContain('TEST_API_SECRET_REDACTED');
       expect(result.message).not.toContain('DELTA_API_SECRET');
     });
 

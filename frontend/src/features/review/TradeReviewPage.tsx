@@ -73,13 +73,13 @@ export const TradeReviewPage: React.FC = () => {
   };
 
   const handleExportCsv = () => {
-    const downloadUrl = `http://localhost:4000/api/v1/trade-review/${activeTradeId}/export-csv`;
+    const downloadUrl = `/api/v1/trade-review/${activeTradeId}/export-csv`;
     window.open(downloadUrl, '_blank');
     addToast('Export Started', 'Trade Review CSV export initiated', 'info');
   };
 
   const handleExportJson = () => {
-    const downloadUrl = `http://localhost:4000/api/v1/trade-review/${activeTradeId}/export-json`;
+    const downloadUrl = `/api/v1/trade-review/${activeTradeId}/export-json`;
     window.open(downloadUrl, '_blank');
     addToast('Export Started', 'Trade Review JSON export initiated', 'info');
   };

@@ -15,18 +15,18 @@ export class EnvValidator {
     const port = parseInt(process.env.PORT || '4000', 10);
     const databaseUrl = process.env.DATABASE_URL || 'file:./algoapp.db';
     const tradingViewSecret = process.env.TRADINGVIEW_WEBHOOK_SECRET;
-    const deltaApiKey = process.env.DELTA_API_KEY;
-    const deltaApiSecret = process.env.DELTA_API_SECRET;
 
-    const resolvedTvSecret = tradingViewSecret || 'tv_webhook_secret_default';
+    if (!tradingViewSecret) {
+      throw new Error('TRADINGVIEW_WEBHOOK_SECRET environment variable is required');
+    }
 
     return {
       nodeEnv,
       port,
       databaseUrl,
-      tradingViewSecret: resolvedTvSecret,
-      deltaApiKey,
-      deltaApiSecret,
+      tradingViewSecret,
+      deltaApiKey: process.env.DELTA_API_KEY,
+      deltaApiSecret: process.env.DELTA_API_SECRET,
     };
   }
 }

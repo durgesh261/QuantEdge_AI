@@ -52,7 +52,7 @@ export const StrategyLaboratoryPage: React.FC = () => {
   };
 
   const handleExportCsv = () => {
-    const downloadUrl = 'http://localhost:4000/api/v1/strategy-optimization/export-csv';
+    const downloadUrl = '/api/v1/strategy-optimization/export-csv';
     window.open(downloadUrl, '_blank');
     addToast('Export Started', 'Optimization Results CSV export initiated', 'info');
   };

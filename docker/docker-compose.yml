@@ -13,11 +13,13 @@ services:
       NODE_ENV: production
       APP_PORT: 4000
       DATABASE_URL: file:/data/quantedge.db
-      CORS_ORIGIN: http://localhost:3000
+      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET}
+      DELTA_API_KEY: ${DELTA_API_KEY}
+      DELTA_API_SECRET: ${DELTA_API_SECRET}
       DELTA_ENVIRONMENT: PRODUCTION
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     volumes:
       - sqlite_data:/data
-      - logs:/app/logs
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/v1/system/liveness"]
       interval: 30s
@@ -32,16 +34,13 @@ services:
     container_name: quantedge_frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "80:80"
     depends_on:
       backend:
         condition: service_healthy
-    # Optional: mount nginx.conf for live editing in dev
-    # volumes:
-    #   - ../nginx.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:80}
 
 volumes:
   sqlite_data:
-    driver: local
-  logs:
     driver: local
