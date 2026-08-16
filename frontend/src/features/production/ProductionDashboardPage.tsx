@@ -31,7 +31,7 @@ export const ProductionDashboardPage: React.FC = () => {
   });
 
   const setModeMutation = useMutation({
-    mutationFn: ({ mode, userConfirmed }: { mode: ExecutionMode; userConfirmed: boolean }) =>
+    mutationFn: ({ mode, userConfirmed }: { mode: ExecutionMode; userConfirmed: string }) =>
       productionApi.setMode(mode, userConfirmed),
     onSuccess: (res) => {
       addToast(
@@ -118,7 +118,7 @@ export const ProductionDashboardPage: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <button
-            onClick={() => setModeMutation.mutate({ mode: ExecutionMode.PAPER, userConfirmed: false })}
+            onClick={() => setModeMutation.mutate({ mode: ExecutionMode.PAPER, userConfirmed: '' })}
             className={`p-3 rounded-xl border text-left font-mono text-xs transition-colors ${
               overview?.activeExecutionMode === ExecutionMode.PAPER
                 ? 'bg-[#00C896]/10 border-[#00C896] text-[#00C896]'
@@ -273,7 +273,7 @@ export const ProductionDashboardPage: React.FC = () => {
                 CANCEL
               </button>
               <button
-                onClick={() => setModeMutation.mutate({ mode: ExecutionMode.LIVE, userConfirmed: true })}
+                onClick={() => setModeMutation.mutate({ mode: ExecutionMode.LIVE, userConfirmed: 'CONFIRM_LIVE_TRADING' })}
                 disabled={setModeMutation.isPending}
                 className="px-4 py-1.5 bg-[#EF4444] text-white rounded font-bold hover:bg-[#DC2626]"
               >

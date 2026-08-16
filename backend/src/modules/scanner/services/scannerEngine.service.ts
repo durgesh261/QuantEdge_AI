@@ -117,6 +117,13 @@ export class ScannerEngine {
       }
       if (!globalState.isRunning || globalState.isPaused) return;
 
+      // ── Update scanner heartbeat ──────────────────────────────
+      await prisma.scannerState.update({
+        where: { id: globalState.id },
+        data: { lastHeartbeat: new Date() },
+      });
+      // └─────────────────────────────────────────────────────────
+
       const pairs = await prisma.scannerPair.findMany({
         where: { isActive: true, isPaused: false, status: 'ENGINE' },
       });

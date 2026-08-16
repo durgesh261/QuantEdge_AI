@@ -5,6 +5,7 @@ import { eventBus } from '../../../services/EventBus.js';
 import { HistoricalBackfillService } from '../../market-data/services/historicalBackfill.service.js';
 import { MarketSnapshotService } from '../../market-data/services/marketSnapshot.service.js';
 import { logger } from '../../../logger/index.js';
+import { EmergencyKillSwitch } from '../../execution/adapters/delta/emergencyKillSwitch.js';
 
 export interface DeltaHealthStatus {
   status: 'CONNECTED' | 'DISCONNECTED' | 'RECONNECTING' | 'ERROR';
@@ -209,22 +210,50 @@ export class DeltaSyncService {
 
   public async closePosition(symbol: string): Promise<{ success: boolean; error?: string }> {
     try {
+      // ── F-2 Position integrity: verify the position exists FIRST ────────────────
       const positions = this.getPositions();
       const pos = positions.find(p => this.rest.toInternalSymbol(p.product_symbol) === symbol);
+
       if (!pos || Math.abs(pos.size) === 0) {
         return { success: false, error: 'No open position to close' };
       }
 
+      // Compute and enforce the exact reverse side (never open, never increase)
       const closeSide = pos.side === 'buy' ? 'sell' : 'buy';
+      // Clamp to actual position size — never exceed what is open
       const size = Math.abs(pos.size);
 
+      // Product ID comes from the authoritative position record (not user input)
+      const product = this.rest.getProduct(pos.product_symbol);
+      if (!product || !product.id) {
+        return { success: false, error: `Product metadata not found for ${pos.product_symbol} — cannot close safely` };
+      }
+
+      // ── F-2 Safety check: ALLOW_LIVE_TRADING must be set ────────────────────
+      // Protective closes of existing positions are exempt from the
+      // isExplicitUserConfirmed re-confirmation gate (which is cleared on restart)
+      // because the position itself constitutes prior authorization.
+      // However, ALLOW_LIVE_TRADING must still be configured.
+      const isAllowLiveSet = process.env.ALLOW_LIVE_TRADING === 'true';
+      if (!isAllowLiveSet) {
+        logger.warn(`[DeltaSyncService] Protective close blocked — ALLOW_LIVE_TRADING not set for ${symbol}`);
+        return { success: false, error: 'PROTECTIVE_CLOSE_REJECTED: ALLOW_LIVE_TRADING is not enabled' };
+      }
+
+      // Kill-switch check: protective closes are ALLOWED through the kill switch
+      // (the kill switch itself triggers closes), but log a warning if active.
+      if (EmergencyKillSwitch.isKillSwitchActive()) {
+        logger.warn(`[DeltaSyncService] Protective close proceeding through ACTIVE kill switch for ${symbol}`);
+      }
+
+      // Submit: always reduce_only, authoritative product_id, exact actual size
       const result = await this.rest.placeOrder({
-        product_id: pos.product_id,
-        product_symbol: pos.product_symbol,
-        side: closeSide,
+        product_id: product.id,             // from authoritative product cache
+        product_symbol: pos.product_symbol, // from authoritative position
+        side: closeSide,                    // exact reverse of open position
         order_type: 'market',
-        size,
-        reduce_only: true,
+        size,                               // clamped to actual position size
+        reduce_only: true,                  // never increase exposure
       });
 
       logger.info(`[DeltaSyncService] Close position order placed: ${symbol} ${closeSide} ${size}`, result);

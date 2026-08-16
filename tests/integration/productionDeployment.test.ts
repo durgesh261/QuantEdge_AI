@@ -11,6 +11,7 @@ describe('Production Deployment & Live Activation E2E Integration Tests', () => 
     process.env.NODE_ENV = 'production';
     process.env.DELTA_API_KEY = 'sandbox_test_key_001';
     process.env.DELTA_API_SECRET = 'sandbox_test_secret_999';
+    process.env.ALLOW_LIVE_TRADING = 'true';
     EmergencyKillSwitch.setKillSwitch(false);
     LiveTradingGuard.setExplicitUserConfirmed(false);
     LiveTradingGuard.setLiveModeActive(false);

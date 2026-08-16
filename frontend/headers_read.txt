@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Command, Bell, Terminal, Wifi, WifiOff,
   Bot, ChevronDown, Loader2, Trash2
@@ -10,13 +10,12 @@ import { useDeltaConnection } from '../../hooks/useDeltaConnection';
 import { NotificationPanel } from '../notifications/NotificationPanel';
 import { KillSwitchModal } from '../dev/KillSwitchModal';
 import { ExecutionMode } from '@algoapp/shared';
-import { productionApi } from '../../services/api';
 
 export const Header: React.FC = () => {
   const {
     activeSymbol, setActiveSymbol, isAlgoRunning, toggleAlgo,
     isDeveloperMode, toggleDeveloperMode,
-    executionMode, setExecutionMode,
+    executionMode,
   } = useTerminalStore();
 
   const { isDeltaEnabled, isConnected, isConnecting } = useDeltaStore();
@@ -82,13 +81,13 @@ export const Header: React.FC = () => {
               <Bot className="w-3 h-3" />
               {executionMode === 'PAPER' && (
                 <button
-                  onClick={() => setShowLiveConfirmation(true)}
+                  onClick={() => setExecutionMode('LIVE')}
                   className="ml-2 text-[8px] text-[#F6465D] hover:underline"
                   title="Switch to LIVE mode"
                 >
                   LIVE
                 </button>
-              )}
+              }}
           </button>
 
           <div className="relative group">
@@ -186,7 +185,7 @@ export const Header: React.FC = () => {
             </button>
           )}
 
-          {/* DELTA TOGGLE — Unified State */}
+          {/* DELTA TOGGLE â€” Unified State */}
 <button
               aria-label="Toggle Delta Exchange connection"
               onClick={toggleConnection}
@@ -230,49 +229,6 @@ export const Header: React.FC = () => {
       </header>
 
       <KillSwitchModal isOpen={showKillSwitch} onClose={() => setShowKillSwitch(false)} />
-      {showLiveConfirmation && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center">
-          <div className="bg-[#161D2A] border border-[#334155] rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-[#3B82F6] font-bold text-[14px] mb-4">LIVE Mode Confirmation</h3>
-            <p className="text-[#94A3B8] text-[11px] mb-4">
-              Type the exact phrase to activate LIVE trading:
-            </p>
-            <input
-              value={liveConfirmationPhrase}
-              onChange={(e) => setLiveConfirmationPhrase(e.target.value)}
-              placeholder="CONFIRM_LIVE_TRADING"
-              className="w-full bg-transparent border-0 border-[#1E293B] px-3 py-2 text-[11px] text-[#F8FAFC] outline-none mb-4"
-              defaultValue=""
-            />
-            <div className="flex space-x-3">
-              <button
-                onClick={() => setShowLiveConfirmation(false)}
-                className="flex-1 px-4 py-2 bg-[#64748B] rounded-lg text-[10px] uppercase hover:bg-[#334155] transition-colors"
-                >Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (liveConfirmationPhrase === 'CONFIRM_LIVE_TRADING') {
-                    productionApi.setMode(ExecutionMode.LIVE, "CONFIRM_LIVE_TRADING")
-                      .then(({ data }) => {
-                        setExecutionMode(data.activeExecutionMode);
-                        setShowLiveConfirmation(false);
-                      })
-                      .catch((err) => {
-                        console.error('[Header] Failed to set LIVE mode:', err);
-                        setShowLiveConfirmation(false);
-                      });
-                  } else {
-                    setShowLiveConfirmation(false);
-                  }
-                }}
-                className="flex-1 px-4 py-2 bg-[#00C896] rounded-lg text-[10px] uppercase font-bold hover:bg-[#00A885] transition-colors"
-                >Confirm
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 };

@@ -1,4 +1,5 @@
 import { NotificationDto, NotificationSeverity } from '@algoapp/shared';
+import { NotificationProviderManager } from './notificationProvider.js';
 import { AppEventBus } from './appEventBus.service.js';
 
 let notificationsStore: NotificationDto[] = [
@@ -14,6 +15,14 @@ let notificationsStore: NotificationDto[] = [
 ];
 
 export class NotificationCenterService {
+  private static providerManager: NotificationProviderManager | null = null;
+
+  public static configureProviderManager(
+    manager: NotificationProviderManager
+  ): void {
+    NotificationCenterService.providerManager = manager;
+  }
+
   public static async notify(
     type: string,
     title: string,
@@ -34,7 +43,16 @@ export class NotificationCenterService {
     if (notificationsStore.length > 200) {
       notificationsStore = notificationsStore.slice(0, 200);
     }
+
+    // Always publish the event on the bus
     AppEventBus.publish('NOTIFICATION_GENERATED', notif);
+
+    // If a provider manager is configured, attempt external delivery
+    // (local notification already stored above; external is best-effort)
+    if (NotificationCenterService.providerManager) {
+      void NotificationCenterService.providerManager.deliver(notif);
+    }
+
     return notif;
   }
 
@@ -63,5 +81,8 @@ export class NotificationCenterService {
     notificationsStore = [];
     return true;
   }
-}
 
+  public static getProviderManager(): NotificationProviderManager | null {
+    return NotificationCenterService.providerManager;
+  }
+}

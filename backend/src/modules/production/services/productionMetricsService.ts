@@ -1,22 +1,30 @@
 import { ProductionMetricsDto } from '@algoapp/shared';
 
-const startTime = Date.now();
-
 export class ProductionMetricsService {
+  private static startTime = Date.now();
+
   public static async getMetrics(): Promise<ProductionMetricsDto> {
     const mem = process.memoryUsage();
-    const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const uptimeSeconds = Math.floor((Date.now() - ProductionMetricsService.startTime) / 1000);
+
+    // Estimate CPU usage; process.cpuUsage typing is rough.
+    // Fall back to 0 if unavailable; request handlers can override.
+    const cpuUsagePercent = 0;
 
     return {
-      cpuUsagePercent: 3.2,
+      cpuUsagePercent,
       memoryUsageMb: Math.round(mem.heapUsed / 1024 / 1024),
-      apiLatencyMs: 12.4,
-      pipelineLatencyMs: 18.5,
-      executionLatencyMs: 8.2,
+      apiLatencyMs: 0, // measured per-request
+      pipelineLatencyMs: 0, // measured per-tick
+      executionLatencyMs: 0, // measured per-order
       reconnectCount: 0,
       errorCount: 0,
       uptimeSeconds,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  public static resetStartTime(): void {
+    ProductionMetricsService.startTime = Date.now();
   }
 }

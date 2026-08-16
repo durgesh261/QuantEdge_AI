@@ -83,8 +83,8 @@ export const PositionsPage: React.FC = () => {
                   <tr key={pos.id} className="border-b border-[#1E293B]/50 hover:bg-[#0B0E14]">
                     <td className="py-3 px-3 text-white font-bold">{pos.id}</td>
                     <td className="py-3 px-3 text-[#3B82F6] font-bold">{pos.symbol}</td>
-                    <td className={`py-3 px-3 font-bold ${(pos.side as string) === 'BUY' || (pos.side as string) === 'LONG' ? 'text-[#00C896]' : 'text-[#F6465D]'}`}>
-                      {pos.side}
+<td className={`py-3 px-3 ${(pos.side as string) === 'BUY' || (pos.side as string) === 'LONG' ? 'bg-[#00C896]/20' : 'bg-[#F6465D]/20'} font-bold ${(pos.side as string) === 'BUY' || (pos.side as string) === 'LONG' ? 'text-[#00C896]' : 'text-[#F6465D]'}`}>
+                        {pos.side}
                     </td>
                     <td className="py-3 px-3 text-white">{pos.quantity}</td>
                     <td className="py-3 px-3 text-white">${pos.entryPrice.toFixed(2)}</td>

@@ -107,14 +107,17 @@ describe('Phase C.5.1: Persistent Execution Mode & Restart Lifecycle Tests', () 
       expect(getActiveExecutionMode()).toBe(ExecutionMode.PAPER);
     });
 
-    it('Test 3: restores LIVE preference and permits LIVE when all guards pass', async () => {
+    it('Test 3: restores LIVE preference but BLOCKS LIVE execution until user re-confirms via UI', async () => {
       vi.spyOn(ProductionModeStore, 'getPersistedExecutionMode').mockResolvedValue(ExecutionMode.LIVE);
 
       const restoredMode = await initializeExecutionModeFromPersistence();
       expect(restoredMode).toBe(ExecutionMode.LIVE);
 
+      // LIVE mode is restored as preference but execution remains BLOCKED
+      // until the user explicitly re-confirmes via the UI.
       const safety = await LiveTradingGuard.evaluateSafety(ExecutionMode.LIVE);
-      expect(safety.isAllowed).toBe(true);
+      expect(safety.isAllowed).toBe(false);
+      expect(safety.rejectionReasons).toContain('Explicit user confirmation is missing for Live Trading.');
     });
 
     it('Test 4: blocks LIVE order execution on restart if ALLOW_LIVE_TRADING !== "true"', async () => {
@@ -220,7 +223,7 @@ describe('Phase C.5.1: Persistent Execution Mode & Restart Lifecycle Tests', () 
   });
 
   describe('Step 11: Critical Order-Safety Mock Execution Tests', () => {
-    it('permits canonical execution path when savedExecutionMode = LIVE and all guards pass', async () => {
+    it('blocks canonical execution path when savedExecutionMode = LIVE but LIVE is blocked after restart (no user re-confirmation)', async () => {
       const mockOrderResponse = {
         id: 99999,
         product_id: 27,
@@ -237,6 +240,8 @@ describe('Phase C.5.1: Persistent Execution Mode & Restart Lifecycle Tests', () 
       vi.spyOn(ProductionModeStore, 'getPersistedExecutionMode').mockResolvedValue(ExecutionMode.LIVE);
       await initializeExecutionModeFromPersistence();
 
+      // After restart, LIVE is blocked — user must re-confirm via UI.
+      // placeOrder should not succeed without explicit CONFIRM_LIVE_TRADING.
       const restClient = deltaSyncService.getRestClient();
       const service = new DeltaExecutionService(restClient);
 
@@ -248,8 +253,8 @@ describe('Phase C.5.1: Persistent Execution Mode & Restart Lifecycle Tests', () 
         price: 64875,
       });
 
-      expect(result.success).toBe(true);
-      expect(result.orderId).toBe(99999);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('LIVE_SAFETY_REJECTED');
     });
 
     it('prevents placeOrder() call when savedExecutionMode = LIVE but a safety guard fails', async () => {

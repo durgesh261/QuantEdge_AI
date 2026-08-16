@@ -34,6 +34,21 @@ model SystemSettings {
   @@map("system_settings")
 }
 
+model IncidentHistory {
+  id            String   @id @default(uuid())
+  eventType     String
+  severity      String
+  message       String
+  symbol        String?  @map("symbol")
+  executionMode String   @default("PAPER") @map("execution_mode")
+  createdAt     DateTime @default(now()) @map("created_at")
+  resolvedAt    DateTime?  @map("resolved_at")
+  status        String   // OPEN or RESOLVED
+  deliveryStatus String   // LOCAL_ONLY, PENDING, SENT, FAILED
+
+@@map("incident_history")
+}
+
 model MarketCandle {
   id        String   @id @default(uuid())
   symbol    String
@@ -338,6 +353,7 @@ model ScannerState {
   ticksTotal    Int      @default(0)
   signalsTotal  Int      @default(0)
   tradesTotal   Int      @default(0)
+  lastHeartbeat DateTime @default(now())  // heartbeat updated on each tick
   updatedAt     DateTime @updatedAt
   createdAt     DateTime @default(now())
 

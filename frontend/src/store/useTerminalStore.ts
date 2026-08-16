@@ -54,8 +54,10 @@ interface TerminalState {
   systemStatus: SystemStatus;
   widgets: WidgetVisibilityState;
   isAlgoRunning: boolean;
+  executionMode: 'PAPER' | 'LIVE' | 'SHADOW';
   toggleAlgo: () => void;
   setAlgoRunning: (running: boolean) => void;
+  setExecutionMode: (mode: 'PAPER' | 'LIVE' | 'SHADOW') => void;
 
   setActivePage: (page: TerminalPage) => void;
   setActiveSymbol: (symbol: string) => void;
@@ -109,8 +111,10 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   systemStatus: SystemStatus.HEALTHY,
   widgets: loadInitialWidgetState(),
   isAlgoRunning: false,
+  executionMode: 'PAPER',
   toggleAlgo: () => set((state) => ({ isAlgoRunning: !state.isAlgoRunning })),
   setAlgoRunning: (running) => set({ isAlgoRunning: running }),
+  setExecutionMode: (mode) => set({ executionMode: mode }),
 
   setActivePage: (page) => set({ activePage: page }),
   setActiveSymbol: (symbol) => set({ activeSymbol: symbol }),

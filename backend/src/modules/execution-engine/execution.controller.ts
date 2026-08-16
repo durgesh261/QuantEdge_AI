@@ -6,7 +6,37 @@ export class ExecutionController {
 
   public placeOrder = async (req: Request, res: Response): Promise<void> => {
     try {
-      const result = await this.executionService.placeOrder(req.body);
+      // ── F-1 Security: explicit allow-list — isEmergencyClose MUST NOT come from HTTP ──
+      const {
+        symbol,
+        side,
+        orderType,
+        size,
+        price,
+        stopPrice,
+        leverage,
+        reduceOnly,
+        postOnly,
+        stopLossPrice,
+        takeProfitPrice,
+        clientOrderId,
+      } = req.body;
+
+      const result = await this.executionService.placeOrder({
+        symbol,
+        side,
+        orderType,
+        size,
+        price,
+        stopPrice,
+        leverage,
+        reduceOnly,
+        postOnly,
+        stopLossPrice,
+        takeProfitPrice,
+        clientOrderId,
+        // isEmergencyClose is NEVER accepted from HTTP — internal use only
+      });
       res.status(result.success ? 200 : 400).json({
         success: result.success,
         data: result,

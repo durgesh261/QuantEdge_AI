@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Command, Bell, Terminal, Wifi, WifiOff,
   Bot, ChevronDown, Loader2, Trash2
@@ -10,7 +10,6 @@ import { useDeltaConnection } from '../../hooks/useDeltaConnection';
 import { NotificationPanel } from '../notifications/NotificationPanel';
 import { KillSwitchModal } from '../dev/KillSwitchModal';
 import { ExecutionMode } from '@algoapp/shared';
-import { productionApi } from '../../services/api';
 
 export const Header: React.FC = () => {
   const {
@@ -186,7 +185,7 @@ export const Header: React.FC = () => {
             </button>
           )}
 
-          {/* DELTA TOGGLE — Unified State */}
+          {/* DELTA TOGGLE â€” Unified State */}
 <button
               aria-label="Toggle Delta Exchange connection"
               onClick={toggleConnection}
@@ -253,15 +252,8 @@ export const Header: React.FC = () => {
               <button
                 onClick={() => {
                   if (liveConfirmationPhrase === 'CONFIRM_LIVE_TRADING') {
-                    productionApi.setMode(ExecutionMode.LIVE, "CONFIRM_LIVE_TRADING")
-                      .then(({ data }) => {
-                        setExecutionMode(data.activeExecutionMode);
-                        setShowLiveConfirmation(false);
-                      })
-                      .catch((err) => {
-                        console.error('[Header] Failed to set LIVE mode:', err);
-                        setShowLiveConfirmation(false);
-                      });
+                    setExecutionMode('LIVE');
+                    setShowLiveConfirmation(false);
                   } else {
                     setShowLiveConfirmation(false);
                   }

@@ -340,8 +340,8 @@ export const DashboardPage: React.FC = () => {
                   positions.map((pos, idx) => (
                     <tr key={idx} className="border-b border-slate-800/50 hover:bg-slate-950 text-white">
                       <td className="py-2.5 px-3 font-bold">{pos.symbol}</td>
-                      <td className="py-2.5 px-3">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pos.side === 'buy' ? 'text-emerald-400 bg-emerald-500/10' : 'text-rose-400 bg-rose-500/10'}`}>
+<td className="py-2.5 px-3">
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pos.side === 'buy' ? 'bg-[#00C896]/20 text-[#00C896] border border-[#00C896]/30' : 'bg-[#F6465D]/20 text-[#F6465D] border border-[#F6465D]/30'}`}>
                           {pos.side.toUpperCase()}
                         </span>
                       </td>

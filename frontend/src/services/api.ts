@@ -506,7 +506,7 @@ export const productionApi = {
     const res = await apiClient.get('/production/overview');
     return res.data;
   },
-  setMode: async (mode: ExecutionMode, userConfirmed: boolean = false): Promise<ApiResponse<{ activeExecutionMode: ExecutionMode }>> => {
+  setMode: async (mode: ExecutionMode, userConfirmed: string = ''): Promise<ApiResponse<{ activeExecutionMode: ExecutionMode }>> => {
     const res = await apiClient.post('/production/mode', { mode, userConfirmed });
     return res.data;
   },

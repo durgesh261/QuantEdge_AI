@@ -8,6 +8,7 @@ import {
 import { IExecutionAdapter, AdapterValidationResult } from './executionAdapter.interface.js';
 import { DeltaRestClient, DeltaPlaceOrderRequest, DeltaOrder } from '../../delta-exchange/services/DeltaRestClient.js';
 import { ExecutionEngineService } from '../../execution-engine/services/ExecutionEngineService.js';
+import { LiveTradingGuard } from '../../production/services/liveTradingGuard.js';
 
 export class DeltaAdapter implements IExecutionAdapter {
   public readonly name = 'DELTA_ADAPTER';
@@ -58,19 +59,37 @@ export class DeltaAdapter implements IExecutionAdapter {
 
   public async submit(request: ExecutionRequestDto): Promise<ExecutionResultDto> {
     const startTime = Date.now();
+// ── F-3: Product Metadata Validation (must pass before LIVE safety) ────────────
     const product = this.restClient.getProduct(request.symbol);
     if (!product) {
       return this.errorResult(request, `Product not found: ${request.symbol}`, startTime);
     }
 
+    // Validate contract quantity step and minimum compliance against product metadata
+    const qtyCheck = ExecutionEngineService.normalizeContractQuantity(request.symbol, request.quantity, product);
+    if (!qtyCheck.isValid) {
+      return this.errorResult(request, qtyCheck.reason || 'Invalid order quantity', startTime);
+    }
+    const normalizedQuantity = qtyCheck.normalizedQuantity;
+    // ────────────────────────────────────────────────────────────────────────
+
+    // ── F-3: Mandatory LIVE Safety Guard ───────────────────────────────────────────
+    const liveSafety = await LiveTradingGuard.evaluateSafety(ExecutionMode.LIVE);
+    if (!liveSafety.isAllowed) {
+      return this.errorResult(
+        request,
+        `LIVE_SAFETY_REJECTED: ${liveSafety.rejectionReasons.join('; ')}`,
+        startTime
+      );
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Convert LONG/SHORT to Delta's buy/sell
     const deltaSide = request.side === 'LONG' ? 'buy' : 'sell';
 
-    const qtyCheck = ExecutionEngineService.normalizeContractQuantity(request.symbol, request.quantity);
-    if (!qtyCheck.isValid) {
-      return this.errorResult(request, qtyCheck.reason || 'Invalid contract quantity or metadata', startTime);
+    if (!product) {
+      return this.errorResult(request, `Product not found: ${request.symbol}`, startTime);
     }
-    const normalizedQuantity = qtyCheck.normalizedQuantity;
 
     const deltaOrder: DeltaPlaceOrderRequest = {
       product_id: product.id,
@@ -182,6 +201,7 @@ export class DeltaAdapter implements IExecutionAdapter {
   public async closePosition(symbol: string, exitPrice: number): Promise<ExecutionResultDto> {
     const startTime = Date.now();
     try {
+      // ── F-3 Position integrity checks ───────────────────────────────────────────
       const positions = await this.restClient.getPositions();
       const position = positions.find((p) => p.product_symbol === symbol && p.size !== 0);
       if (!position) {
@@ -193,17 +213,18 @@ export class DeltaAdapter implements IExecutionAdapter {
         return this.errorResult({ symbol } as ExecutionRequestDto, 'Product not found', startTime);
       }
 
-      // Place opposite order to close
-      // Delta position side is 'buy' for LONG, 'sell' for SHORT
+      // Enforce exact reverse side — never open or increase
       const closeSide = position.side === 'buy' ? 'sell' : 'buy';
+      // Clamp to actual open size — never exceed
+      const closeSize = Math.abs(position.size);
 
       const closeOrder: DeltaPlaceOrderRequest = {
-        product_id: product.id,
+        product_id: product.id,        // authoritative product ID
         product_symbol: symbol,
-        side: closeSide,
+        side: closeSide,               // forced exact reverse
         order_type: 'market',
-        size: Math.abs(position.size),
-        reduce_only: true,
+        size: closeSize,               // clamped to actual
+        reduce_only: true,             // enforce: never increase exposure
         client_order_id: `CLOSE-${Date.now()}`,
       };
 

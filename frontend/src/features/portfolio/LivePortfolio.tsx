@@ -10,6 +10,7 @@ import { useTerminalStore } from '../../store/useTerminalStore';
 import { usePortfolioSummary } from '../../hooks/usePortfolioSummary';
 
 export const LivePortfolio: React.FC = () => {
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const { isConnected } = useDeltaStore();
   const connectionError: string | null = null;
   const { activeSymbol } = useTerminalStore();
@@ -52,7 +53,7 @@ export const LivePortfolio: React.FC = () => {
   const isOffline = !isConnected;
 
   return (
-    <div className="w-full h-full bg-[#0B0E14] text-[#F8FAFC] overflow-y-auto">
+    <div className="w-full h-full bg-[#0B0E14] text-[#F8FAFC] overflow-y-auto" style={{ transitionDuration: prefersReducedMotion ? '0ms' : '0.25s' }}>
       {/* Header */}
       <div className="px-6 py-4 border-b border-[#1E293B] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>

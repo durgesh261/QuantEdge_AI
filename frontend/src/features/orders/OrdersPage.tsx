@@ -246,9 +246,7 @@ export const OrdersPage: React.FC = () => {
                       <td className="py-3 px-3 font-bold">{ord.symbol}</td>
                       <td className="py-3 px-3 uppercase text-slate-300">{ord.orderType}</td>
                       <td className="py-3 px-3">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          ord.side === 'buy' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30' : 'text-rose-400 bg-rose-500/10 border border-rose-500/30'
-                        }`}>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${ord.side === 'buy' ? 'bg-[#00C896]/20 text-[#00C896] border border-[#00C896]/30' : 'bg-[#F6465D]/20 text-[#F6465D] border border-[#F6465D]/30'}`}>
                           {ord.side.toUpperCase()}
                         </span>
                       </td>

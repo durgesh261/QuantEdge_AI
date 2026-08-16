@@ -91,17 +91,51 @@ tradeAccountingTrigger.initialize();
 
 NewsService.start();
 EconomicCalendarService.start();
+let shutdownInProgress = false;
+
 function handleShutdown(signal: string): void {
+  // Idempotent guard — only run once per shutdown sequence
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+
   logger.info(`Received ${signal}. Initiating graceful shutdown...`);
+
+  // 1. Explicit Prisma disconnect — ensures DB connections are released
+  //    before the process exits. Wrapped in try/catch so a failure
+  //    never blocks shutdown or enables LIVE.
+  //    Sanitized logging only — no credentials leaked.
+  try {
+    prisma.$disconnect();
+  } catch (err) {
+    logger.error(`[Shutdown] Prisma disconnect warning (non-fatal): ${err instanceof Error ? err.message : err}`);
+  }
+
+  // 2. WebSocket graceful shutdown
   wsServer.shutdown();
+
+  // 3. Delta sync service stop
   deltaSyncService.stop();
+
+  // 4. Shadow trigger stop
   ShadowTriggerService.stop();
+
+  // 5. Position monitor stop
   PositionMonitorService.stop();
+
+  // 6. HTTP server close — waits for in-flight requests to complete
   server.close(() => {
     logger.info('HTTP server closed successfully.');
+    // 7. Release Prisma client after HTTP server is fully closed
+    //    (best-effort; if already released by #1, this is a no-op)
+    try {
+      prisma.$disconnect().catch(() => {});
+    } catch {
+      // best-effort only
+    }
     process.exit(0);
   });
 
+  // 8. Force timeout if shutdown takes too long
   setTimeout(() => {
     logger.error('Forcefully shutting down server due to timeout.');
     process.exit(1);
@@ -110,3 +144,17 @@ function handleShutdown(signal: string): void {
 
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('SIGINT', () => handleShutdown('SIGINT'));
+
+// Unhandled promise rejection — log and gracefully shut down
+process.on('unhandledRejection', (reason) => {
+  logger.error({ reason: reason instanceof Error ? reason.message : reason }, 'Unhandled promise rejection');
+  // Attempt graceful shutdown to avoid state corruption
+  handleShutdown('UNHANDLED_REJECTION');
+});
+
+// Uncaught exception — log and gracefully shut down
+process.on('uncaughtException', (err) => {
+  logger.error({ err: err instanceof Error ? err.message : err }, 'Uncaught exception');
+  // Attempt graceful shutdown to avoid state corruption
+  handleShutdown('UNCAUGHT_EXCEPTION');
+});
