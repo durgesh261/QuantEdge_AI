@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import authMiddleware from './middleware/authenticate.js';
+import authMiddleware from '../middleware/authenticate';
 import manualExecutionRoutes from './execution.routes.js';
 import { systemRouter } from '../modules/system/system.routes.js';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes.js';
@@ -22,7 +22,7 @@ import { tradingViewRouter } from '../modules/tradingview-adapter/tradingview.ro
 import { systemIntegrationRouter } from '../modules/system-integration/systemIntegration.routes.js';
 import { productionRouter } from '../modules/production/production.routes.js';
 import { indicatorRouter } from '../modules/indicator-engine/indicator.routes.js';
-import { indicatorValidationRouter } from '../modules/indicator-validation/indicator-validation.routes.js';
+import { indicatorValidationRouter } from '../modules/indicator-validation/indicatorValidation.routes';
 import { strategyProfileRouter } from '../modules/strategy-profile/strategyProfile.routes.js';
 import { tradeAccountingRouter } from '../modules/trade-accounting/tradeAccounting.routes.js';
 import { realtimeOperationsRouter } from '../modules/realtime-operations/realtimeOperations.routes.js';

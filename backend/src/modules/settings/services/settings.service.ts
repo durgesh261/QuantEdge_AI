@@ -10,6 +10,7 @@ export interface SystemSettingsDto {
   maxStaleSignalSeconds: number;
   isKillSwitchActive: boolean;
   hasDeltaApiSecret: boolean;
+  deltaApiKey?: string;
   deltaEnvironment: 'PRODUCTION';
   deltaHealth: ReturnType<typeof deltaSyncService.getHealth>;
   updatedAt: string;

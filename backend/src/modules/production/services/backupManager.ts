@@ -10,7 +10,7 @@ export interface BackupStatusDto {
   replayBackupAt: string;
   configBackupAt: string;
   totalBackupSizeMb: number;
-  status: 'SUCCESS' | 'FAILED';
+  status: 'SUCCESS' | 'FAILED' | 'NO_BACKUPS';
   backupFile?: string;
 }
 

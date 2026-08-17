@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
-import { authMiddleware } from '../../middleware/authenticate.js';
-import { verifySessionJwt, generateSessionJwt } from '../../middleware/authenticate.js';
+import { generateSessionJwt } from '../../middleware/authenticate';
 
 export const loginHandler = async (req: Request, res: Response): Promise<void> => {
   const { token: providedToken } = req.body;

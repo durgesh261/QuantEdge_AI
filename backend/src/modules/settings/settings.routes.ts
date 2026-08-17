@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import authMiddleware from '../../middleware/authenticate.js';
+import authMiddleware from '../../middleware/authenticate';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { SettingsController } from './settings.controller.js';
 import { ApiResponse, getIsoUtcTimestamp } from '@algoapp/shared';
