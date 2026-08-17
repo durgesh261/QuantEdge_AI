@@ -900,7 +900,7 @@ let sessionToken: string | null = null;
 // Try to read session token from document cookie on initial load
 if (typeof document !== 'undefined') {
   const cookieMatch = document.cookie.match(/session=([^;]+)/);
-  if (cookieMatch) {
+  if (cookieMatch && cookieMatch[1]) {
     sessionToken = cookieMatch[1];
   }
 }
@@ -911,13 +911,6 @@ export { sessionToken };
 // axios client with base configuration
 // The axios interceptor below ensures the Bearer token is always attached
 // by reading the httpOnly session cookie from the browser on each request.
-
-export const apiClient = axios.create({
-  baseURL: (import.meta as any).env?.VITE_API_URL || '/api/v1',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
 
 // Attach session token to every authenticated request.
 // The token is read from document.cookie (httpOnly cookie set by backend on login).
@@ -931,7 +924,7 @@ apiClient.interceptors.request.use((config) => {
     if (typeof document !== 'undefined') {
       const cookieMatch = document.cookie.match(/session=([^;]+)/);
       if (cookieMatch && cookieMatch[1] !== sessionToken) {
-        sessionToken = cookieMatch[1];
+        sessionToken = cookieMatch[1] || null;
         // Update the Authorization header for this request
         config.headers.Authorization = `Bearer ${cookieMatch[1]}`;
       }
@@ -981,7 +974,7 @@ export const isAuthenticated = (): boolean => {
 export const getToken = (): string | null => {
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/session=([^;]+)/);
-  return match ? match[1] : null;
+  return match && match[1] ? match[1] : null;
 };
 
 /**
@@ -1000,11 +993,15 @@ export const login = async (authToken: string): Promise<{ success: boolean; erro
       // Backend sets httpOnly cookie; ensure local cookie reflection is up to date
       const setCookie = res.headers['set-cookie'];
       if (setCookie) {
-        document.cookie = setCookie.split(';')[0]; // Keep only the cookie name=value part
+        // Extract cookie name=value part (e.g., "session=abc123") from "session=abc123; HttpOnly; Secure..."
+        const match = setCookie?.toString().match(/^([^;]+)/);
+        if (match && match[1]) {
+          document.cookie = match[1];
+        }
       }
       return { success: true };
     }
-    return { success: false, error: res.data?.error || 'Login failed' };
+    return { success: false, error: res.data?.error || 'Login request failed' };
   } catch (err: any) {
     return { success: false, error: err.message || 'Login request failed' };
   }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { auth, isAuthenticated, login, logout } from '../../services/api';
+import { isAuthenticated, login, logout } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
 const LoginPage = () => {

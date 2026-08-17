@@ -12,7 +12,7 @@ import { AnalyticsPage } from './features/analytics/AnalyticsPage';
 import { StrategyProfilesPage } from './features/strategy-profiles/StrategyProfilesPage';
 import { SettingsPage } from './features/settings/SettingsPage';
 import { LiveNewsCenterPage } from './features/news/LiveNewsCenterPage';
-import { LoginPage } from './features/auth/LoginPage';
+import LoginPage from './features/auth/LoginPage';
 
 // Developer Mode Views
 import { PaperTradingPage } from './features/paper-trading/PaperTradingPage';
