@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -7,18 +5,16 @@ services:
       dockerfile: Dockerfile.backend
     container_name: quantedge-backend
     restart: unless-stopped
-    ports:
-      - "4000:4000"
     environment:
       NODE_ENV: production
       PORT: 4000
       DATABASE_URL: file:/data/quantedge.db
-      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET:-}
-      DELTA_API_KEY: ${DELTA_API_KEY:-""}
-      DELTA_API_SECRET: ${DELTA_API_SECRET:-""}
-      AUTH_TOKEN: ${AUTH_TOKEN:-}
-      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET:-algoapp_session_dev_change_me}
-      SESSION_JWT_EXPIRES_IN: ${SESSION_JWT_EXPIRES_IN:-24h}
+      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET}
+      DELTA_API_KEY: ${DELTA_API_KEY}
+      DELTA_API_SECRET: ${DELTA_API_SECRET}
+      AUTH_TOKEN: ${AUTH_TOKEN}
+      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET}
+      SESSION_JWT_EXPIRES_IN: ${SESSION_JWT_EXPIRES_IN}
     volumes:
       - sqlite_data:/data
     healthcheck:
@@ -40,21 +36,11 @@ services:
       backend:
         condition: service_healthy
     environment:
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost}
+      - CORS_ORIGIN=${CORS_ORIGIN}
       - VITE_API_URL=/api/v1
-
-  nginx:
-    image: nginx:alpine
-    container_name: quantedge-nginx
-    restart: unless-stopped
-    ports:
-      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - sqlite_data:/data:ro
-    depends_on:
-      backend:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
