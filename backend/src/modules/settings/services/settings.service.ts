@@ -10,7 +10,6 @@ export interface SystemSettingsDto {
   maxStaleSignalSeconds: number;
   isKillSwitchActive: boolean;
   hasDeltaApiSecret: boolean;
-  deltaApiKey?: string;
   deltaEnvironment: 'PRODUCTION';
   deltaHealth: ReturnType<typeof deltaSyncService.getHealth>;
   updatedAt: string;
@@ -103,7 +102,6 @@ export class SettingsService {
       timezone: updated.timezone,
       maxStaleSignalSeconds: updated.maxStaleSignalSeconds,
       isKillSwitchActive: updated.isKillSwitchActive,
-      deltaApiKey: trimmedKey,
       hasDeltaApiSecret: Boolean(trimmedSecret),
       deltaEnvironment: 'PRODUCTION',
       deltaHealth: deltaSyncService.getHealth(),

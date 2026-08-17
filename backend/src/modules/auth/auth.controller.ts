@@ -10,7 +10,7 @@ export const loginHandler = async (req: Request, res: Response): Promise<void> =
       success: false,
       error: 'UNAUTHORIZED: Invalid credentials. The provided token does not match the backend AUTH_TOKEN.',
       meta: {
-        requestId: (req as any).correlationId || 'req-login',
+        requestId: req.correlationId || 'req-login',
         timestamp: new Date().toISOString(),
       },
     });
@@ -37,7 +37,7 @@ export const loginHandler = async (req: Request, res: Response): Promise<void> =
       message: 'Login successful. Session cookie set.',
     },
     meta: {
-      requestId: (req as any).correlationId || 'req-login',
+      requestId: req.correlationId || 'req-login',
       timestamp: new Date().toISOString(),
     },
   });
@@ -54,7 +54,7 @@ export const logoutHandler = async (req: Request, res: Response): Promise<void> 
     success: true,
     data: { message: 'Logged out successfully.' },
     meta: {
-      requestId: (req as any).correlationId || 'req-logout',
+      requestId: req.correlationId || 'req-logout',
       timestamp: new Date().toISOString(),
     },
   });
@@ -66,7 +66,7 @@ export const getMeHandler = async (req: Request, res: Response): Promise<void> =
       success: false,
       error: 'UNAUTHORIZED: No active session.',
       meta: {
-        requestId: (req as any).correlationId || 'req-me',
+        requestId: req.correlationId || 'req-me',
         timestamp: new Date().toISOString(),
       },
     });
@@ -80,7 +80,7 @@ export const getMeHandler = async (req: Request, res: Response): Promise<void> =
       authenticated: true,
     },
     meta: {
-      requestId: (req as any).correlationId || 'req-me',
+      requestId: req.correlationId || 'req-me',
       timestamp: new Date().toISOString(),
     },
   });
