@@ -1,53 +1,113 @@
+# Development docker-compose with all services
+version: '3.8'
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: quantifiedge-postgres
+    environment:
+      POSTGRES_DB: quantifiedge
+      POSTGRES_USER: quantifiedge
+      POSTGRES_PASSWORD: quantifiedge_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/main/resources/db/migration:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantifiedge -d quantifiedge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: quantifiedge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
       dockerfile: docker/Dockerfile.backend
-    container_name: quantedge-backend
-    restart: unless-stopped
+    container_name: quantifiedge-backend
     environment:
-      NODE_ENV: production
-      PORT: 4000
-      DATABASE_URL: file:/data/quantedge.db
-      TRADINGVIEW_WEBHOOK_SECRET: ${TRADINGVIEW_WEBHOOK_SECRET}
-      DELTA_API_KEY: ${DELTA_API_KEY}
-      DELTA_API_SECRET: ${DELTA_API_SECRET}
-      DELTA_ENVIRONMENT: ${DELTA_ENVIRONMENT}
-      AUTH_TOKEN: ${AUTH_TOKEN}
-      SESSION_JWT_SECRET: ${SESSION_JWT_SECRET}
-      SESSION_JWT_EXPIRES_IN: ${SESSION_JWT_EXPIRES_IN}
-      CORS_ORIGIN: ${CORS_ORIGIN}
-      ALLOW_LIVE_TRADING: ${ALLOW_LIVE_TRADING}
-    volumes:
-      - sqlite_data:/data
+      SPRING_PROFILES_ACTIVE: dev
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/quantedge
+      SPRING_DATASOURCE_USERNAME: quantifiedge
+      SPRING_DATASOURCE_PASSWORD: quantifiedge_dev
+      QUANTEDGE_JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production-min-256-bits}
+      QUANTEDGE_CORS_ALLOWED_ORIGINS: http://localhost:3000
+      QUANTEDGE_DELTA_API_URL: https://api.delta.exchange
+      QUANTEDGE_DELTA_TESTNET_API_URL: https://api-testnet.delta.exchange
+      QUANTEDGE_PYTHON_ENGINE_URL: http://engine:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/v1/system/liveness"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/actuator/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+
+  engine:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.engine
+    container_name: quantifiedge-engine
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+      DATABASE_URL: postgresql://quantedge:quantedge_dev@postgres:5432/quantedge
+      DELTA_API_KEY: ${DELTA_API_KEY:-}
+      DELTA_API_SECRET: ${DELTA_API_SECRET:-}
+      DELTA_TESTNET_API_KEY: ${DELTA_TESTNET_API_KEY:-}
+      DELTA_TESTNET_API_SECRET: ${DELTA_TESTNET_API_SECRET:-}
+      DELTA_BASE_URL: https://api.delta.exchange
+      DELTA_TESTNET_BASE_URL: https://api-testnet.delta.exchange
+      BACKEND_BASE_URL: http://backend:8080
+      BACKEND_API_KEY: ${BACKEND_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   frontend:
     build:
       context: .
       dockerfile: docker/Dockerfile.frontend
-    container_name: quantedge-frontend
-    restart: unless-stopped
+    container_name: quantifiedge-frontend
     ports:
-      - "80:80"
+      - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      - CORS_ORIGIN=${CORS_ORIGIN}
-      - VITE_API_URL=/api/v1
+      - backend
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
 
 volumes:
-  sqlite_data:
-    driver: local
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: quantifiedge-network

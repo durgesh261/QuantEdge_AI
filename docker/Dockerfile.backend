@@ -1,23 +1,41 @@
-FROM node:20-alpine AS builder
+# Backend Dockerfile - Multi-stage build
+FROM maven:3.9-eclipse-temurin-21 AS builder
+
 WORKDIR /app
-COPY package.json tsconfig.base.json ./
-COPY shared ./shared
-COPY backend ./backend
 
-RUN npm install
-ENV DATABASE_URL="file:./dev.db"
-RUN npm run build --workspace=shared
-RUN npm run build --workspace=backend
+# Copy pom.xml first for dependency caching
+COPY backend/pom.xml .
+COPY backend/src/main/resources/db/migration ./src/main/resources/db/migration
 
-FROM node:20-alpine AS runner
+# Download dependencies
+RUN mvn dependency:go-offline -B
+
+# Copy source
+COPY backend/src ./src
+
+# Build
+RUN mvn clean package -DskipTests -B
+
+# Runtime stage
+FROM eclipse-temurin:21-jre-alpine
+
 WORKDIR /app
-RUN apk add --no-cache openssl
-ENV NODE_ENV=production
-COPY package.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/shared ./shared
-COPY --from=builder /app/backend/dist ./backend/dist
-COPY --from=builder /app/backend/prisma ./backend/prisma
 
-EXPOSE 4000
-CMD ["node", "backend/dist/server.js"]
+# Create non-root user
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S appuser -G appgroup
+
+# Copy built jar
+COPY --from=builder /app/target/quantedge-backend-*.jar app.jar
+
+# Change ownership
+RUN chown appuser:appgroup app.jar
+
+USER appuser
+
+EXPOSE 8080
+
+# JVM options for containers
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=75.0 -XX:+UseContainerSupport -Djava.security.egd=file:/dev/./urandom"
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

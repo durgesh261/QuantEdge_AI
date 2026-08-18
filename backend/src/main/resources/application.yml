@@ -1,0 +1,101 @@
+spring:
+  application:
+    name: quantifiedge-backend
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/quantedge
+    username: quantifiedge
+    password: quantifiedge_dev
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          lob:
+            non_contextual_creation: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+    baseline-description: Initial schema
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+    session:
+      timeout: 30m
+  error:
+    include-message: always
+    include-binding-errors: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.quantedge: DEBUG
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+quantedge:
+  jwt:
+    secret: ${JWT_SECRET:dev-secret-key-change-in-production-min-256-bits}
+    expiration: 86400000 # 24 hours
+    refresh-expiration: 604800000 # 7 days
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  delta:
+    api-base-url: ${DELTA_API_URL:https://api.delta.exchange}
+    testnet-api-base-url: ${DELTA_TESTNET_API_URL:https://api-testnet.delta.exchange}
+  python-engine:
+    base-url: ${PYTHON_ENGINE_URL:http://localhost:8000}
+    api-key: ${PYTHON_ENGINE_API_KEY:}
+
+---
+# Test profile
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:postgresql://localhost:5433/quantedge_test
+    username: quantifiedge
+    password: quantifiedge_test
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+
+quantedge:
+  jwt:
+    secret: test-secret-key-for-testing-purposes-only-256-bits-minimum
+  cors:
+    allowed-origins: http://localhost:3000

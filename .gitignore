@@ -1,42 +1,85 @@
 # Dependencies
 node_modules/
-.pnpm-store/
+.pnp
+.pnp.js
 
-# Production builds
+# Build outputs
 dist/
 build/
 *.tsbuildinfo
 
-# Environment variables & secrets
+# Environment files
 .env
 .env.local
-.env.production
-.env.development
-
-# Test output artifacts
-test-output.txt
+.env.development.local
+.env.test.local
+.env.production.local
 
 # Logs
-logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# Database & SQLite
-*.db
-*.sqlite
-*.sqlite3
-backend/prisma/*.db
-backend/prisma/*.journal
-
-# IDE & Editor
-.vscode/
+# IDE
 .idea/
+.vscode/
 *.swp
 *.swo
+*~
 
-# OS Metadata
+# OS
 .DS_Store
 Thumbs.db
-node_modules
+
+# Testing
+coverage/
+.nyc_output/
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.uv/
+.uv-cache/
+
+# Java/Maven
+target/
+.mvn/
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+replay_pid*
+
+# Docker
+.docker/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Legacy (preserved in git tag quantedge-v1-legacy)
+legacy/
+
+# Secrets
+*.pem
+*.key
+*.crt
+secrets/
