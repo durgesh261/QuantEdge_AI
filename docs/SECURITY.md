@@ -55,7 +55,7 @@ tradingAccountRepository.findByIdAndUserId(accountId, currentUserId)
 ## Data Protection
 
 ### Encryption at Rest
-- **Delta API secrets**: AES-256-GCM
+- **Delta API secrets**: AES-256-GCM (Spring Boot only)
 - **Database**: Transparent encryption (Cloud SQL)
 - **Backups**: Encrypted
 
@@ -102,12 +102,22 @@ Permissions-Policy: geolocation=(), microphone=()
 ## Multi-User Isolation
 
 ### Database Level
-- Row-Level Security (RLS) policies
-- `current_setting('app.current_user_id')` for context
-- All queries scoped to user_id
+**Row-Level Security (RLS) NOT YET IMPLEMENTED** - planned for hardening phase.
+
+Current isolation enforced at application layer:
+- All repository queries include user_id/trading_account_id filters
+- Service layer validates ownership before any operation
+- No cross-user data access possible through API
+
+Future RLS implementation:
+```sql
+ALTER TABLE trading_accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_isolation ON trading_accounts
+  USING (user_id = current_setting('app.current_user_id')::UUID);
+```
 
 ### Application Level
-- Every repository query includes user_id
+- Every repository query includes user_id/trading_account_id
 - Service layer validates ownership
 - No cross-user data access possible
 
@@ -135,6 +145,13 @@ encrypted_api_secret TEXT NOT NULL -- AES-256-GCM
 2. Decrypt only when submitting order to Delta
 3. Never logged, never returned to frontend
 4. Frontend sees only: `{ connected: true, environment: "LIVE" }`
+
+### Python Engine Access
+**Python Engine NEVER receives Delta credentials.**
+- Delta credentials stored exclusively in Spring Boot (encrypted)
+- Python Engine receives market data only via public/authorized endpoints
+- Python Engine communicates with Spring Boot via internal API (BACKEND_API_KEY)
+- Spring Boot is the ONLY component with Delta API access
 
 ## Audit Logging
 

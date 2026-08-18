@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional
-from quantedge.smc.models import OrderBlock, MarketStructureState, TrendDirection
+from quantedge.smc.models import OrderBlock, MarketStructureState, TrendDirection, OBState
 
 
 class TradeDirection(str, Enum):
@@ -20,7 +20,7 @@ class TradeDirection(str, Enum):
 class StrategySignal(str, Enum):
     VALID = "VALID"
     INVALID_OB = "INVALID_OB"
-    NOT_FIRST_TOUCH = "NOT_FIRST_TOUCH"
+    NOT_ELIGIBLE = "NOT_ELIGIBLE"  # OB not in FRESH/TOUCHED state
     OB_USED = "OB_USED"
     RANGING_MARKET = "RANGING_MARKET"
     OPPOSING_ZONE = "OPPOSING_ZONE"
@@ -33,8 +33,7 @@ class StrategySignal(str, Enum):
 class ConfidenceFactors:
     """Nine-factor confidence scoring (total = 100)."""
     trend_alignment: int = 0      # 15 max
-    ob_freshness: int = 0         # 15 max
-    first_touch: int = 0          # 15 max
+    ob_state: int = 0             # 15 max (FRESH=15, TOUCHED=10, USED/INVALIDATED=0)
     bos_choch: int = 0            # 15 max
     liquidity_sweep: int = 0      # 10 max
     premium_discount: int = 0     # 10 max
@@ -45,8 +44,8 @@ class ConfidenceFactors:
     @property
     def total(self) -> int:
         return (
-            self.trend_alignment + self.ob_freshness + self.first_touch +
-            self.bos_choch + self.liquidity_sweep + self.premium_discount +
+            self.trend_alignment + self.ob_state + self.bos_choch +
+            self.liquidity_sweep + self.premium_discount +
             self.session_volatility + self.risk_reward + self.news_macro_safety
         )
 

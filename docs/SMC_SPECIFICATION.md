@@ -47,14 +47,30 @@ If NORMAL:
 
 **NEVER merge** internal and swing into one structure series.
 
+### LuxAlgo Stateful Structure Detection
+
+The reference implementation uses a **stateful leg-based model**:
+
+1. **Pivot Formation**: Track unconfirmed highs/lows during formation
+2. **Pivot Confirmation**: Require `length` bars on each side (left/right)
+3. **Leg Formation**: Confirmed opposite pivots form legs (High→Low = down leg, Low→High = up leg)
+3. **Trend State**: Current trend derived from last confirmed leg
+4. **Structure Break**: BOS/CHOCH detected when price breaks last confirmed pivot
+
+Key distinction from naive implementations:
+- Pivot formation time ≠ confirmation time ≠ break time
+- Must wait for right-bars confirmation before pivot is "real"
+- Legs are only formed from confirmed pivots
+- Structure breaks only checked against confirmed pivots
+
 ### Pivot Detection
 
-Pivot High at index i:
+Pivot High at index i (after confirmation):
 ```
 parsedHigh[i] > parsedHigh[i-left...i-1] AND parsedHigh[i] > parsedHigh[i+1...i+right]
 ```
 
-Pivot Low at index i:
+Pivot Low at index i (after confirmation):
 ```
 parsedLow[i] < parsedLow[i-left...i-1] AND parsedLow[i] < parsedLow[i+1...i+right]
 ```
@@ -65,7 +81,7 @@ parsedLow[i] < parsedLow[i-left...i-1] AND parsedLow[i] < parsedLow[i+1...i+righ
 - **Bearish**: Lower highs & lower lows (pivot sequence: High → Low → High → Low...)
 - **Ranging**: Conflicting or unclear structure
 
-## BOS / CHOCH Logic
+### BOS / CHOCH Logic
 
 ### Definitions
 
@@ -82,7 +98,7 @@ parsedLow[i] < parsedLow[i-left...i-1] AND parsedLow[i] < parsedLow[i+1...i+righ
 | Bullish | Up (breaks pivot high) | BOS |
 | Ranging | Either | BOS (no prior trend) |
 
-**Implementation**: `quantedge.smc.structure.StructureDetector.detect_breaks()`
+**Implementation**: `quantedge.smc.structure.StructureDetector` (stateful streaming)
 
 ## Order Block Detection (CRITICAL)
 
@@ -92,14 +108,25 @@ parsedLow[i] < parsedLow[i-left...i-1] AND parsedLow[i] < parsedLow[i+1...i+righ
 
 **Correct LuxAlgo Process**:
 
-1. Detect structure (internal/swing pivots)
+1. Detect structure (internal/swing pivots) with confirmation
 2. Detect structural break (BOS/CHOCH)
 3. Determine bias from break direction
-4. Search parsed range from broken pivot to break candle
+4. Search parsed range using LuxAlgo slice semantics:
+   - `parsedLows.slice(pivot_index, break_index)` for bullish
+   - `parsedHighs.slice(pivot_index, break_index)` for bearish
 5. Select extreme candle:
    - **Bullish break** → Minimum **parsedLow** in range
    - **Bearish break** → Maximum **parsedHigh** in range
 6. Create OB from that extreme candle's full range (high to low)
+
+### LuxAlgo Slice Semantics (CRITICAL)
+
+Pine Script `array.slice(from, to)` behavior:
+- `from` (inclusive) = pivot index that was broken
+- `to` (exclusive) = break candle index
+- Range includes pivot candle, excludes break candle
+
+**Python equivalent**: `range(pivot_index, break_index)` or `slice[pivot_index:break_index]`
 
 ### OB Properties
 
@@ -110,15 +137,28 @@ parsedLow[i] < parsedLow[i-left...i-1] AND parsedLow[i] < parsedLow[i+1...i+righ
 | Bottom | Candle Low | Candle Low |
 | Formation | Extreme low candle | Extreme high candle |
 
-### OB Lifecycle States
+### OB Lifecycle (Explicit State Machine)
 
-| State | Description | Action |
-|-------|-------------|--------|
-| Fresh (touchCount=0) | Never touched | Eligible for entry |
-| Touched (touchCount=1) | First return | Eligible (first touch) |
-| Retouched (touchCount≥2) | Second+ return | REJECTED |
-| Used (isUsed=true) | Trade executed | REJECTED |
-| Invalidated | Price closed through | REJECTED |
+| State | Description | Eligible for Entry |
+|-------|-------------|-------------------|
+| **FRESH** | Never touched (touch_count=0) | YES - highest confidence |
+| **TOUCHED** | First return/touch (touch_count=1) | YES - ONE entry chance |
+| **USED** | Trade executed from this OB | NO |
+| **INVALIDATED** | Price closed through boundary | NO |
+
+**Transitions:**
+```
+FRESH -> TOUCHED -> USED
+  |
+  v
+INVALIDATED
+```
+
+**Rules:**
+- Only FRESH and TOUCHED OBs are eligible for entry
+- TOUCHED OBs get exactly ONE entry chance (first touch)
+- Once USED, no further trades from this OB
+- INVALIDATED OBs are permanently dead
 
 ### Invalidation Rules
 
@@ -141,7 +181,7 @@ If widthPercent > 0.6%:
     Bearish: entry = bottomPrice + 0.25 × (topPrice - bottomPrice)
 ```
 
-**Implementation**: `quantedge.smc.order_blocks.OrderBlockDetector`
+**Implementation**: `quantedge.smc.order_blocks.OrderBlockDetector` (LuxAlgo slice semantics)
 
 ## Equal Highs / Equal Lows
 
@@ -181,8 +221,8 @@ If widthPercent > 0.6%:
 | Component | File |
 |-----------|------|
 | Volatility Parsing | `smc/volatility.py` |
-| Structure Detection | `smc/structure.py` |
-| Order Blocks | `smc/order_blocks.py` |
+| Structure Detection (stateful) | `smc/structure.py` |
+| Order Blocks (LuxAlgo slice) | `smc/order_blocks.py` |
 | Liquidity | `smc/liquidity.py` |
 | Equal Levels | `smc/equal_levels.py` |
 | FVG | `smc/fvg.py` |
@@ -193,8 +233,11 @@ If widthPercent > 0.6%:
 Every component must have deterministic tests with known inputs/outputs:
 
 - Pivot detection at specific indices
-- BOS/CHOCH classification
-- OB creation from known breaks
-- Invalidation logic
-- Entry price calculation
-- Width percentile logic
+- BOS/CHOCH classification with proper timing
+- OB creation from known breaks (LuxAlgo slice semantics)
+- OB range boundaries (inclusive start, exclusive end)
+- OB extreme selection (min low / max high)
+- Invalidation logic (close through boundary)
+- Entry price calculation (width-based)
+- OB lifecycle transitions (FRESH->TOUCHED->USED, INVALIDATED)
+- LuxAlgo slice behavior (inclusive start, exclusive end)

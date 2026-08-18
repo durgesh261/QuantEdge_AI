@@ -2,7 +2,7 @@
 
 ## Overview
 
-PostgreSQL 16+ with Flyway migrations. Multi-tenant schema with row-level security.
+PostgreSQL 16+ with Flyway migrations. Multi-tenant schema with application-level ownership enforcement.
 
 ## Core Tables
 
@@ -142,10 +142,12 @@ type VARCHAR(10) CHECK (BULLISH, BEARISH)
 top_price DECIMAL(20,8) NOT NULL
 bottom_price DECIMAL(20,8) NOT NULL
 formation_candle_time TIMESTAMPTZ NOT NULL
-formation_candle_ohlc JSONB NOT NULL
+formation_candle_open DECIMAL(20,8) NOT NULL
+formation_candle_high DECIMAL(20,8) NOT NULL
+formation_candle_low DECIMAL(20,8) NOT NULL
+formation_candle_close DECIMAL(20,8) NOT NULL
+state VARCHAR(20) CHECK (FRESH, TOUCHED, USED, INVALIDATED) DEFAULT 'FRESH'
 touch_count INT DEFAULT 0
-is_used BOOLEAN DEFAULT false
-is_invalidated BOOLEAN DEFAULT false
 invalidated_at TIMESTAMPTZ
 invalidated_by_price DECIMAL(20,8)
 bos_choch_type VARCHAR(10) CHECK (BOS, CHOCH)
@@ -200,8 +202,16 @@ created_at TIMESTAMPTZ DEFAULT now()
 
 - `update_updated_at_column()` on all tables with updated_at
 
-## Row Level Security (Future)
+## Row Level Security
 
+**NOT YET IMPLEMENTED** - Planned for hardening phase.
+
+Current isolation is enforced at the application layer:
+- All repository queries include user_id/trading_account_id filters
+- Service layer validates ownership before any operation
+- No cross-user data access possible through API
+
+Future RLS implementation:
 ```sql
 ALTER TABLE trading_accounts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY user_isolation ON trading_accounts
@@ -210,7 +220,8 @@ CREATE POLICY user_isolation ON trading_accounts
 
 ## Migration Strategy
 
-- Flyway versioned migrations (V1__, V2__, etc.)
+- Flyway versioned migrations (V1__, V2__, etc.) - ONLY authoritative mechanism
 - Baseline: V1__initial_schema.sql
 - Rollback: Manual SQL scripts
 - Test: Separate test database with test profile
+- **No duplicate initialization via PostgreSQL docker-entrypoint-initdb.d**

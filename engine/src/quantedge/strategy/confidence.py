@@ -1,39 +1,38 @@
 """
-Confidence Scoring Engine - 9 Factor Model.
+Confidence Scoring Engine - 8 Factor Model (consolidated from 9).
 
-Per strategy specification:
-1. Trend Alignment              15
-2. OB Freshness                 15
-3. First Touch                  15
-4. BOS / CHOCH                  15
-5. Liquidity Sweep              10
-6. Premium / Discount           10
-7. Session / Volatility          5
-8. Risk / Reward                10
-9. News / Macro Safety            5
-                                  ---
-                                 100
+Per strategy specification (updated):
+1. Trend Alignment          15
+2. OB State                 15  (FRESH=15, TOUCHED=10, USED/INVALIDATED=0)
+3. BOS / CHOCH              15
+4. Liquidity Sweep          10
+5. Premium / Discount       10
+6. Session / Volatility      5
+7. Risk / Reward            10
+8. News / Macro Safety       5
+                              ---
+                             100
+Threshold: 85
 """
 
 from decimal import Decimal
 from typing import Optional
-from quantedge.smc.models import OrderBlock, MarketStructureState, TrendDirection, BreakType
+from quantedge.smc.models import OrderBlock, MarketStructureState, TrendDirection, OBState, BreakType
 from quantedge.strategy.models import ConfidenceFactors, TradeDirection
 
 
 class ConfidenceScorer:
-    """Calculates confidence score using 9-factor model."""
+    """Calculates confidence score using 8-factor model."""
 
     def __init__(self, config):
         self.config = config
 
     def score(self, ob: OrderBlock, state: MarketStructureState, account_balance: Decimal) -> ConfidenceFactors:
-        """Calculate all 9 confidence factors."""
+        """Calculate all 8 confidence factors."""
 
         factors = ConfidenceFactors(
             trend_alignment=self._score_trend_alignment(ob, state),
-            ob_freshness=self._score_ob_freshness(ob, state),
-            first_touch=self._score_first_touch(ob),
+            ob_state=self._score_ob_state(ob),
             bos_choch=self._score_bos_choch(ob, state),
             liquidity_sweep=self._score_liquidity_sweep(ob, state),
             premium_discount=self._score_premium_discount(ob, state),
@@ -71,33 +70,27 @@ class ConfidenceScorer:
 
         return min(score, 15)
 
-    def _score_ob_freshness(self, ob: OrderBlock, state: MarketStructureState) -> int:
+    def _score_ob_state(self, ob: OrderBlock) -> int:
         """
-        Factor 2: OB Freshness (15 pts)
+        Factor 2: OB State (15 pts)
 
-        Based on touch count and age.
-        Fresh OB (touch_count=0) = 15 pts
-        1 touch = 10 pts
-        2+ touches = 0 pts (rejected by first touch rule)
+        Replaces both old "OB Freshness" and "First Touch" factors.
+        
+        FRESH (never touched) = 15 pts - highest confidence
+        TOUCHED (first return) = 10 pts - one entry chance remaining
+        USED (trade executed) = 0 pts - not eligible
+        INVALIDATED = 0 pts - not eligible
         """
-        if ob.touch_count == 0:
+        if ob.state == OBState.FRESH:
             return 15
-        elif ob.touch_count == 1:
+        elif ob.state == OBState.TOUCHED:
             return 10
         else:
             return 0
 
-    def _score_first_touch(self, ob: OrderBlock) -> int:
-        """
-        Factor 3: First Touch (15 pts)
-
-        Binary: first touch = 15, not first touch = 0
-        """
-        return 15 if ob.touch_count == 0 else 0
-
     def _score_bos_choch(self, ob: OrderBlock, state: MarketStructureState) -> int:
         """
-        Factor 4: BOS / CHOCH (15 pts)
+        Factor 3: BOS / CHOCH (15 pts)
 
         CHOCH = 15 (trend reversal, stronger)
         BOS = 10 (continuation)
@@ -110,13 +103,12 @@ class ConfidenceScorer:
 
     def _score_liquidity_sweep(self, ob: OrderBlock, state: MarketStructureState) -> int:
         """
-        Factor 5: Liquidity Sweep (10 pts)
+        Factor 4: Liquidity Sweep (10 pts)
 
         Aligned sweep (in direction of OB) = 10
         Other sweep = 5
         No sweep = 0 (baseline - doesn't invalidate)
         """
-        # Check if there was a liquidity sweep aligned with OB direction
         ob_bullish = ob.is_bullish()
 
         if ob_bullish:
@@ -136,7 +128,7 @@ class ConfidenceScorer:
 
     def _score_premium_discount(self, ob: OrderBlock, state: MarketStructureState) -> int:
         """
-        Factor 6: Premium / Discount (10 pts)
+        Factor 5: Premium / Discount (10 pts)
 
         OB in discount (lower half of range) for longs = 10
         OB in premium (upper half) for shorts = 10
@@ -148,7 +140,7 @@ class ConfidenceScorer:
 
     def _score_session_volatility(self, state: MarketStructureState) -> int:
         """
-        Factor 7: Session / Volatility (5 pts)
+        Factor 6: Session / Volatility (5 pts)
 
         Favorable session (London/NY overlap) = 5
         Asian session = 3
@@ -159,13 +151,12 @@ class ConfidenceScorer:
 
     def _score_risk_reward(self, ob: OrderBlock, account_balance: Decimal) -> int:
         """
-        Factor 8: Risk / Reward (10 pts)
+        Factor 7: Risk / Reward (10 pts)
 
         Based on achievable R:R from OB to target.
         Target = 60% account growth, Risk = 35% account
         Account-level R:R = 60/35 ≈ 1.71
         """
-        # Calculate theoretical R:R from OB
         entry = ob.calculate_entry_price()
         sl = ob.calculate_stop_loss()
         risk_per_unit = abs(entry - sl)
@@ -174,7 +165,6 @@ class ConfidenceScorer:
             return 0
 
         # Target price movement for 60% account growth at max leverage
-        # This is complex - simplified scoring
         theoretical_rr = Decimal("1.71")
 
         if theoretical_rr >= Decimal("2.0"):
@@ -187,7 +177,7 @@ class ConfidenceScorer:
 
     def _score_news_macro_safety(self) -> int:
         """
-        Factor 9: News / Macro Safety (5 pts)
+        Factor 8: News / Macro Safety (5 pts)
 
         No high-impact news = 5
         Medium impact = 3

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the complete trading strategy for QuantEdge AI V2, implementing the 9-factor confidence model with hard filters.
+This document defines the complete trading strategy for QuantEdge AI V2, implementing the 8-factor confidence model with hard filters and explicit OB lifecycle.
 
 ## Strategy Baseline
 
@@ -14,58 +14,80 @@ This document defines the complete trading strategy for QuantEdge AI V2, impleme
 | Confidence Threshold | 85 / 100 |
 | Max Active Trades | 1 (portfolio-wide) |
 
+## Order Block Lifecycle (Explicit State Machine)
+
+| State | Description | Eligible for Entry |
+|-------|-------------|-------------------|
+| **FRESH** | Never touched (touch_count=0) | YES - highest confidence |
+| **TOUCHED** | First return/touch (touch_count=1) | YES - ONE entry chance |
+| **USED** | Trade executed from this OB | NO |
+| **INVALIDATED** | Price closed through boundary | NO |
+
+**Transitions:**
+```
+FRESH -> TOUCHED -> USED
+  |
+  v
+INVALIDATED
+```
+
+**Rules:**
+- Only FRESH and TOUCHED OBs are eligible for entry
+- TOUCHED OBs get exactly ONE entry chance (first touch)
+- Once USED, no further trades from this OB
+- INVALIDATED OBs are permanently dead
+
 ## Entry Rules (ALL must pass)
 
 ### Hard Filters (Rejection = No Trade)
 
 1. **Valid Order Block**
    - OB exists in MarketStructureState
-   - OB.is_invalidated = false
-   - OB.is_used = false
+   - OB.state != INVALIDATED
+   - OB.state != USED
 
-2. **First Touch Only**
-   - OB.touch_count = 0 (fresh)
-   - touch_count >= 1 -> REJECT
+2. **Eligible State**
+   - OB.state in (FRESH, TOUCHED)
+   - NOT_ELIGIBLE if USED or INVALIDATED
 
-3. **OB Not Previously Used**
-   - OB.is_used = false
-   - Once trade opened from OB -> is_used = true -> no more entries
-
-4. **Market Regime Valid**
+3. **Market Regime Valid**
    - Swing trend != RANGING
    - Internal trend != RANGING
    - Swing trend = Internal trend (no conflict)
    - Conflicting (e.g., Swing=Bullish, Internal=Bearish) -> RANGING -> REJECT
 
-5. **No Opposing Zone**
+4. **No Opposing Zone**
    - No opposing OB within 0.5% of midline
    - Threshold: 0.5% proximity
    - Hard rejection (not confidence penalty)
 
-6. **Confidence >= 85**
-   - 9-factor model total >= 85
+5. **Confidence >= 85**
+   - 8-factor model total >= 85
    - Below 85 -> REJECT
 
-7. **Risk Validation Passes**
+6. **Risk Validation Passes**
    - Spring Boot independent verification
    - Position size > 0
    - Leverage <= 100x
    - Sufficient balance
 
-### Confidence Scoring (9 Factors = 100 Points)
+### Confidence Scoring (8 Factors = 100 Points)
 
 | Factor | Max Points | Description |
 |--------|------------|-------------|
 | 1. Trend Alignment | 15 | Swing + Internal align with OB direction |
-| 2. OB Freshness | 15 | touchCount=0 (15), =1 (10), >=2 (0) |
-| 3. First Touch | 15 | touchCount=0 (15), else (0) |
-| 4. BOS / CHOCH | 15 | CHOCH (15), BOS (10) |
-| 5. Liquidity Sweep | 10 | Aligned (10), Other (5), None (0) |
-| 6. Premium/Discount | 10 | OB in correct zone (10), else (0) |
-| 7. Session/Volatility | 5 | Favorable session (5), else (0) |
-| 8. Risk/Reward | 10 | Achievable R:R >= 1.5 (10), else scaled |
-| 9. News/Macro Safety | 5 | No high-impact news (5), else (0) |
+| 2. OB State | 15 | FRESH=15, TOUCHED=10, USED/INVALIDATED=0 |
+| 3. BOS / CHOCH | 15 | CHOCH=15, BOS=10 |
+| 4. Liquidity Sweep | 10 | Aligned=10, Other=5, None=0 |
+| 5. Premium/Discount | 10 | OB in correct zone=10, else=0 |
+| 6. Session/Volatility | 5 | Favorable session=5, else=0 |
+| 7. Risk/Reward | 10 | Achievable R:R >= 1.5=10, else scaled |
+| 8. News/Macro Safety | 5 | No high-impact news=5, else=0 |
 | **Total** | **100** | **Threshold: 85** |
+
+**Removed from V1 (9-factor):**
+- "OB Freshness" (15) + "First Touch" (15) -> consolidated into "OB State" (15)
+- The two factors overlapped and were contradictory
 
 ## Risk Model
 
@@ -169,12 +191,14 @@ Symbols  85+       Check      Order    P&L     Manual
 | OB = last opposite candle | REMOVED | LuxAlgo extreme selection |
 | SL = OB +/- 0.25 ATR | REMOVED | SL = OB boundary |
 | PAT / Merged Zones | DEFERRED | Separate layer after SMC validation |
+| 9-factor confidence (75% threshold) | REMOVED | 8-factor confidence (85% threshold) |
+| OB Freshness + First Touch (separate) | REMOVED | Consolidated into OB State |
 
 ## Unresolved Items (Documented)
 
 | Item | Status | Notes |
 |------|--------|-------|
-| Freshness decay formula | UNRESOLVED | Need deterministic formula |
+| Freshness decay formula | UNRESOLVED | Need deterministic formula (replaced by OB State) |
 | Structure lookback period | UNRESOLVED | Recent BOS/CHOCH window |
 | Session definitions | UNRESOLVED | Allowed/restricted hours |
 | News/macro source | UNRESOLVED | Data source & blocking logic |
@@ -187,19 +211,22 @@ Symbols  85+       Check      Order    P&L     Manual
 | Component | File |
 |-----------|------|
 | Strategy Models | `strategy/models.py` |
-| Confidence Scoring | `strategy/confidence.py` |
+| Confidence Scoring (8-factor) | `strategy/confidence.py` |
 | Risk Calculator | `strategy/risk.py` |
 | Strategy Engine | `strategy/engine.py` |
 | Backtesting | `backtesting/engine.py` |
+| OB Lifecycle (OBState) | `smc/models.py` |
 
 ## Testing Matrix
 
 | Scenario | Expected Signal |
 |----------|-----------------|
-| Valid OB, first touch, confidence=90 | VALID |
-| Invalid OB (invalidated) | INVALID_OB |
-| touchCount=1 | NOT_FIRST_TOUCH |
-| OB.is_used=true | OB_USED |
+| Valid OB (FRESH), confidence=90 | VALID |
+| Valid OB (TOUCHED), confidence=88 | VALID |
+| Invalid OB (INVALIDATED) | INVALID_OB |
+| OB.state = USED | OB_USED |
+| OB.state = INVALIDATED | INVALID_OB |
+| OB.state = FRESH/TOUCHED but not eligible | NOT_ELIGIBLE |
 | Ranging market | RANGING_MARKET |
 | Opposing zone nearby | OPPOSING_ZONE |
 | Confidence=84 | LOW_CONFIDENCE |
@@ -207,3 +234,6 @@ Symbols  85+       Check      Order    P&L     Manual
 | Confidence=95 | VALID |
 | Multiple candidates | Highest confidence wins |
 | Active trade exists | ONE_TRADE_ACTIVE |
+| OB FRESH -> TOUCHED transition | touch_count=1, state=TOUCHED |
+| OB TOUCHED -> USED on execution | state=USED |
+| OB INVALIDATED by close | state=INVALIDATED |

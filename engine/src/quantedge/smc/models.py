@@ -26,6 +26,39 @@ class BreakType(str, Enum):
     CHOCH = "choch"
 
 
+class LegState:
+    """Represents a confirmed leg in the structure."""
+    def __init__(self, start_index: int, end_index: int, start_price: Decimal, end_price: Decimal, direction: TrendDirection, is_confirmed: bool = False, confirmation_index: Optional[int] = None):
+        self.start_index = start_index
+        self.end_index = end_index
+        self.start_price = start_price
+        self.end_price = end_price
+        self.direction = direction
+        self.is_confirmed = is_confirmed
+        self.confirmation_index = confirmation_index
+
+
+class OBState(str, Enum):
+    """
+    Order Block lifecycle states.
+    
+    State transitions:
+        FRESH -> TOUCHED -> USED
+            |
+            v
+        INVALIDATED
+    
+    - FRESH: Never touched, eligible for entry
+    - TOUCHED: First return/touch, eligible for ONE entry decision
+    - USED: Trade executed from this OB, no further entries
+    - INVALIDATED: Price closed through OB boundary, dead
+    """
+    FRESH = "fresh"
+    TOUCHED = "touched"
+    USED = "used"
+    INVALIDATED = "invalidated"
+
+
 @dataclass(frozen=True)
 class PivotPoint:
     """A confirmed pivot high or low."""
@@ -72,14 +105,26 @@ class LiquidityLevel:
     swept_at: Optional[datetime] = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class OrderBlock:
     """
-    LuxAlgo-style Order Block.
+    LuxAlgo-style Order Block with explicit lifecycle state.
 
     Created from structural breaks with specific selection logic:
     - Bullish OB: Minimum low in parsed range after bullish BOS/CHOCH
     - Bearish OB: Maximum high in parsed range after bearish BOS/CHOCH
+    
+    Lifecycle (explicit state machine):
+        FRESH (touch_count=0) -> TOUCHED (first return) -> USED (trade executed)
+                                      |
+                                      v
+                                  INVALIDATED (price closed through boundary)
+    
+    Strategy rules:
+    - Only FRESH OBs are eligible for entry
+    - TOUCHED OBs get ONE entry chance (first touch)
+    - USED OBs cannot generate further trades
+    - INVALIDATED OBs are dead
     """
     index: int
     symbol: str
@@ -92,9 +137,8 @@ class OrderBlock:
     break_index: int
     break_type: BreakType
     trend_before_break: TrendDirection
+    state: OBState = OBState.FRESH
     touch_count: int = 0
-    is_used: bool = False
-    is_invalidated: bool = False
     invalidated_at: Optional[datetime] = None
     invalidated_by_price: Optional[Decimal] = None
     swing_trend: TrendDirection = TrendDirection.RANGING
@@ -119,6 +163,34 @@ class OrderBlock:
     def is_bearish(self) -> bool:
         return self.type == "BEARISH"
 
+    def is_eligible_for_entry(self) -> bool:
+        """
+        Check if OB is eligible for a new trade entry.
+        
+        Per strategy:
+        - FRESH: eligible
+        - TOUCHED: eligible for ONE entry (first touch)
+        - USED: not eligible
+        - INVALIDATED: not eligible
+        """
+        return self.state in (OBState.FRESH, OBState.TOUCHED)
+
+    def is_fresh(self) -> bool:
+        """OB has never been touched."""
+        return self.state == OBState.FRESH
+
+    def is_touched(self) -> bool:
+        """OB has been touched once (first return)."""
+        return self.state == OBState.TOUCHED
+
+    def is_used(self) -> bool:
+        """Trade has been executed from this OB."""
+        return self.state == OBState.USED
+
+    def is_invalidated(self) -> bool:
+        """OB has been invalidated by price action."""
+        return self.state == OBState.INVALIDATED
+
     def calculate_entry_price(self) -> Decimal:
         """Dynamic entry based on OB width per strategy spec."""
         if self.width_percent <= Decimal("0.6"):
@@ -142,18 +214,46 @@ class OrderBlock:
             return self.top_price
 
     def check_touch(self, candle: Candle) -> bool:
-        """Check if price touched this OB."""
+        """Check if price touched this OB (updates state if FRESH).
+        
+        A touch occurs when the candle's price range overlaps with the OB range.
+        """
         if self.is_bullish():
-            return candle.low <= self.top_price and candle.low >= self.bottom_price
+            # Bullish OB range: [bottom_price, top_price]
+            # Touch occurs when candle range overlaps with OB range
+            touched = candle.low <= self.top_price and candle.high >= self.bottom_price
         else:
-            return candle.high >= self.bottom_price and candle.high <= self.top_price
+            # Bearish OB range: [bottom_price, top_price] (same, just semantics)
+            # Touch occurs when candle range overlaps with OB range
+            touched = candle.low <= self.top_price and candle.high >= self.bottom_price
+        
+        if touched and self.state == OBState.FRESH:
+            # Transition FRESH -> TOUCHED on first touch
+            self.state = OBState.TOUCHED
+            self.touch_count = 1
+        elif touched and self.state == OBState.TOUCHED:
+            # Already touched, increment count
+            self.touch_count += 1
+        
+        return touched
 
     def check_invalidation(self, candle: Candle) -> bool:
-        """Check if OB is invalidated by candle close."""
+        """Check if OB is invalidated by candle close (updates state)."""
         if self.is_bullish():
-            return candle.close < self.bottom_price
+            invalidated = candle.close < self.bottom_price
         else:
-            return candle.close > self.top_price
+            invalidated = candle.close > self.top_price
+        
+        if invalidated and self.state != OBState.INVALIDATED:
+            self.state = OBState.INVALIDATED
+            self.invalidated_at = candle.timestamp
+            self.invalidated_by_price = candle.close
+        
+        return invalidated
+
+    def mark_used(self):
+        """Mark OB as used after trade execution."""
+        self.state = OBState.USED
 
 
 @dataclass(frozen=True)
@@ -200,11 +300,18 @@ class MarketStructureState:
     internal_trend: TrendDirection = TrendDirection.RANGING
     swing_trend: TrendDirection = TrendDirection.RANGING
 
-    def get_active_order_blocks(self) -> list[OrderBlock]:
-        """Get valid, non-used order blocks."""
+    def get_eligible_order_blocks(self) -> list[OrderBlock]:
+        """Get OBs eligible for entry (FRESH or TOUCHED, not invalidated)."""
         return [
             ob for ob in self.order_blocks
-            if not ob.is_invalidated and not ob.is_used and ob.confidence_score >= 85
+            if ob.is_eligible_for_entry() and ob.confidence_score >= 85
+        ]
+
+    def get_fresh_order_blocks(self) -> list[OrderBlock]:
+        """Get FRESH OBs (never touched)."""
+        return [
+            ob for ob in self.order_blocks
+            if ob.is_fresh() and ob.confidence_score >= 85
         ]
 
     def get_recent_breaks(self, lookback: int = 10) -> list[StructureBreak]:

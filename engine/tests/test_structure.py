@@ -1,46 +1,32 @@
 """
-Tests for SMC Structure Detection
+Tests for SMC Structure Detection - Streaming API
 """
 
 import pytest
 from decimal import Decimal
 from datetime import datetime, timedelta
-from quantedge.market_data.models import Candle, Timeframe, MarketDataSource
-from quantedge.smc.volatility import parse_candles_with_volatility, ParsedCandle
-from quantedge.smc.structure import StructureDetector, StructureConfig, StructureType
+from quantedge.market_data.models import Candle, Timeframe
+from quantedge.smc.volatility import parse_candles_with_volatility
+from quantedge.smc.structure import StructureDetector, StructureConfig, StructureType, detect_structure_streaming
 from quantedge.smc.models import PivotPoint, StructureBreak, TrendDirection, BreakType
 
 
 class TestStructureDetector:
-    """Test pivot detection and structure breaks."""
+    """Test pivot detection and structure breaks using streaming API."""
 
-    def create_bullish_candles(self, count: int = 50) -> list[Candle]:
-        """Create candles with clear bullish trend and distinct pivots."""
+    def create_valid_bullish_candles(self, count: int = 50) -> list[Candle]:
+        """Create candles with clear bullish trend (higher highs, higher lows)."""
         candles = []
         base_time = datetime(2024, 1, 1, 0, 0, 0)
         base_price = Decimal("100")
 
         for i in range(count):
-            # Create distinct pivot pattern: alternating pullbacks every ~10 candles
-            cycle = i % 10
-            if cycle < 4:
-                # Uptrend candles - make higher highs
-                open_price = base_price + Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("2.0")
-                low_price = open_price - Decimal("0.3")
-                close_price = open_price + Decimal("1.5")
-            elif cycle < 7:
-                # Pullback candles - lower high, creates pivot low
-                open_price = base_price + Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("0.5")
-                low_price = open_price - Decimal("2.0")
-                close_price = open_price - Decimal("0.5")
-            else:
-                # Recovery candles - higher high, creates pivot high
-                open_price = base_price + Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("2.0")
-                low_price = open_price - Decimal("0.3")
-                close_price = open_price + Decimal("1.5")
+            # Bullish: each candle closes higher, makes higher highs and higher lows
+            # Valid OHLC: low <= open <= close <= high
+            open_price = base_price + Decimal(str(i * 0.5))
+            high_price = open_price + Decimal("1.5")
+            low_price = open_price - Decimal("0.3")   # Low below open
+            close_price = open_price + Decimal("1.0")  # Close near high
 
             candles.append(Candle(
                 symbol="TEST",
@@ -55,32 +41,19 @@ class TestStructureDetector:
 
         return candles
 
-    def create_bearish_candles(self, count: int = 50) -> list[Candle]:
-        """Create candles with clear bearish trend and distinct pivots."""
+    def create_valid_bearish_candles(self, count: int = 50) -> list[Candle]:
+        """Create candles with clear bearish trend (lower highs, lower lows)."""
         candles = []
         base_time = datetime(2024, 1, 1, 0, 0, 0)
         base_price = Decimal("150")
 
         for i in range(count):
-            cycle = i % 10
-            if cycle < 4:
-                # Downtrend candles
-                open_price = base_price - Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("0.3")
-                low_price = open_price - Decimal("2.0")
-                close_price = open_price - Decimal("1.5")
-            elif cycle < 7:
-                # Pullback candles - higher high, creates pivot high
-                open_price = base_price - Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("2.0")
-                low_price = open_price - Decimal("0.5")
-                close_price = open_price + Decimal("0.5")
-            else:
-                # Recovery candles - lower high, creates pivot low
-                open_price = base_price - Decimal(str(i * 0.5))
-                high_price = open_price + Decimal("0.3")
-                low_price = open_price - Decimal("2.0")
-                close_price = open_price - Decimal("1.5")
+            # Bearish: each candle closes lower, makes lower highs and lower lows
+            # Valid OHLC: low <= close <= open <= high
+            open_price = base_price - Decimal(str(i * 0.5))
+            high_price = open_price + Decimal("0.3")   # High above open
+            low_price = open_price - Decimal("1.5")    # Low below close
+            close_price = open_price - Decimal("1.0")  # Close near low
 
             candles.append(Candle(
                 symbol="TEST",
@@ -96,210 +69,103 @@ class TestStructureDetector:
         return candles
 
     def test_pivot_detection_bullish(self):
-        """Test pivot detection in bullish trend - simplified."""
-        # Create a simple pattern with clear pivot high and low
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
+        """Test pivot detection in bullish trend - using streaming API."""
+        candles = self.create_valid_bullish_candles(50)
+        parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
-        # Simple pattern: up, down, up - creates clear pivots
-        # Index 0-4: rising
-        for i in range(5):
-            open_p = Decimal("100") + Decimal(str(i))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("1"),
-                low=open_p - Decimal("0.5"), close=open_p + Decimal("0.5"),
-                volume=Decimal("1000")
-            ))
+        detector = StructureDetector(StructureConfig(length=5, structure_type=StructureType.INTERNAL))
+        all_breaks = []
+        for i, pc in enumerate(parsed):
+            breaks = detector.process_candle(pc, i)
+            all_breaks.extend(breaks)
 
-        # Index 5: peak (pivot high)
-        candles.append(Candle(
-            symbol="TEST", timeframe=Timeframe.H1,
-            timestamp=base_time + timedelta(hours=5),
-            open=Decimal("105"), high=Decimal("107"),
-            low=Decimal("104"), close=Decimal("106"),
-            volume=Decimal("1000")
-        ))
+        # Get pivots from detector state
+        highs, lows = detector.get_confirmed_pivots()
 
-        # Index 6-10: falling
-        for i in range(6, 11):
-            open_p = Decimal("106") - Decimal(str(i-5))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("0.5"),
-                low=open_p - Decimal("1.5"), close=open_p - Decimal("1"),
-                volume=Decimal("1000")
-            ))
-
-        # Index 11: valley (pivot low)
-        candles.append(Candle(
-            symbol="TEST", timeframe=Timeframe.H1,
-            timestamp=base_time + timedelta(hours=11),
-            open=Decimal("100"), high=Decimal("101"),
-            low=Decimal("98"), close=Decimal("99"),
-            volume=Decimal("1000")
-        ))
-
-        # Index 12-16: rising again
-        for i in range(12, 17):
-            open_p = Decimal("99") + Decimal(str(i-11))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("1"),
-                low=open_p - Decimal("0.5"), close=open_p + Decimal("0.5"),
-                volume=Decimal("1000")
-            ))
-
-        # Need enough candles for ATR period
-        for i in range(17, 30):
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=Decimal("105"), high=Decimal("106"),
-                low=Decimal("104"), close=Decimal("105"),
-                volume=Decimal("1000")
-            ))
-
-        parsed = parse_candles_with_volatility(candles, atr_period=5, atr_multiplier=2.0)
-        detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
-        pivots = detector.find_pivots(parsed)
-
-        # Should find at least one pivot
-        assert len(pivots) >= 0  # May or may not find depending on parsed values
+        # Should find alternating high/low pivots
+        assert len(highs) > 0 or len(lows) > 0
 
         # Check pivot ordering
-        for i in range(1, len(pivots)):
-            assert pivots[i].index > pivots[i-1].index
+        all_pivots = sorted(highs + lows, key=lambda p: p.index)
+        for i in range(1, len(all_pivots)):
+            assert all_pivots[i].index > all_pivots[i-1].index
 
     def test_pivot_detection_bearish(self):
-        """Test pivot detection in bearish trend - simplified."""
-        # Reuse the same pattern as bullish test
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
+        """Test pivot detection in bearish trend - using streaming API."""
+        candles = self.create_valid_bearish_candles(50)
+        parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
-        for i in range(5):
-            open_p = Decimal("110") - Decimal(str(i))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("0.5"),
-                low=open_p - Decimal("1.5"), close=open_p - Decimal("1"),
-                volume=Decimal("1000")
-            ))
+        detector = StructureDetector(StructureConfig(length=5, structure_type=StructureType.INTERNAL))
+        for i, pc in enumerate(parsed):
+            detector.process_candle(pc, i)
 
-        candles.append(Candle(
-            symbol="TEST", timeframe=Timeframe.H1,
-            timestamp=base_time + timedelta(hours=5),
-            open=Decimal("105"), high=Decimal("106"),
-            low=Decimal("103"), close=Decimal("104"),
-            volume=Decimal("1000")
-        ))
-
-        for i in range(6, 11):
-            open_p = Decimal("104") + Decimal(str(i-5))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("1"),
-                low=open_p - Decimal("0.5"), close=open_p + Decimal("0.5"),
-                volume=Decimal("1000")
-            ))
-
-        candles.append(Candle(
-            symbol="TEST", timeframe=Timeframe.H1,
-            timestamp=base_time + timedelta(hours=11),
-            open=Decimal("110"), high=Decimal("112"),
-            low=Decimal("108"), close=Decimal("111"),
-            volume=Decimal("1000")
-        ))
-
-        for i in range(12, 17):
-            open_p = Decimal("111") - Decimal(str(i-11))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("0.5"),
-                low=open_p - Decimal("1.5"), close=open_p - Decimal("1"),
-                volume=Decimal("1000")
-            ))
-
-        for i in range(17, 30):
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=Decimal("105"), high=Decimal("106"),
-                low=Decimal("104"), close=Decimal("105"),
-                volume=Decimal("1000")
-            ))
-
-        parsed = parse_candles_with_volatility(candles, atr_period=5, atr_multiplier=2.0)
-        detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
-        pivots = detector.find_pivots(parsed)
-
-        assert len(pivots) >= 0
+        highs, lows = detector.get_confirmed_pivots()
+        assert len(highs) > 0 or len(lows) > 0
 
     def test_structure_breaks_bullish(self):
-        """Test BOS detection in bullish trend - simplified."""
-        # Use simple pattern
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
+        """Test BOS detection in bullish trend - using streaming API."""
+        candles = self.create_valid_bullish_candles(60)
+        parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
-        # Rising trend with clear break
-        for i in range(20):
-            open_p = Decimal("100") + Decimal(str(i * 0.5))
-            candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("1"),
-                low=open_p - Decimal("0.5"), close=open_p + Decimal("0.8"),
-                volume=Decimal("1000")
-            ))
+        detector = StructureDetector(StructureConfig(length=5, structure_type=StructureType.INTERNAL))
+        all_breaks = []
+        for i, pc in enumerate(parsed):
+            breaks = detector.process_candle(pc, i)
+            all_breaks.extend(breaks)
 
-        parsed = parse_candles_with_volatility(candles, atr_period=5, atr_multiplier=2.0)
-        detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
-        pivots = detector.find_pivots(parsed)
-        breaks = detector.detect_breaks(parsed, pivots)
+        # Should detect BOS (continuation) in bullish trend
+        bos_breaks = [b for b in all_breaks if b.break_type == BreakType.BOS]
+        choch_breaks = [b for b in all_breaks if b.break_type == BreakType.CHOCH]
 
-        # Test should not fail - just verify it runs
-        assert isinstance(breaks, list)
+        # In pure bullish trend, expect BOS not CHOCH
+        assert len(bos_breaks) > 0
 
     def test_structure_breaks_reversal(self):
-        """Test CHOCH detection on trend reversal - simplified."""
+        """Test CHOCH detection on trend reversal - using streaming API."""
+        # Create bullish then bearish reversal
         candles = []
         base_time = datetime(2024, 1, 1, 0, 0, 0)
+        base_price = Decimal("100")
 
-        # 15 candles up
-        for i in range(15):
-            open_p = Decimal("100") + Decimal(str(i * 0.5))
+        # First 30: bullish (valid OHLC)
+        for i in range(30):
+            open_price = base_price + Decimal(str(i * 0.5))
             candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
+                symbol="TEST",
+                timeframe=Timeframe.H1,
                 timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("1"),
-                low=open_p - Decimal("0.5"), close=open_p + Decimal("0.8"),
-                volume=Decimal("1000")
+                open=open_price,
+                high=open_price + Decimal("1.5"),
+                low=open_price - Decimal("0.3"),  # Valid: low < open
+                close=open_price + Decimal("1.0"),
+                volume=Decimal("1000"),
             ))
 
-        # 15 candles down (reversal)
-        for i in range(15, 30):
-            open_p = Decimal("107") - Decimal(str((i-14) * 0.5))
+        # Next 30: bearish reversal (valid OHLC)
+        for i in range(30, 60):
+            open_price = base_price + Decimal("15") - Decimal(str((i-30) * 0.5))
             candles.append(Candle(
-                symbol="TEST", timeframe=Timeframe.H1,
+                symbol="TEST",
+                timeframe=Timeframe.H1,
                 timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=open_p + Decimal("0.5"),
-                low=open_p - Decimal("1.5"), close=open_p - Decimal("1"),
-                volume=Decimal("1000")
+                open=open_price,
+                high=open_price + Decimal("0.3"),   # High above open
+                low=open_price - Decimal("1.5"),    # Low below close
+                close=open_price - Decimal("1.0"),  # Close near low
+                volume=Decimal("1000"),
             ))
 
-        parsed = parse_candles_with_volatility(candles, atr_period=5, atr_multiplier=2.0)
-        detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
-        pivots = detector.find_pivots(parsed)
-        breaks = detector.detect_breaks(parsed, pivots)
+        parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
-        # Verify the test runs without error
-        assert isinstance(breaks, list)
+        detector = StructureDetector(StructureConfig(length=5, structure_type=StructureType.INTERNAL))
+        all_breaks = []
+        for i, pc in enumerate(parsed):
+            breaks = detector.process_candle(pc, i)
+            all_breaks.extend(breaks)
+
+        # Should detect at least one CHOCH on reversal
+        choch_breaks = [b for b in all_breaks if b.break_type == BreakType.CHOCH]
+        assert len(choch_breaks) > 0
 
 
 class TestPivotPoint:
@@ -330,3 +196,7 @@ class TestPivotPoint:
         assert pivot.price == Decimal("101")
         assert pivot.is_high
         assert pivot.candle == candle
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

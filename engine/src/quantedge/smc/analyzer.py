@@ -4,17 +4,17 @@ Main SMC Analyzer - orchestrates all SMC components.
 This is the primary entry point for SMC analysis.
 It coordinates:
 1. Volatility parsing (ATR-based)
-2. Structure detection (internal & swing)
-3. Order Block detection
+2. Structure detection (internal & swing) - LuxAlgo stateful streaming
+3. Order Block detection - LuxAlgo slice semantics
 4. Liquidity detection
 5. Equal levels detection
-5. FVG detection
+6. FVG detection
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing: Optional
 import numpy as np
 
 from quantedge.market_data.models import Candle, Timeframe
@@ -24,8 +24,8 @@ from quantedge.smc.models import (
     BreakType, StructureType
 )
 from quantedge.smc.volatility import calculate_atr, parse_candles_with_volatility, ParsedCandle
-from quantedge.smc.structure import StructureDetector, StructureConfig
-from quantedge.smc.order_blocks import OrderBlockDetector, OrderBlockConfig
+from quantedge.smc.structure import StructureDetector, detect_structure_streaming
+from quantedge.smc.order_blocks import OrderBlockDetector, OrderBlockConfig, detect_order_blocks_streaming
 from quantedge.smc.liquidity import LiquidityDetector, LiquidityConfig
 from quantedge.smc.equal_levels import EqualLevelsDetector, EqualLevelsConfig
 from quantedge.smc.fvg import FVGDetector, FVGConfig
@@ -65,14 +65,6 @@ class SMCAnalyzer:
         self.config = config or SMCAnalyzerConfig()
 
         # Initialize sub-detectors
-        self.internal_structure = StructureDetector(StructureConfig(
-            length=self.config.internal_length,
-            structure_type=StructureType.INTERNAL
-        ))
-        self.swing_structure = StructureDetector(StructureConfig(
-            length=self.config.swing_length,
-            structure_type=StructureType.SWING
-        ))
         self.ob_detector = OrderBlockDetector(OrderBlockConfig(
             internal_length=self.config.internal_length,
             swing_length=self.config.swing_length,
@@ -122,53 +114,59 @@ class SMCAnalyzer:
             atr_multiplier=self.config.atr_multiplier,
         )
 
-        # 2. Find pivots for both structures
-        internal_pivots = self.internal_structure.find_pivots(parsed_candles)
-        swing_pivots = self.swing_structure.find_pivots(parsed_candles)
+        # 2. Detect structure for both internal and swing (streaming/stateful)
+        internal_highs, internal_lows, internal_breaks, internal_trend = detect_structure_streaming(
+            parsed_candles=parsed_candles,
+            length=self.config.internal_length,
+            structure_type=StructureType.INTERNAL
+        )
+        swing_highs, swing_lows, swing_breaks, swing_trend = detect_structure_streaming(
+            parsed_candles=parsed_candles,
+            length=self.config.swing_length,
+            structure_type=StructureType.SWING
+        )
 
-        # 3. Detect structure breaks
-        internal_breaks = self.internal_structure.detect_breaks(parsed_candles, internal_pivots)
-        swing_breaks = self.swing_structure.detect_breaks(parsed_candles, swing_pivots)
-
-        # 4. Detect Order Blocks
-        order_blocks = self.ob_detector.detect_order_blocks(
+        # 3. Detect Order Blocks using LuxAlgo slice semantics
+        order_blocks = detect_order_blocks_streaming(
             parsed_candles=parsed_candles,
             internal_breaks=internal_breaks,
             swing_breaks=swing_breaks,
-            internal_pivots=internal_pivots,
-            swing_pivots=swing_pivots,
+            internal_pivots=internal_highs + internal_lows,
+            swing_pivots=swing_highs + swing_lows,
+            config=OrderBlockConfig(
+                internal_length=self.config.internal_length,
+                swing_length=self.config.swing_length,
+                atr_period=self.config.atr_period,
+                atr_multiplier=self.config.atr_multiplier,
+            )
         )
 
-        # 5. Detect Equal Highs/Lows
+        # 4. Detect Equal Highs/Lows
         equal_highs, equal_lows = self.equal_levels_detector.detect_equal_levels(
             candles=candles,
-            pivot_highs=[p for p in internal_pivots + swing_pivots if p.is_high],
-            pivot_lows=[p for p in internal_pivots + swing_pivots if not p.is_high],
+            pivot_highs=internal_highs + swing_highs,
+            pivot_lows=internal_lows + swing_lows,
         )
 
-        # 6. Detect Liquidity
+        # 5. Detect Liquidity
         buy_side_liq, sell_side_liq = self.liquidity_detector.detect_liquidity(
             candles=candles,
-            pivot_highs=[p for p in swing_pivots if p.is_high],
-            pivot_lows=[p for p in swing_pivots if not p.is_high],
+            pivot_highs=swing_highs,
+            pivot_lows=swing_lows,
             equal_highs=equal_highs,
             equal_lows=equal_lows,
         )
 
-        # 7. Detect FVGs
+        # 6. Detect FVGs
         fair_value_gaps = self.fvg_detector.detect_fvgs(candles)
-
-        # 8. Determine current trends
-        internal_trend = self._get_current_trend(internal_breaks)
-        swing_trend = self._get_current_trend(swing_breaks)
 
         # Build state
         state = MarketStructureState(
             symbol=symbol,
             timeframe=timeframe.value,
             last_updated=datetime.now(),
-            internal_pivots=internal_pivots,
-            swing_pivots=swing_pivots,
+            internal_pivots=internal_highs + internal_lows,
+            swing_pivots=swing_highs + swing_lows,
             internal_breaks=internal_breaks,
             swing_breaks=swing_breaks,
             equal_highs=equal_highs,
@@ -194,17 +192,9 @@ class SMCAnalyzer:
         This avoids full re-analysis for real-time updates.
         """
         # For now, re-analyze full dataset
-        # TODO: Implement true incremental updates
+        # TODO: Implement true incremental updates using streaming detectors
         all_candles = self._reconstruct_candles(state) + new_candles
         return self.analyze(all_candles, state.symbol, Timeframe(state.timeframe))
-
-    def _get_current_trend(self, breaks: list[StructureBreak]) -> TrendDirection:
-        """Determine current trend from latest breaks."""
-        if not breaks:
-            return TrendDirection.RANGING
-
-        latest_break = max(breaks, key=lambda b: b.timestamp)
-        return latest_break.direction
 
     def _reconstruct_candles(self, state: MarketStructureState) -> list[Candle]:
         """Reconstruct candle list from state (for incremental updates)."""

@@ -8,12 +8,12 @@ Implements the complete strategy logic per specification.
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing: Optional
 import logging
 
 from quantedge.market_data.models import Candle, Timeframe
 from quantedge.smc.analyzer import SMCAnalyzer, SMCAnalyzerConfig
-from quantedge.smc.models import MarketStructureState, OrderBlock, TrendDirection
+from quantedge.smc.models import MarketStructureState, OrderBlock, TrendDirection, OBState
 from quantedge.strategy.models import (
     TradeSetup, StrategyConfig, StrategySignal, TradeDirection,
     ConfidenceFactors, AccountState, RiskValidationResult
@@ -36,8 +36,8 @@ class StrategyEngine:
 
     Pipeline:
     1. SMC Analysis -> MarketStructureState
-    2. Filter Order Blocks -> Eligible OBs
-    3. Score Confidence -> ConfidenceFactors
+    2. Filter Order Blocks -> Eligible OBs (FRESH or TOUCHED)
+    3. Score Confidence -> ConfidenceFactors (8-factor model)
     4. Validate Risk -> TradeSetup
     5. Rank Candidates -> Select Best
     """
@@ -64,12 +64,12 @@ class StrategyEngine:
         # 1. SMC Analysis
         state = self.smc_analyzer.analyze(candles, symbol, timeframe)
 
-        # 2. Get active order blocks
-        active_obs = state.get_active_order_blocks()
+        # 2. Get eligible order blocks (FRESH or TOUCHED)
+        eligible_obs = state.get_eligible_order_blocks()
 
         # 3. Filter and score each OB
         setups = []
-        for ob in active_obs:
+        for ob in eligible_obs:
             setup = self._evaluate_order_block(ob, state, account_state, symbol, timeframe)
             if setup and setup.signal == StrategySignal.VALID:
                 setups.append(setup)
@@ -138,8 +138,8 @@ class StrategyEngine:
     ) -> Optional[TradeSetup]:
         """Evaluate a single order block for trade setup."""
 
-        # Hard Filter 1: OB must not be invalidated
-        if ob.is_invalidated:
+        # Hard Filter 1: OB must not be invalidated (already filtered by get_eligible_order_blocks)
+        if ob.is_invalidated():
             return TradeSetup(
                 symbol=symbol, timeframe=timeframe.value,
                 direction=TradeDirection.LONG if ob.is_bullish() else TradeDirection.SHORT,
@@ -151,13 +151,13 @@ class StrategyEngine:
                 timestamp=datetime.now()
             )
 
-        # Hard Filter 2: OB must not be used
-        if ob.is_used:
+        # Hard Filter 2: OB must not be used (already filtered)
+        if ob.is_used():
             return self._reject_setup(ob, symbol, timeframe, StrategySignal.OB_USED, "OB already used")
 
-        # Hard Filter 3: First touch only (touch_count must be 0)
-        if ob.touch_count >= 1:
-            return self._reject_setup(ob, symbol, timeframe, StrategySignal.NOT_FIRST_TOUCH, "Not first touch")
+        # Hard Filter 3: OB must be eligible for entry (FRESH or TOUCHED)
+        if not ob.is_eligible_for_entry():
+            return self._reject_setup(ob, symbol, timeframe, StrategySignal.NOT_ELIGIBLE, "OB not in FRESH/TOUCHED state")
 
         # Hard Filter 4: Market regime - reject ranging
         if state.swing_trend == TrendDirection.RANGING or state.internal_trend == TrendDirection.RANGING:
@@ -268,7 +268,7 @@ class StrategyEngine:
         ob_mid = ob.midline
 
         for other_ob in state.order_blocks:
-            if other_ob == ob or other_ob.is_invalidated or other_ob.is_used:
+            if other_ob == ob or other_ob.is_invalidated() or other_ob.is_used():
                 continue
 
             # Opposing type

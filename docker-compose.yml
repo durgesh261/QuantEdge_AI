@@ -13,7 +13,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/src/main/resources/db/migration:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quantifiedge -d quantifiedge"]
       interval: 10s
@@ -70,10 +69,8 @@ services:
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
       DATABASE_URL: postgresql://quantedge:quantedge_dev@postgres:5432/quantedge
-      DELTA_API_KEY: ${DELTA_API_KEY:-}
-      DELTA_API_SECRET: ${DELTA_API_SECRET:-}
-      DELTA_TESTNET_API_KEY: ${DELTA_TESTNET_API_KEY:-}
-      DELTA_TESTNET_API_SECRET: ${DELTA_TESTNET_API_SECRET:-}
+      # Python engine receives market data only - NO Delta credentials
+      # Delta credentials are managed exclusively by Spring Boot backend
       DELTA_BASE_URL: https://api.delta.exchange
       DELTA_TESTNET_BASE_URL: https://api-testnet.delta.exchange
       BACKEND_BASE_URL: http://backend:8080

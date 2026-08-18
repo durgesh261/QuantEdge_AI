@@ -1,5 +1,5 @@
 """
-Tests for Strategy Engine - Confidence Scoring & Risk
+Tests for Strategy Engine - Confidence Scoring & Risk (New 8-Factor Model)
 """
 
 import pytest
@@ -7,7 +7,7 @@ from decimal import Decimal
 from datetime import datetime
 from quantedge.market_data.models import Candle, Timeframe
 from quantedge.smc.models import (
-    OrderBlock, MarketStructureState, TrendDirection, BreakType, StructureType, PivotPoint
+    OrderBlock, MarketStructureState, TrendDirection, BreakType, OBState
 )
 from quantedge.strategy.models import (
     StrategyConfig, AccountState, ConfidenceFactors, TradeDirection, StrategySignal
@@ -17,9 +17,9 @@ from quantedge.strategy.risk import RiskCalculator
 
 
 class TestConfidenceScoring:
-    """Test 9-factor confidence scoring."""
+    """Test 8-factor confidence scoring."""
 
-    def create_test_ob(self, bullish: bool = True, touch_count: int = 0, break_type: BreakType = BreakType.BOS) -> OrderBlock:
+    def create_test_ob(self, bullish: bool = True, state: OBState = OBState.FRESH, break_type: BreakType = BreakType.BOS) -> OrderBlock:
         """Create a test OrderBlock."""
         candle = Candle(
             symbol="BTCUSD.P",
@@ -44,11 +44,7 @@ class TestConfidenceScoring:
             break_index=101,
             break_type=break_type,
             trend_before_break=TrendDirection.BEARISH if bullish else TrendDirection.BULLISH,
-            touch_count=touch_count,
-            is_used=False,
-            is_invalidated=False,
-            swing_trend=TrendDirection.BULLISH if bullish else TrendDirection.BEARISH,
-            internal_trend=TrendDirection.BULLISH if bullish else TrendDirection.BEARISH,
+            state=state,
         )
 
     def create_test_state(self, bullish: bool = True) -> MarketStructureState:
@@ -67,12 +63,11 @@ class TestConfidenceScoring:
             fair_value_gaps=[],
         )
 
-    def test_confidence_factors_total(self):
-        """Test ConfidenceFactors total calculation."""
+    def test_confidence_factors_total_max(self):
+        """Test ConfidenceFactors total calculation with max points."""
         factors = ConfidenceFactors(
             trend_alignment=15,
-            ob_freshness=15,
-            first_touch=15,
+            ob_state=15,
             bos_choch=15,
             liquidity_sweep=10,
             premium_discount=10,
@@ -80,15 +75,14 @@ class TestConfidenceScoring:
             risk_reward=10,
             news_macro_safety=5,
         )
-        assert factors.total == 100
+        assert factors.total == 85
         assert factors.meets_threshold(85)
 
     def test_confidence_threshold(self):
         """Test threshold checking."""
         factors = ConfidenceFactors(
             trend_alignment=10,
-            ob_freshness=10,
-            first_touch=10,
+            ob_state=10,
             bos_choch=10,
             liquidity_sweep=10,
             premium_discount=10,
@@ -96,9 +90,9 @@ class TestConfidenceScoring:
             risk_reward=10,
             news_macro_safety=5,
         )
-        assert factors.total == 80
+        assert factors.total == 70
         assert not factors.meets_threshold(85)
-        assert factors.meets_threshold(80)
+        assert factors.meets_threshold(70)
 
     def test_scorer_trend_alignment(self):
         """Test trend alignment scoring."""
@@ -119,39 +113,30 @@ class TestConfidenceScoring:
         # Should be lower due to conflict
         assert score < 15
 
-    def test_scorer_ob_freshness(self):
-        """Test OB freshness scoring."""
+    def test_scorer_ob_state(self):
+        """Test OB state scoring."""
         config = StrategyConfig()
         scorer = ConfidenceScorer(config)
 
-        # Fresh OB (touch_count=0)
-        ob_fresh = self.create_test_ob(touch_count=0)
+        # Fresh OB (state=FRESH)
+        ob_fresh = self.create_test_ob(state=OBState.FRESH)
         state = self.create_test_state()
-        score = scorer._score_ob_freshness(ob_fresh, state)
+        score = scorer._score_ob_state(ob_fresh)
         assert score == 15
 
-        # One touch
-        ob_touched = self.create_test_ob(touch_count=1)
-        score = scorer._score_ob_freshness(ob_touched, state)
+        # Touched OB
+        ob_touched = self.create_test_ob(state=OBState.TOUCHED)
+        score = scorer._score_ob_state(ob_touched)
         assert score == 10
 
-        # Two touches
-        ob_retouched = self.create_test_ob(touch_count=2)
-        score = scorer._score_ob_freshness(ob_retouched, state)
+        # Used OB
+        ob_used = self.create_test_ob(state=OBState.USED)
+        score = scorer._score_ob_state(ob_used)
         assert score == 0
 
-    def test_scorer_first_touch(self):
-        """Test first touch scoring (binary)."""
-        config = StrategyConfig()
-        scorer = ConfidenceScorer(config)
-
-        ob_fresh = self.create_test_ob(touch_count=0)
-        state = self.create_test_state()
-        score = scorer._score_first_touch(ob_fresh)
-        assert score == 15
-
-        ob_touched = self.create_test_ob(touch_count=1)
-        score = scorer._score_first_touch(ob_touched)
+        # Invalidated OB
+        ob_invalid = self.create_test_ob(state=OBState.INVALIDATED)
+        score = scorer._score_ob_state(ob_invalid)
         assert score == 0
 
     def test_scorer_bos_choch(self):
@@ -268,3 +253,7 @@ class TestRiskCalculator:
         # Leverage should be capped at 100
         assert result.is_valid
         assert result.max_leverage <= 100
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
