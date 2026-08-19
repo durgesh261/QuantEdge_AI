@@ -1,9 +1,9 @@
 # QuantEdge AI V2 — REAL MARKET VALIDATION REPORT
 
-**Repository commit**: d3961082f4ba54deef42765673303bb1b4939ebe  
-**Validation date**: 2026-08-19  
-**Status**: HISTORICAL VALIDATION INCOMPLETE  
-**Tests**: 133/133 passing (synthetic/test-fixtures only; real-data validation pending)
+**Repository commit**: ed192a1 (pre-fix) → Phase 3A fix commit  
+**Validation date**: 2026-08-20  
+**Status**: PHASE 3A — OB PIPELINE FIXED, TRADINGVIEW VALIDATION PENDING  
+**Tests**: 159 passed, 1 skipped (133 original + 26 new OB regression tests)
 
 ---
 
@@ -16,16 +16,19 @@
 | SOLUSD.P | 1H | Binance | 2024-01-01T00:00:00+00:00 | 2024-12-31T00:00:00+00:00 | 8761 |
 | XRPUSD.P | 1H | Binance | 2024-01-01T00:00:00+00:00 | 2024-12-31T00:00:00+00:00 | 8761 |
 
-- **Source**: Binance 1H perpetual contract historical data
-- **Downloaded**: 2026-08-19 (local run)
-- **Dataset files**: `data/historical/{symbol}/1h/2024.csv` + `2024_metadata.json` per symbol
-- **Schema**: `timestamp,open,high,low,close,volume` (ISO 8601 timestamps, UTC timezone)
+- **Source**: Binance 1H perpetual contract historical data (**NOT Delta Exchange**)
+- **Downloaded**: 2026-08-19
+- **Schema**: `timestamp,open,high,low,close,volume` (ISO 8601 timestamps, UTC)
+
+> ⚠️ **Data source caveat**: Data is from Binance. The strategy targets Delta Exchange
+> perpetual contracts. Spread, funding, and price structure may differ.
+> This limitation must remain explicit in all validation reports.
 
 ---
 
 ## 2. Dataset Hashes
 
-| Symbol | SHA256 (metadata) | File Path |
+| Symbol | SHA256 | File Path |
 |---|---|---|
 | BTCUSD.P | `6e3de37bef8969524f08e4eb1edbb359c375278470460bd9192b03f7e4239721` | `data/historical/BTCUSD.P/1h/2024.csv` |
 | ETHUSD.P | `adf810cb2135f1eccfc733cfffd59699b999b0268be70475e335ca7993e56040` | `data/historical/ETHUSD.P/1h/2024.csv` |
@@ -36,10 +39,10 @@
 
 ## 3. Date Ranges
 
-All symbols: **2024-01-01 00:00:00 UTC** through **2024-12-31 00:00:00 UTC**  
-- Full year of 1H candles (8761 = 365 × 24)  
-- No missing days observed in CSV parse  
-- Timestamps: ISO 8601 `2024-01-01T00:00:00+00:00` format, UTC
+All symbols: **2024-01-01 00:00:00 UTC** through **2024-12-31 00:00:00 UTC**
+- Full year of 1H candles (8761 = 365 × 24 + 1 for leap handling)
+- No missing days observed
+- Timestamps: ISO 8601, UTC
 
 ---
 
@@ -52,60 +55,91 @@ All symbols: **2024-01-01 00:00:00 UTC** through **2024-12-31 00:00:00 UTC**
 | SOLUSD.P | 8761 | 0 | 0 | 0 | 0 | CLEAN |
 | XRPUSD.P | 8761 | 0 | 0 | 0 | 0 | CLEAN |
 
-- **All 4 datasets: CLEAN** — no duplicates, no gaps, no invalid OHLC, no non-positive prices
-- Validation: Each CSV loaded successfully, all 8761 candles parsed with volatility, replay engine ran to completion
-
 ---
 
-## 5. Replay Methodology
+## 5. Phase 3A OB Pipeline Fix
 
-**Pipeline** (candle-by-candle through frozen SMC engine):
+### 5.1 Root Cause: Why OB Count Was Zero
+
+The previous report (commit `ed192a1`) documented OB count = 0 across all 4 symbols.
+Investigation (`ob_diagnostic.py`) identified the cause entirely within `replay.py`.
+The frozen SMC files were NOT involved.
+
+**Evidence**:
 
 ```
-raw candle
-    ↓
-volatility parser (LuxAlgo-style: high volatility → parsed_high=low, parsed_low=high)
-    ↓
-internal SMC (length=5, StructureType.INTERNAL)
-    ↓
-swing SMC (length=50)
-    ↓
-structure events (LEG_CHANGE, PIVOT_CREATED, BOS, CHOCH)
-    ↓
-Order Block events (ORDER_BLOCK_CREATED, etc.)
+Direct call with correct inputs (BTCUSD.P 8761 candles, ATR=200, mult=2.0):
+  Internal breaks: 468
+  Swing breaks:     53
+  Internal OBs:    468   <- OB algorithm works correctly
+  Swing OBs:        53   <- OB algorithm works correctly
+
+Replay engine _process_order_blocks() (before fix):
+  internal_breaks=[]     <- HARDCODED EMPTY LIST
+  swing_breaks=[]        <- HARDCODED EMPTY LIST
+  OBs generated: 0       <- CAUSE OF ZERO COUNT
 ```
 
-**Engine**: `HistoricalReplayEngine` with `CsvHistoricalDataProvider`  
-**Per-symbol**: 8761 candles → deterministic JSONL event stream + `summary.json`
+### 5.2 Bugs Fixed (all in `replay.py`)
+
+| Bug | Description | Fix |
+|---|---|---|
+| 1 (PRIMARY) | `internal_breaks=[]`, `swing_breaks=[]` hardcoded | Accumulate breaks in `_all_internal_breaks` / `_all_swing_breaks`; pass live list |
+| 2 | `get_confirmed_pivots()` returns only final pair (2 pivots) | Maintain full `_all_internal_pivots_history` / `_all_swing_pivots_history` |
+| 3 | OB processing every 100 candles, not per-break | Event-driven: OB processed immediately on each structure break |
+| 4 | `run()` + 3 helpers defined twice (dead code) | Removed first (inactive) block |
+
+### 5.3 Frozen SMC Files
+
+The following files were **NOT MODIFIED** during the Phase 3A fix:
+
+```
+git diff -- engine/src/quantedge/smc/structure.py    → (empty)
+git diff -- engine/src/quantedge/smc/order_blocks.py → (empty)
+git diff -- engine/src/quantedge/smc/volatility.py   → (empty)
+```
+
+### 5.4 Same-Candle Causality
+
+At break candle N, the OB processor uses:
+- `parsed_candles[0 : N+1]` (includes break candle)
+- pivot history snapshot as-of candle N (appended before breaks in the processing loop)
+- OB source search range is `[pivot_index, break_index)` (excludes break candle)
+
+No future candle data can influence any historical OB.
 
 ---
 
-## 6. Determinism
+## 6. Replay Methodology
 
-**Result**: ✅ PASS
+**Pipeline (candle-by-candle)**:
 
-- Two repeated runs on identical dataset produce identical event counts and summaries
-- BTCUSD.P: Run 1 = 3274 events, Run 2 = 3274 events
-- Internal summary match: True
-- Swing summary match: True
-- OB summary match: True
-- Event order: deterministic (events emitted in candle order)
+```
+raw candle [0..N]
+    ↓
+volatility parser (ATR=200, mult=2.0)
+    ↓
+internal SMC detector (length=5)  +  swing SMC detector (length=50)
+    ↓
+if new pivot high/low:
+    → append to _all_internal_pivots_history / _all_swing_pivots_history
+if new structure break (BOS/CHOCH):
+    → append to _all_internal_breaks / _all_swing_breaks
+    → _process_ob_for_break(brk, structure_type, candle_index)
+         ├── detect_order_blocks_streaming(
+         │       parsed_candles[:N+1],
+         │       breaks=[brk],        ← causal: only this break
+         │       internal_pivots=_all_internal_pivots_history,
+         │       swing_pivots=_all_swing_pivots_history
+         │   )
+         └── emit ORDER_BLOCK_CREATED event
+```
 
-**Verification**: `TestReplayDeterminism::test_byte_for_byte_identical_output` passes in test suite (125/133 tests passing after fixture fixes)
+**Configuration**: ATR period=200, ATR multiplier=2.0, internal length=5, swing length=50
 
 ---
 
-## 7. Future-Data Invariance
-
-**Result**: ✅ PASS
-
-- Cutoff T = 2024-01-15: events with timestamp <= T are identical whether dataset ends at T or extends to 2024-12-31
-- Test: `TestFutureDataInvariance::test_future_candles_dont_change_past_events` passes
-- No look-ahead leakage: adding future candles does not change events before cutoff T
-
----
-
-## 8. Internal Structure Statistics (per symbol)
+## 7. Internal Structure Statistics
 
 | Symbol | Internal Leg Changes | Internal Pivots | Internal BOS | Internal CHOCH |
 |---|---|---|---|---|
@@ -114,12 +148,11 @@ Order Block events (ORDER_BLOCK_CREATED, etc.)
 | SOLUSD.P | 1197 | 1197 | 230 | 235 |
 | XRPUSD.P | 1293 | 1293 | 212 | 242 |
 
-- Internal stream length = 5 (fixed by StructureConfig)
-- All values deterministic on repeated runs
+*Unchanged from previous report — structure detection was always correct.*
 
 ---
 
-## 9. Swing Structure Statistics (per symbol)
+## 8. Swing Structure Statistics
 
 | Symbol | Swing Leg Changes | Swing Pivots | Swing BOS | Swing CHOCH |
 |---|---|---|---|---|
@@ -128,86 +161,149 @@ Order Block events (ORDER_BLOCK_CREATED, etc.)
 | SOLUSD.P | 132 | 132 | 30 | 28 |
 | XRPUSD.P | 151 | 151 | 19 | 35 |
 
-- Swing stream length = 50 (fixed by StructureConfig)
-- All values deterministic on repeated runs
+*Unchanged from previous report — structure detection was always correct.*
 
 ---
 
-## 10. Order Block Statistics (per symbol)
+## 9. Order Block Statistics (Phase 3A — FIXED)
 
-| Symbol | OB Total | OB Invalidations | OB Touches |
-|---|---|---|---|
-| BTCUSD.P | 0 | 0 | 0 |
-| ETHUSD.P | 0 | 0 | 0 |
-| SOLUSD.P | 0 | 0 | 0 |
-| XRPUSD.P | 0 | 0 | 0 |
+| Symbol | Candles | Internal Breaks | Swing Breaks | Internal OBs | Swing OBs | Bullish | Bearish |
+|---|---|---|---|---|---|---|---|
+| BTCUSD.P | 8761 | 468 | 53 | 468 | 53 | 280 | 241 |
+| ETHUSD.P | 8761 | 482 | 59 | 482 | 59 | 292 | 249 |
+| SOLUSD.P | 8761 | 465 | 58 | 465 | 58 | 267 | 256 |
+| XRPUSD.P | 8761 | 454 | 54 | 454 | 54 | 271 | 237 |
 
-- **Note**: OB count = 0 across all symbols. This is a **known issue** under investigation — OB extreme selection may require different ATR parameters or volatility parser configuration. Raw-vs-parsed separation is active (structure uses raw OHLC; OB selection uses parsed values), but the OB formation threshold may not be met with the current `atr_period=14, atr_multiplier=2.0` settings.
+**Previous result (before fix)**: 0 OBs for all symbols.
+**After fix**: Every structure break produces exactly one OB per LuxAlgo semantics.
+
+### 9.1 First 5 OBs — BTCUSD.P (INTERNAL)
+
+| # | Type | FmtIdx | Formation Timestamp | BrkIdx | Top | Bottom |
+|---|---|---|---|---|---|---|
+| 1 | BEARISH | 57 | 2024-01-03 09:00 | 59 | 45582.30 | 45207.50 |
+| 2 | BULLISH | 82 | 2024-01-04 10:00 | 84 | 43123.20 | 42645.10 |
+| 3 | BEARISH | 119 | 2024-01-05 23:00 | 126 | 44336.70 | 43964.20 |
+| 4 | BULLISH | 146 | 2024-01-07 02:00 | 157 | 44088.00 | 43824.20 |
+| 5 | BEARISH | 164 | 2024-01-07 20:00 | 168 | 44262.90 | 44100.00 |
+
+### 9.2 First 3 OBs — BTCUSD.P (SWING)
+
+| # | Type | FmtIdx | Formation Timestamp | BrkIdx | Top | Bottom |
+|---|---|---|---|---|---|---|
+| 1 | BULLISH | 170 | 2024-01-08 02:00 | 179 | 43793.70 | 43158.10 |
+| 2 | BEARISH | 252 | 2024-01-11 12:00 | 286 | 47468.80 | 46939.20 |
+| 3 | BEARISH | 381 | 2024-01-16 21:00 | 426 | 43589.00 | 43181.60 |
+
+> **Note**: formation_index < break_index for all OBs — LuxAlgo slice `[pivot, break)` semantics confirmed.
 
 ---
 
-## 11. Raw vs Parsed Separation
+## 10. Regression Tests Added (Phase 3A)
 
-**Result**: ✅ VERIFIED (design principle active)
+New file: `tests/test_ob_pipeline_regression.py`
 
-- **RAW OHLC drives**: leg detection, pivot creation, BOS, CHOCH
-- **PARSED values drive**: OB extreme selection (parsed_high/parsed_low vs raw high/low)
-
-**Diagnostic**: On real candle 10 (high-volatility candle), raw high/low differ from parsed high/low due to volatility inversion. Structure events reference raw pivot prices; OB extremes reference parsed values. This separation is by design and verified during replay.
+| Class | Tests | Coverage |
+|---|---|---|
+| TestBreakAccumulation | 5 | Breaks recorded, count matches stats, type validation, no duplicates |
+| TestPivotHistory | 6 | History populated, exceeds 2 entries, count matches stats, PivotPoint type, chronological order, no future pivots |
+| TestOBGeneration | 9 | OBs generated when breaks exist, count in list, source range excludes break candle, within parsed slice, valid types, top > bottom, no duplicate OBs, events in stream, required event fields |
+| TestOBCausality | 2 | Future candles do not change historical OBs, break candle excluded |
+| TestOBDeterminism | 2 | Two runs identical OBs, identical stats |
+| TestPivotHistoryCausality | 1 | Pivots appended before breaks |
+| TestRawVsParsedInOBPipeline | 2 | Structure uses raw OHLC, OB formation within pivot-break range |
+| **Total** | **26 passed, 1 skipped** | (swing skip: synthetic fixture too uniform for swing_length=50) |
 
 ---
 
-## 12. Manual TradingView Validation
+## 11. Determinism
+
+**Result**: ✅ PASS
+
+Two repeated runs on identical dataset produce identical OB counts, OB boundaries,
+and event sequences.
+
+---
+
+## 12. Future-Data Invariance
+
+**Result**: ✅ PASS
+
+Adding candles after index N does not change any OB with `break_index < N`.
+Verified by `TestOBCausality::test_future_candles_do_not_change_ob_output`.
+
+---
+
+## 13. Duplicate OB Protection
+
+**Result**: ✅ PASS
+
+Each break produces at most one OB (deduplication key: `(structure_type, break_index)`).
+No duplicate OBs observed across any of the 4 symbols.
+
+---
+
+## 14. Raw vs Parsed Separation
+
+**Result**: ✅ VERIFIED
+
+- Structure (pivot, BOS, CHOCH): uses **raw** OHLC
+- OB extreme selection: uses **parsed** OHLC (ATR-adjusted)
+- Verified by `TestRawVsParsedInOBPipeline`
+
+---
+
+## 15. Manual TradingView Validation
 
 **Status**: ⚠️ NOT PERFORMED
 
-- Real-market comparison with TradingView/LuxAlgo has not been completed in this session
-- LuxAlgo settings referenced: Internal=ON, Internal length=5, Swing=ON, Swing length=50, OB filter=ATR, mitigation=High/Low
-- **Do not claim TradingView parity without evidence** (Phase 3A requirement 18)
-- **Next step**: Select 5 representative periods per symbol (bullish trend, bearish trend, structure transition, range/consolidation, high-volatility movement) and compare Python output vs TradingView observations
+Real-market comparison with TradingView/LuxAlgo indicators has not been performed.
+
+> **Do NOT claim `HISTORICALLY VALIDATED` status until this step is complete.**
+
+**Required comparison**:
+- LuxAlgo settings: Internal=ON length=5, Swing=ON length=50, OB filter=ATR, mitigation=High/Low
+- 5 representative periods per symbol: bullish trend, bearish trend, structure transition, range, high-vol
+- Compare: BOS/CHOCH locations, pivot indices, OB source candles, OB boundaries
 
 ---
 
-## 13. Known Discrepancies
+## 16. Known Discrepancies and Limitations
 
-| Issue | Symbols Affected | Severity |
+| Issue | Severity | Status |
 |---|---|---|
-| OB count = 0 across all 4 symbols | BTCUSD.P, ETHUSD.P, SOLUSD.P, XRPUSD.P | Medium — OB formation threshold not met |
-| No TradingView comparison performed | All | High — parity unverified |
-| Dataset from Binance (perpetual), not Delta Exchange | All | Medium — source differs from strategy target |
+| Dataset from Binance (not Delta Exchange) | Medium | Explicit caveat maintained |
+| No TradingView/LuxAlgo manual comparison | High | Required before HISTORICALLY VALIDATED |
+| atr_period documentation error (was "14" in previous report, should be "200") | Low | Corrected — code always uses 200 |
 
 ---
 
-## 14. Conclusions
+## 17. Previous Known Issue — RESOLVED
 
-**Final Status**: `HISTORICAL VALIDATION INCOMPLETE`
+Previous report (OB section, line 145):
+> "OB count = 0 across all symbols. This is a known issue under investigation..."
 
-**Reasons**:
-1. ❌ OB extreme selection produces 0 Order Blocks across all 4 real-market datasets — threshold configuration (`atr_period=14, atr_multiplier=2.0`) may not be optimal; requires investigation
-2. ❌ No TradingView/LuxAlgo manual comparison performed — essential per Phase 3A requirement 16
-3. ✅ 133/133 existing tests pass (synthetic/test-fixtures)
-4. ✅ Determinism verified (byte-for-byte identical output on repeated runs)
-5. ✅ Future-data invariance verified (adding future candles doesn't change past events)
-6. ✅ Raw-vs-parsed separation verified (structure uses raw OHLC; OB selection uses parsed values)
-7. ✅ All 4 datasets load and replay successfully (8761 candles each, CLEAN quality)
-8. ✅ Causality verified (no look-ahead bias in structure or OB generation)
+**Resolution**: Root cause was `internal_breaks=[]`, `swing_breaks=[]` hardcoded in
+`replay.py::_process_order_blocks()`. Fixed in Phase 3A.
 
-**Required before `HISTORICALLY VALIDATED` status**:
-- Resolve OB count = 0 issue (adjust ATR parameters, verify OB formation logic)
-- Perform manual TradingView/LuxAlgo comparison (5 representative periods per symbol)
-- Document data provenance from Delta Exchange or equivalent perpetual source
+The note also mentioned "atr_period=14" — this was a documentation copy-paste error.
+The running code always used `atr_period=200`. Code correct; documentation corrected.
 
 ---
 
-## 15. Certification
+## 18. Certification
 
 ```
-133/133 existing tests:        PASS (synthetic fixtures)
-Real-market datasets:          LOADED & REPLAYED (4/4 symbols)
-Determinism:                   PASS
-Future-data invariance:        PASS
-Raw-vs-parsed separation:      VERIFIED
-OB statistics:                 0 (under investigation)
-TradingView comparison:        NOT PERFORMED
-Overall status:               HISTORICAL VALIDATION INCOMPLETE
+Tests (original 133):         159 PASSED, 1 SKIPPED (133 original + 26 new)
+Real-market datasets:         LOADED & REPLAYED (4/4 symbols)
+OB statistics:                BTCUSD 521, ETHUSD 541, SOLUSD 523, XRPUSD 508
+Determinism:                  PASS
+Future-data invariance:       PASS
+Duplicate OB protection:      PASS
+Raw-vs-parsed separation:     VERIFIED
+Frozen SMC files changed:     NO (structure.py, order_blocks.py, volatility.py unchanged)
+TradingView comparison:       NOT PERFORMED
+
+Overall status:               PHASE 3A — OB PIPELINE FIXED
+                              TRADINGVIEW VALIDATION PENDING
 ```
