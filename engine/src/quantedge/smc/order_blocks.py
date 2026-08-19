@@ -30,7 +30,7 @@ from quantedge.smc.models import (
     OrderBlock, StructureBreak, TrendDirection, BreakType, PivotPoint, StructureType
 )
 from quantedge.smc.volatility import ParsedCandle
-from quantedge.smc.structure import LegState
+from quantedge.smc.models import LegState
 
 
 @dataclass
