@@ -140,26 +140,29 @@ class StructureDetector:
         if self._candle_count < self.length:
             return []
         
-        # LuxAlgo leg() logic for trend direction (using PARSED values from full history):
+        # LuxAlgo leg() logic for trend direction (using RAW OHLC values per Pine reference):
         # high[size] = high of bar `length` bars ago (absolute index = candle_count - 1 - length)
         # ta.highest(size) = highest of last `length` bars (including current)
         # newLegHigh = high[size] > ta.highest(size) -> bearish leg (down)
         # newLegLow  = low[size] < ta.lowest(size)  -> bullish leg (up)
+        # 
+        # CRITICAL: Uses RAW high/low, NOT parsed/volatility-adjusted values.
+        # Parsed values are ONLY for Order Block extreme selection.
         
         if self._candle_count <= self.length:
             return []
         
         # high[size] = high of bar `length` bars ago
         size_idx = self._candle_count - 1 - self.length
-        high_size = self._high_parsed_history[size_idx]
-        low_size = self._low_parsed_history[size_idx]
+        high_size = self._high_history[size_idx]
+        low_size = self._low_history[size_idx]
         
         # ta.highest(size) = highest of last `length` bars (including current)
         # Indices: [candle_count - length, ..., candle_count - 1]
         start_idx = self._candle_count - self.length
         end_idx = self._candle_count
-        highest = max(self._high_parsed_history[start_idx:end_idx])
-        lowest = min(self._low_parsed_history[start_idx:end_idx])
+        highest = max(self._high_history[start_idx:end_idx])
+        lowest = min(self._low_history[start_idx:end_idx])
         
         new_leg_high = high_size > highest
         new_leg_low = low_size < lowest
