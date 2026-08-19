@@ -67,7 +67,7 @@ class TestCausality:
     def setup_method(self):
         """Create test fixtures."""
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
+        self.data_dir = self.temp_dir / "BTCUSD.P" / "1h"
         self.data_dir.mkdir(parents=True)
         
         # Create test data
@@ -148,13 +148,13 @@ class TestCausality:
 
 class TestDeterminism:
     """Tests that verify deterministic replay output."""
-    
+
     def setup_method(self):
         """Create test fixtures."""
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
+        self.data_dir = self.temp_dir / "BTCUSD.P" / "1h"
         self.data_dir.mkdir(parents=True)
-        
+
         # Create deterministic test data
         self.candles = create_test_candles(5000)
         self.csv_file = self.data_dir / "1h.csv"
@@ -228,12 +228,12 @@ class TestDeterminism:
 
 class TestFutureDataInvariance:
     """Tests that verify future data doesn't change past events."""
-    
+
     def setup_method(self):
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
+        self.data_dir = self.temp_dir / "BTCUSD.P" / "1h"
         self.data_dir.mkdir(parents=True)
-        
+
         # Create base data
         self.base_candles = create_test_candles(1000)
         self.csv_file = self.data_dir / "1h.csv"
@@ -297,17 +297,17 @@ class TestFutureDataInvariance:
 
 class TestRawVsParsedSeparation:
     """Tests that verify raw-vs-parsed separation during replay."""
-    
+
     def setup_method(self):
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
+        self.data_dir = self.temp_dir / "BTCUSD.P" / "1h"
         self.data_dir.mkdir(parents=True)
-        
+
         # Create candles with one high-volatility candle
         self.candles = []
         base_time = datetime(2024, 1, 1, 0, 0, 0)
         base_price = Decimal("50000")
-        
+
         for i in range(20):
             if i == 10:
                 # High volatility candle
@@ -322,7 +322,7 @@ class TestRawVsParsedSeparation:
                 high_p = max(open_p, close_p) + Decimal("10")
                 low_p = min(open_p, close_p) - Decimal("10")
                 vol = Decimal("1000")
-            
+
             candle = Candle(
                 symbol="BTCUSD.P",
                 timeframe=Timeframe.H1,
@@ -331,10 +331,7 @@ class TestRawVsParsedSeparation:
                 volume=vol, source=MarketDataSource.HISTORICAL
             )
             self.candles.append(candle)
-        
-        self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
-        self.data_dir.mkdir(parents=True)
+
         create_test_csv(self.data_dir / "1h.csv", self.candles)
     
     def teardown_method(self):
@@ -391,10 +388,10 @@ class TestRawVsParsedSeparation:
 
 class TestEventOrdering:
     """Tests that verify correct event ordering."""
-    
+
     def setup_method(self):
         self.temp_dir = Path(tempfile.mkdtemp())
-        self.data_dir = self.temp_dir / "BTCUSD.P"
+        self.data_dir = self.temp_dir / "BTCUSD.P" / "1h"
         self.data_dir.mkdir(parents=True)
         self.candles = create_test_candles(1000)
         self.csv_file = self.data_dir / "1h.csv"
@@ -478,7 +475,7 @@ class TestReplayDeterminism:
     def test_byte_for_byte_identical_output(self):
         """Two runs produce identical events."""
         temp_dir = Path(tempfile.mkdtemp())
-        data_dir = temp_dir / "BTCUSD.P"
+        data_dir = temp_dir / "BTCUSD.P" / "1h"
         data_dir.mkdir(parents=True)
         
         candles = create_test_candles(1000)

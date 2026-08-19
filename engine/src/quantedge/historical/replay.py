@@ -363,7 +363,7 @@ class HistoricalReplayEngine:
         
         # Track leg changes
         if state.current_leg != self.swing_state.current_leg and self.swing_state.current_leg != 0:
-            self._handle_swing_leg_change(parsed_candle)
+            self._handle_swing_leg_change(candle_index, parsed_candle)
         
         self.swing_state.current_leg = state.current_leg
         self.swing_state.previous_leg = state.previous_leg

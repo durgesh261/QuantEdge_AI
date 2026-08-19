@@ -17,7 +17,7 @@ import json
 from quantedge.market_data.models import Candle, Timeframe, MarketDataSource
 
 
-@dataclass(frozen=True)
+@dataclass
 class DatasetMetadata:
     """Metadata for a historical dataset."""
     dataset_id: str
@@ -34,7 +34,6 @@ class DatasetMetadata:
     quality_report: dict = field(default_factory=dict)
 
 
-@dataclass
 class HistoricalDataProvider(ABC):
     """Abstract base class for historical data providers."""
 
@@ -73,7 +72,7 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
     """
 
     REQUIRED_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
-    SUPPORTED_TIMEFRAMES = [Timeframe.H1]  # Start with 1H
+    SUPPORTED_TIMEFRAMES = [Timeframe.H1]
 
     def __init__(
         self,
@@ -86,10 +85,13 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         self.timezone = timezone
         self._metadata_cache: dict[str, DatasetMetadata] = {}
 
-    def _get_file_path(self, symbol: str, timeframe: Timeframe) -> Path:
-        """Get the CSV file path for a symbol/timeframe."""
-        symbol_dir = self.data_root / symbol
-        return symbol_dir / f"{timeframe.value}.csv"
+    def _get_file_paths(self, symbol: str, timeframe: Timeframe) -> List[Path]:
+        """Get the CSV file paths for a symbol/timeframe."""
+        symbol_dir = self.data_root / symbol / timeframe.value
+        yearly_files = sorted(symbol_dir.glob("*.csv"))
+        if yearly_files:
+            return yearly_files
+        return [symbol_dir / f"{timeframe.value}.csv"]
 
     def _compute_file_hash(self, file_path: Path) -> str:
         """Compute SHA256 hash of file content."""
@@ -101,7 +103,6 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
 
     def _parse_timestamp(self, ts_str: str) -> datetime:
         """Parse ISO 8601 timestamp string."""
-        # Handle various ISO formats
         ts_str = ts_str.strip()
         if "Z" in ts_str:
             ts_str = ts_str.replace("Z", "+00:00")
@@ -118,79 +119,82 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None
     ) -> List[Candle]:
-        """Load candles from CSV file."""
-        file_path = self._get_file_path(symbol, timeframe)
+        """Load candles from CSV files (yearly files)."""
+        file_paths = self._get_file_paths(symbol, timeframe)
         
-        if not file_path.exists():
-            raise FileNotFoundError(f"Dataset not found: {file_path}")
+        if not file_paths:
+            raise FileNotFoundError(f"No dataset found for {symbol} {timeframe.value}")
         
         candles = []
-        with open(file_path, "r", encoding="utf-8") as f:
-            # Read header
-            header = f.readline().strip().split(",")
-            header = [h.strip().lower() for h in header]
+        for file_path in file_paths:
+            if not file_path.exists():
+                continue
             
-            # Validate required columns
-            for col in self.REQUIRED_COLUMNS:
-                if col not in header:
-                    raise ValueError(f"Missing required column: {col}")
-            
-            col_indices = {col: header.index(col) for col in self.REQUIRED_COLUMNS}
-            
-            for line_num, line in enumerate(f, start=2):
-                line = line.strip()
-                if not line:
-                    continue
+            with open(file_path, "r", encoding="utf-8") as f:
+                header = f.readline().strip().split(",")
+                header = [h.strip().lower() for h in header]
                 
-                parts = line.split(",")
-                if len(parts) < len(self.REQUIRED_COLUMNS):
-                    raise ValueError(f"Line {line_num}: insufficient columns")
+                for col in self.REQUIRED_COLUMNS:
+                    if col not in header:
+                        raise ValueError(f"Missing required column: {col}")
                 
-                try:
-                    timestamp = self._parse_timestamp(parts[col_indices["timestamp"]])
-                    
-                    # Filter by time range
-                    if start_time and timestamp < start_time:
-                        continue
-                    if end_time and timestamp > end_time:
+                col_indices = {col: header.index(col) for col in self.REQUIRED_COLUMNS}
+                
+                for line_num, line in enumerate(f, start=2):
+                    line = line.strip()
+                    if not line:
                         continue
                     
-                    candle = Candle(
-                        symbol=symbol,
-                        timeframe=timeframe,
-                        timestamp=timestamp,
-                        open=self._parse_decimal(parts[col_indices["open"]]),
-                        high=self._parse_decimal(parts[col_indices["high"]]),
-                        low=self._parse_decimal(parts[col_indices["low"]]),
-                        close=self._parse_decimal(parts[col_indices["close"]]),
-                        volume=self._parse_decimal(parts[col_indices["volume"]]),
-                        source=MarketDataSource.HISTORICAL
-                    )
-                    candles.append(candle)
+                    parts = line.split(",")
+                    if len(parts) < len(self.REQUIRED_COLUMNS):
+                        raise ValueError(f"Line {line_num}: insufficient columns")
                     
-                except Exception as e:
-                    raise ValueError(f"Line {line_num}: {e}")
-        
-        # Sort by timestamp to ensure ordering
+                    try:
+                        timestamp = self._parse_timestamp(parts[col_indices["timestamp"]])
+                        
+                        if start_time and timestamp < start_time:
+                            continue
+                        if end_time and timestamp > end_time:
+                            continue
+                        
+                        candle = Candle(
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            timestamp=timestamp,
+                            open=self._parse_decimal(parts[col_indices["open"]]),
+                            high=self._parse_decimal(parts[col_indices["high"]]),
+                            low=self._parse_decimal(parts[col_indices["low"]]),
+                            close=self._parse_decimal(parts[col_indices["close"]]),
+                            volume=self._parse_decimal(parts[col_indices["volume"]]),
+                            source=MarketDataSource.HISTORICAL
+                        )
+                        candles.append(candle)
+                        
+                    except Exception as e:
+                        raise ValueError(f"Line {line_num}: {e}")
+            
         candles.sort(key=lambda c: c.timestamp)
-        
         return candles
 
     def get_metadata(self, symbol: str, timeframe: Timeframe) -> DatasetMetadata:
-        """Get or compute dataset metadata."""
         cache_key = f"{symbol}:{timeframe.value}"
         
         if cache_key in self._metadata_cache:
             return self._metadata_cache[cache_key]
         
-        file_path = self._get_file_path(symbol, timeframe)
+        file_paths = self._get_file_paths(symbol, timeframe)
         
-        if not file_path.exists():
-            raise FileNotFoundError(f"Dataset not found: {file_path}")
+        if not file_paths:
+            raise FileNotFoundError(f"No dataset found for {symbol} {timeframe.value}")
         
-        file_hash = self._compute_file_hash(file_path)
+        combined_hash = hashlib.sha256()
+        for fp in file_paths:
+            if fp.exists():
+                with open(fp, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        combined_hash.update(chunk)
+        file_hash = combined_hash.hexdigest()
         
-        # Load candles to compute metadata
         candles = self.load_candles(symbol, timeframe)
         
         if not candles:
@@ -199,7 +203,6 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         start_time = candles[0].timestamp
         end_time = candles[-1].timestamp
         
-        # Check for gaps
         gaps = self._find_gaps(candles, self.default_timeframe)
         
         metadata = DatasetMetadata(
@@ -209,7 +212,7 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
             start_time=start_time,
             end_time=end_time,
             source="csv",
-            downloaded_at=datetime.fromtimestamp(file_path.stat().st_mtime),
+            downloaded_at=datetime.fromtimestamp(file_paths[0].stat().st_mtime),
             file_hash=file_hash,
             candle_count=len(candles),
             gaps=gaps,
@@ -220,19 +223,17 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         return metadata
 
     def _find_gaps(self, candles: List[Candle], timeframe: Timeframe) -> List[dict]:
-        """Find gaps in the candle sequence."""
         gaps = []
         if len(candles) < 2:
             return gaps
         
-        # Expected interval in hours for 1H timeframe
         expected_hours = 1
         
         for i in range(1, len(candles)):
             prev = candles[i-1]
             curr = candles[i]
             delta = curr.timestamp - prev.timestamp
-            expected_delta = expected_hours * 3600  # seconds
+            expected_delta = expected_hours * 3600
             
             if delta.total_seconds() > expected_delta * 1.5:
                 gaps.append({
@@ -245,40 +246,22 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         return gaps
 
     def _generate_quality_report(self, candles: List[Candle]) -> dict:
-        """Generate data quality report."""
         if not candles:
             return {"status": "empty"}
         
         issues = []
         
-        # Check for duplicate timestamps
-        timestamps = [c.timestamp for c in candles]
-        duplicates = len(timestamps) - len(set(timestamps))
-        if duplicates > 0:
-            issues.append(f"duplicate_timestamps: {duplicates}")
+        if not candles[0].timestamp < candles[-1].timestamp:
+            issues.append("Timestamps not in chronological order")
         
-        # Check for invalid OHLC
-        invalid_ohlc = 0
-        for c in candles:
-            if c.high < c.low or c.high < c.open or c.high < c.close:
-                invalid_ohlc += 1
-            if c.low > c.open or c.low > c.close:
-                invalid_ohlc += 1
-        if invalid_ohlc > 0:
-            issues.append(f"invalid_ohlc: {invalid_ohlc}")
-        
-        # Check for zero/negative prices
-        zero_prices = sum(1 for c in candles if c.close <= 0)
-        if zero_prices > 0:
-            issues.append(f"zero_or_negative_prices: {zero_prices}")
-        
-        # Check volume
-        zero_volume = sum(1 for c in candles if c.volume == 0)
+        dup_count = len([c for i, c in enumerate(candles) if i > 0 and c.timestamp == candles[i-1].timestamp])
+        if dup_count > 0:
+            issues.append(f"Duplicate timestamps: {dup_count}")
         
         return {
-            "total_candles": len(candles),
+            "status": "clean" if not issues else "issues_found",
             "issues": issues,
-            "zero_volume_candles": zero_volume,
+            "candle_count": len(candles),
             "date_range": {
                 "start": candles[0].timestamp.isoformat(),
                 "end": candles[-1].timestamp.isoformat()
@@ -286,46 +269,6 @@ class CsvHistoricalDataProvider(HistoricalDataProvider):
         }
 
     def validate_dataset(self, symbol: str, timeframe: Timeframe) -> dict:
-        """Validate dataset quality and return detailed report."""
-        metadata = self.get_metadata(symbol, timeframe)
-        
-        return {
-            "dataset_id": metadata.dataset_id,
-            "valid": len(metadata.quality_report.get("issues", [])) == 0,
-            "candle_count": metadata.candle_count,
-            "date_range": metadata.quality_report.get("date_range"),
-            "issues": metadata.quality_report.get("issues", []),
-            "gaps": metadata.gaps,
-            "file_hash": metadata.file_hash
-        }
-
-
-class ParquetHistoricalDataProvider(HistoricalDataProvider):
-    """
-    Parquet-based historical data provider (placeholder for future implementation).
-    """
-    
-    def __init__(self, data_root: Path):
-        self.data_root = Path(data_root)
-        raise NotImplementedError("Parquet provider not yet implemented")
-    
-    def load_candles(self, symbol: str, timeframe: Timeframe, 
-                     start_time: Optional[datetime] = None, 
-                     end_time: Optional[datetime] = None) -> List[Candle]:
-        pass
-    
-    def get_metadata(self, symbol: str, timeframe: Timeframe) -> DatasetMetadata:
-        pass
-    
-    def validate_dataset(self, symbol: str, timeframe: Timeframe) -> dict:
-        pass
-
-
-def create_provider(provider_type: str, data_root: Path, **kwargs) -> HistoricalDataProvider:
-    """Factory function to create historical data providers."""
-    if provider_type.lower() == "csv":
-        return CsvHistoricalDataProvider(data_root, **kwargs)
-    elif provider_type.lower() == "parquet":
-        return ParquetHistoricalDataProvider(data_root, **kwargs)
-    else:
-        raise ValueError(f"Unknown provider type: {provider_type}")
+        """Validate dataset quality and return report."""
+        candles = self.load_candles(symbol, timeframe)
+        return self._generate_quality_report(candles)

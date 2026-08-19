@@ -8,8 +8,7 @@ for deterministic SMC validation against historical market data.
 from .provider import (
     HistoricalDataProvider,
     CsvHistoricalDataProvider,
-    DatasetMetadata,
-    create_provider
+    DatasetMetadata
 )
 
 from .events import (
@@ -37,7 +36,6 @@ __all__ = [
     "HistoricalDataProvider",
     "CsvHistoricalDataProvider",
     "DatasetMetadata",
-    "create_provider",
     # Events
     "JsonlEventWriter",
     "load_events_from_jsonl",
