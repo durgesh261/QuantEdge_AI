@@ -83,3 +83,25 @@ legacy/
 *.key
 *.crt
 secrets/
+
+# Engine — historical data (large CSV files, not committed)
+engine/data/
+
+# Engine — validation output (generated artifacts)
+engine/validation_output/
+engine/validation_output_*/
+
+# Engine — one-off scratch/debug scripts (not production)
+engine/pytest_output.txt
+engine/det_test/
+engine/fi_test/
+engine/check_bytes.py
+engine/check_docstring.py
+engine/check_sig.py
+engine/test_parse.py
+engine/fix_indent.py
+engine/fix_indent2.py
+engine/fix_docstring.py
+engine/fix_test.py
+engine/design_fixtures.py
+engine/debug_structure.py
