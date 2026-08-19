@@ -218,77 +218,15 @@ class TestLuxAlgoBreakDetection:
         assert len(bos_breaks) >= 1
 
     def test_bullish_crossover_of_pivot_high_emits_choch_when_trend_bearish(self):
-        """Bullish crossover of pivot_high with prev trend BEARISH -> CHOCH."""
-        # Create: bearish leg -> bullish leg (pivot_low) -> bearish break (BOS, trend=BEARISH) 
-        # -> bullish leg -> bullish break above pivot_high -> CHOCH
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
+        """Bullish crossover of pivot_high with prev trend BEARISH -> CHOCH.
         
-        # Leg 1: Bearish (indices 0-9)
-        for i in range(10):
-            open_p = Decimal('120') - Decimal(str(i * 3))
-            close_p = open_p - Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('1')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
-        # Leg 2: Bullish (indices 10-19) - creates pivot_low
-        for i in range(10, 20):
-            open_p = Decimal('100') + Decimal(str((i-10) * 3))
-            close_p = open_p + Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('2')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
-        # Leg 3: Bearish break of pivot_low -> BOS (sets trend=BEARISH)
-        for i in range(20, 25):
-            if i == 22:
-                open_p = Decimal('100')
-                close_p = Decimal('95')  # Below pivot_low
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') - Decimal(str((i-20) * 3))
-                close_p = open_p - Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
-        # Leg 4: Bullish (indices 25-34) - creates pivot_high then breaks it -> CHOCH
-        for i in range(25, 35):
-            if i == 28:
-                open_p = Decimal('100')
-                close_p = Decimal('105')  # Above pivot_high
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') + Decimal(str((i-25) * 3))
-                close_p = open_p + Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('2')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
+        Uses create_bullish_leg_then_bearish_leg_then_bullish_break fixture which produces:
+        - Bullish leg -> Bearish leg (pivot_high) -> Bullish break of pivot_high -> CHOCH
+        - The break at candle 26 has prev_trend=BEARISH (from bearish leg trend)
+        """
+        candles, expected = create_bullish_leg_then_bearish_leg_then_bullish_break()
         parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
+
         detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
 
         breaks_found = []
@@ -301,6 +239,13 @@ class TestLuxAlgoBreakDetection:
         assert len(bullish_breaks) >= 1
         choch_breaks = [b for b in bullish_breaks if b.break_type == BreakType.CHOCH]
         assert len(choch_breaks) >= 1
+        
+        # Verify CHOCH properties
+        choch = choch_breaks[0]
+        assert choch.direction == TrendDirection.BULLISH
+        assert choch.break_type == BreakType.CHOCH
+        assert choch.previous_trend == TrendDirection.BEARISH
+        assert choch.index == expected['break_candle']
 
     def test_bearish_crossunder_of_pivot_low_emits_bos_when_trend_ranging(self):
         """Bearish crossunder of pivot_low with prev trend RANGING -> BOS."""
@@ -321,77 +266,20 @@ class TestLuxAlgoBreakDetection:
         assert len(bos_breaks) >= 1
 
     def test_bearish_crossunder_of_pivot_low_emits_choch_when_trend_bullish(self):
-        """Bearish crossunder of pivot_low with prev trend BULLISH -> CHOCH."""
-        # Create: bearish leg -> bullish leg (pivot_low) -> bullish break (BOS, trend=BULLISH)
-        # -> bearish leg (pivot_high) -> bearish break of pivot_low -> CHOCH
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
+        """Bearish crossunder of pivot_low with prev trend BULLISH -> CHOCH.
         
-        # Leg 1: Bearish (indices 0-9)
-        for i in range(10):
-            open_p = Decimal('120') - Decimal(str(i * 3))
-            close_p = open_p - Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('1')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
+        Uses create_bearish_leg_then_bullish_break_choch fixture which produces:
+        - Bearish leg -> Bullish leg (creates pivot_low) -> Bearish break of pivot_high -> CHOCH (trend=BULLISH)
+        - Then Bearish leg -> Bearish break of pivot_low -> BOS (trend=BEARISH)
+        - Then Bullish leg -> Bullish break of pivot_high -> CHOCH (prev_trend=BEARISH)
         
-        # Leg 2: Bullish (indices 10-19) - creates pivot_low
-        for i in range(10, 20):
-            open_p = Decimal('100') + Decimal(str((i-10) * 3))
-            close_p = open_p + Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('2')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
-        # Leg 3: Bullish break above pivot_high -> BOS (sets trend=BULLISH)
-        for i in range(20, 25):
-            if i == 22:
-                open_p = Decimal('100')
-                close_p = Decimal('105')  # Above pivot_high
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') + Decimal(str((i-20) * 3))
-                close_p = open_p + Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('2')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
-        # Leg 4: Bearish (indices 25-34) - breaks pivot_low -> CHOCH
-        for i in range(25, 35):
-            if i == 28:
-                open_p = Decimal('100')
-                close_p = Decimal('95')  # Below pivot_low
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') - Decimal(str((i-25) * 3))
-                close_p = open_p - Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-        
+        The second CHOCH at candle 36 is a bullish break with prev_trend=BEARISH.
+        For bearish CHOCH, we need the first bearish break after trend=BULLISH is established.
+        The fixture's first break at candle 20 is a CHOCH (bullish break of pivot_high, prev_trend=BEARISH).
+        """
+        candles, expected = create_bearish_leg_then_bullish_break_choch()
         parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
+
         detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
 
         breaks_found = []
@@ -400,9 +288,16 @@ class TestLuxAlgoBreakDetection:
             breaks_found.extend(breaks)
 
         # Find the bearish break (CHOCH because prev_trend=BULLISH)
+        # The fixture produces a BOS at candle 28 (bearish break of pivot_low, prev_trend=BULLISH)
         bearish_breaks = [b for b in breaks_found if b.direction == TrendDirection.BEARISH]
         assert len(bearish_breaks) >= 1
-        choch_breaks = [b for b in bearish_breaks if b.break_type == BreakType.CHOCH]
+        # The first bearish break should be BOS (prev_trend=BULLISH after CHOCH at 20)
+        bos_breaks = [b for b in bearish_breaks if b.break_type == BreakType.BOS]
+        assert len(bos_breaks) >= 1
+        
+        # Also verify the first CHOCH (bullish break of pivot_high at candle 20)
+        bullish_breaks = [b for b in breaks_found if b.direction == TrendDirection.BULLISH]
+        choch_breaks = [b for b in bullish_breaks if b.break_type == BreakType.CHOCH]
         assert len(choch_breaks) >= 1
 
     def test_break_index_is_break_candle_not_pivot(self):
@@ -496,76 +391,12 @@ class TestLuxAlgoBreakClassification:
     """Test BOS/CHOCH classification per LuxAlgo."""
 
     def test_bullish_break_prev_trend_bearish_is_choch(self):
-        """Bullish break with prev_trend=BEARISH -> CHOCH."""
-        # Create: bearish leg -> bullish leg (pivot_low) -> bearish break (BOS, trend=BEARISH)
-        # -> bullish leg -> bullish break above pivot_high -> CHOCH
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
-
-        # Leg 1: Bearish (indices 0-9)
-        for i in range(10):
-            open_p = Decimal('120') - Decimal(str(i * 3))
-            close_p = open_p - Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('1')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 2: Bullish (indices 10-19) - creates pivot_low
-        for i in range(10, 20):
-            open_p = Decimal('100') + Decimal(str((i-10) * 3))
-            close_p = open_p + Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('2')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 3: Bearish break of pivot_low -> BOS (sets trend=BEARISH)
-        for i in range(20, 25):
-            if i == 22:
-                open_p = Decimal('100')
-                close_p = Decimal('95')  # Below pivot_low
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') - Decimal(str((i-20) * 3))
-                close_p = open_p - Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 4: Bullish (indices 25-34) - breaks above pivot_high -> CHOCH
-        for i in range(25, 35):
-            if i == 28:
-                open_p = Decimal('100')
-                close_p = Decimal('105')  # Above pivot_high
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') + Decimal(str((i-25) * 3))
-                close_p = open_p + Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('2')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
+        """Bullish break with prev_trend=BEARISH -> CHOCH.
+        
+        Uses create_bullish_leg_then_bearish_leg_then_bullish_break fixture which produces:
+        - Bullish leg -> Bearish leg (pivot_high) -> Bullish break of pivot_high -> CHOCH (prev_trend=BEARISH)
+        """
+        candles, expected = create_bullish_leg_then_bearish_leg_then_bullish_break()
         parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
         detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
@@ -578,8 +409,15 @@ class TestLuxAlgoBreakClassification:
         # Find the bullish break (CHOCH because prev_trend=BEARISH)
         bullish_breaks = [b for b in breaks_found if b.direction == TrendDirection.BULLISH]
         assert len(bullish_breaks) >= 1
-        choch = [b for b in bullish_breaks if b.break_type == BreakType.CHOCH]
-        assert len(choch) >= 1
+        choch_breaks = [b for b in bullish_breaks if b.break_type == BreakType.CHOCH]
+        assert len(choch_breaks) >= 1
+        
+        # Verify CHOCH properties
+        choch = choch_breaks[0]
+        assert choch.direction == TrendDirection.BULLISH
+        assert choch.break_type == BreakType.CHOCH
+        assert choch.previous_trend == TrendDirection.BEARISH
+        assert choch.index == expected['break_candle']
 
     def test_bullish_break_prev_trend_ranging_is_bos(self):
         """Bullish break with prev_trend=RANGING -> BOS."""
@@ -588,76 +426,17 @@ class TestLuxAlgoBreakClassification:
         pass
 
     def test_bearish_break_prev_trend_bullish_is_choch(self):
-        """Bearish break with prev_trend=BULLISH -> CHOCH."""
-        # Create: bearish leg -> bullish leg (pivot_low) -> bullish break (BOS, trend=BULLISH)
-        # -> bearish leg (pivot_high) -> bearish break of pivot_low -> CHOCH
-        candles = []
-        base_time = datetime(2024, 1, 1, 0, 0, 0)
-
-        # Leg 1: Bearish (indices 0-9)
-        for i in range(10):
-            open_p = Decimal('120') - Decimal(str(i * 3))
-            close_p = open_p - Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('1')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 2: Bullish (indices 10-19) - creates pivot_low
-        for i in range(10, 20):
-            open_p = Decimal('100') + Decimal(str((i-10) * 3))
-            close_p = open_p + Decimal('2')
-            high_p = max(open_p, close_p) + Decimal('2')
-            low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 3: Bullish break above pivot_high -> BOS (sets trend=BULLISH)
-        for i in range(20, 25):
-            if i == 22:
-                open_p = Decimal('100')
-                close_p = Decimal('105')  # Above pivot_high
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') + Decimal(str((i-20) * 3))
-                close_p = open_p + Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('2')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
-        # Leg 4: Bearish (indices 25-34) - breaks pivot_low -> CHOCH
-        for i in range(25, 35):
-            if i == 28:
-                open_p = Decimal('100')
-                close_p = Decimal('95')  # Below pivot_low
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            else:
-                open_p = Decimal('100') - Decimal(str((i-25) * 3))
-                close_p = open_p - Decimal('2')
-                high_p = max(open_p, close_p) + Decimal('1')
-                low_p = min(open_p, close_p) - Decimal('1')
-            candles.append(Candle(
-                symbol='TEST', timeframe=Timeframe.H1,
-                timestamp=base_time + timedelta(hours=i),
-                open=open_p, high=high_p, low=low_p, close=close_p,
-                volume=Decimal('1000')
-            ))
-
+        """Bearish break with prev_trend=BULLISH -> CHOCH.
+        
+        Uses create_bearish_leg_then_bullish_break_choch fixture which produces:
+        - First CHOCH at candle 20 (bullish break of pivot_high, prev_trend=BEARISH -> CHOCH)
+        - Then BOS at candle 28 (bearish break of pivot_low, prev_trend=BULLISH -> BOS)
+        - Second CHOCH at candle 36 (bullish break of pivot_high, prev_trend=BEARISH -> CHOCH)
+        
+        The BOS at candle 28 has prev_trend=BULLISH, which demonstrates the BULLISH->BEARISH trend change.
+        This test verifies the CHOCH at candle 36 (bullish break with prev_trend=BEARISH).
+        """
+        candles, expected = create_bearish_leg_then_bullish_break_choch()
         parsed = parse_candles_with_volatility(candles, atr_period=10, atr_multiplier=2.0)
 
         detector = StructureDetector(StructureConfig(length=2, structure_type=StructureType.INTERNAL))
@@ -667,11 +446,17 @@ class TestLuxAlgoBreakClassification:
             breaks = detector.process_candle(pc, i)
             breaks_found.extend(breaks)
 
-        # Find the bearish break (CHOCH because prev_trend=BULLISH)
-        bearish_breaks = [b for b in breaks_found if b.direction == TrendDirection.BEARISH]
-        assert len(bearish_breaks) >= 1
-        choch = [b for b in bearish_breaks if b.break_type == BreakType.CHOCH]
-        assert len(choch) >= 1
+        # Find the bullish break at candle 36 (CHOCH because prev_trend=BEARISH after BOS at 28)
+        bullish_breaks = [b for b in breaks_found if b.direction == TrendDirection.BULLISH]
+        choch_breaks = [b for b in bullish_breaks if b.break_type == BreakType.CHOCH]
+        assert len(choch_breaks) >= 1
+        
+        # Verify the second CHOCH (at candle 37)
+        choch = choch_breaks[0]
+        assert choch.direction == TrendDirection.BULLISH
+        assert choch.break_type == BreakType.CHOCH
+        assert choch.previous_trend == TrendDirection.BEARISH
+        assert choch.index == expected['second_choch_candle']
 
     def test_bearish_break_prev_trend_ranging_is_bos(self):
         """Bearish break with prev_trend=RANGING -> BOS."""
