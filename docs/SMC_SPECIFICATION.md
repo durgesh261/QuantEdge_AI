@@ -241,3 +241,115 @@ Every component must have deterministic tests with known inputs/outputs:
 - Entry price calculation (width-based)
 - OB lifecycle transitions (FRESH->TOUCHED->USED, INVALIDATED)
 - LuxAlgo slice behavior (inclusive start, exclusive end)
+
+## Fixture Design Rules
+
+These rules govern how test fixtures are constructed and used in the canonical SMC test suite.
+
+### Structure Events Must Be Causally Generated
+
+Every test fixture must produce structure events (leg transitions, pivots, BOS/CHOCH) through explicit OHLC price sequences that satisfy the exact LuxAlgo state machine conditions.
+
+**Bad fixture** (comments describe intent but OHLC doesn't produce it):
+```python
+# Candle 10: BULLISH TRANSITION
+# Need: low[8] < min(low[9], low[10])
+(Decimal('89'), Decimal('90'), Decimal('88'), Decimal('89')),  # 10: bullish
+```
+
+**Good fixture** (OHLC values actually satisfy conditions):
+```python
+# Candle 12: bullish transition - low[10]=78 < min(low[11]=79, low[12]=80)=79
+(Decimal('81'), Decimal('83'), Decimal('80'), Decimal('82')),  # 12: bullish
+```
+
+### Comments Are Not Sufficient Evidence
+
+A comment stating "pivot at index 10" is not sufficient evidence. The fixture must contain OHLC values that **actually produce** that pivot at that index when processed by the LuxAlgo state machine.
+
+### Raw OHLC Drives Structure
+
+All structure detection (legs, pivots, BOS/CHOCH) uses RAW OHLC values from the candle data. Only Order Block extreme selection uses parsed/volatility-adjusted OHLC.
+
+### Pure Monotonic Trends Do Not Imply BOS
+
+A pure monotonic trend without leg transitions produces NO structure levels and therefore NO BOS/CHOCH.
+
+**Valid negative test:**
+```
+pure monotonic sequence
+    ↓
+no pivot level
+    ↓
+no BOS/CHOCH
+```
+
+**Invalid test:** Expecting BOS in pure trend without structure level.
+
+### Leg Changes Do Not Automatically Change Trend
+
+Leg direction and structure trend are INDEPENDENT state variables.
+
+```python
+# Correct: leg change → pivot created → trend unchanged
+leg_change
+    ↓
+pivot created
+    ↓
+trend unchanged
+
+# Incorrect:
+leg_change
+    ↓
+trend change
+```
+
+Trend changes ONLY on structure breaks (BOS/CHOCH), never on leg transitions.
+
+### BOS/CHOCH Occurs on Break Candle
+
+The break event is emitted at the candle where `close` crosses the pivot level (crossover/crossunder), NOT at the pivot candle.
+
+```python
+# Crossover: previous_close <= level AND current_close > level
+# Crossunder: previous_close >= level AND current_close < level
+```
+
+### Fixture Reuse
+
+Every canonical test should use shared fixture builders from `tests/fixtures/luxalgo/__init__.py`:
+
+- `create_bearish_leg_then_bullish_leg_then_bearish_break()` - BOS fixture
+- `create_bullish_leg_then_bearish_leg_then_bullish_break()` - CHOCH fixture
+- `create_bearish_leg_then_bullish_break_choch()` - Multi-leg BOS→CHOCH
+- `create_crossed_state_test()` - Crossed state prevents duplicates
+- `create_internal_vs_swing_independence()` - Independent structures
+
+Do not duplicate OHLC sequences inline in tests.
+
+### Test Assertions Reference Fixture Expectations
+
+Each fixture returns `(candles, expected)` where `expected` contains:
+
+```python
+expected = {
+    'pivot_low_index': 10,
+    'pivot_low_price': Decimal('78'),
+    'pivot_high_index': 16,
+    'pivot_high_price': Decimal('110'),
+    'break_candle': 29,
+    'break_type': 'CHOCH',
+    'prev_trend': 'BEARISH',
+    'new_trend': 'BULLISH',
+}
+```
+
+Tests assert against these expected values, not hardcoded constants.
+
+### Obsolete Tests
+
+If any test fundamentally describes traditional left/right pivot confirmation (requiring N bars on BOTH sides before pivot is "confirmed"), replace it with a LuxAlgo-leg-based test.
+
+The canonical SMC detector uses LuxAlgo leg-based state machine, NOT traditional symmetric pivot confirmation.
+
+If historically useful, move obsolete tests to `tests/legacy/` with explicit LEGACY label.

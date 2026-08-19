@@ -7,3 +7,10 @@ strategy generation, and backtesting capabilities.
 
 __version__ = "2.0.0"
 __author__ = "QuantEdge AI Team"
+
+# Submodules
+from . import smc
+from . import market_data
+from . import historical
+from . import strategy
+from . import backtesting
