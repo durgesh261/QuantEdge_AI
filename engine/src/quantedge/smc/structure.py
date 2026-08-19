@@ -222,6 +222,8 @@ class StructureDetector:
                 crossed=False  # New pivot starts uncrossed
             )
         
+        # Track previous leg for transition detection
+        self.state.previous_leg = self.state.current_leg
         # Reset for new leg
         self.state.current_leg = new_leg
         # LEG IS NOT TREND - trend does NOT change here
