@@ -22,89 +22,82 @@ def create_bearish_leg_then_bullish_leg_then_bearish_break() -> Tuple[List[Candl
     Fixture: Bearish leg -> Bullish leg -> Bearish break (BOS)
 
     Sequence (size=2):
-    Indices 0-31 (32 candles total)
+    Indices 0-28 (29 candles total)
 
     Leg transitions (size=2):
-    - Candle 2: Bearish leg starts -> pivot_high at index 0
-    - Candle 10: Bullish leg starts -> pivot_low at index 8
-    - Candle 20: Bearish leg starts -> pivot_high at index 18
-    - Candle 30: Bearish crossunder of pivot_low -> BOS
+    - Candle 2: Bearish leg starts (first leg, no pivot)
+    - Candle 12: Bullish leg starts -> pivot_low at index 10 (low[10])
+    - Candle 18: Bearish leg starts -> pivot_high at index 16 (high[16])
+    - Candle 28: Bearish crossunder of pivot_low -> BOS (prev_trend=RANGING)
 
     Key insight: For size=2, leg transitions happen when:
-    - Bearish: high[i-2] > max(high[i-1], high[i])  (i.e., high[i-2] is highest of last 3)
-    - Bullish: low[i-2] < min(low[i-1], low[i]) (low[i-2] is lowest of last 3)
+    - Bearish: high[i-2] > max(high[i-1], high[i])
+    - Bullish: low[i-2] < min(low[i-1], low[i])
     """
     candles = []
     base_time = datetime(2024, 1, 1, 0, 0, 0)
 
-    # We need explicit price values to control leg transitions exactly
-    # Using raw OHLC values that will produce the exact leg transitions we want
-
-    # Index:  OHLC values carefully chosen to trigger leg transitions at exact candles
+    # Raw OHLC values that produce exact leg transitions at specified candles
     # Format: (open, high, low, close)
     raw_data = [
-        # Indices 0-1: Initial flat candles for history
-        (Decimal('100'), Decimal('101'), Decimal('99'), Decimal('100')),   # 0: flat
-        (Decimal('100'), Decimal('102'), Decimal('99'), Decimal('101')),   # 1: slight up
-
-        # Candle 2: Bearish leg starts - high[0] > max(high[1], high[2])
-        # high[0]=101, need high[1]<=101 and high[2]<=101
-        (Decimal('100'), Decimal('101'), Decimal('98'), Decimal('100')),   # 1: flat-ish
-        (Decimal('98'), Decimal('99'), Decimal('95'), Decimal('97')),      # 2: bearish - high[2]=99 < high[0]=101 -> BEARISH LEG at i=2
-
-        # Strong bearish continuation (candles 3-9)
-        (Decimal('97'), Decimal('98'), Decimal('93'), Decimal('96')),      # 3
-        (Decimal('96'), Decimal('97'), Decimal('92'), Decimal('95')),      # 4
-        (Decimal('95'), Decimal('96'), Decimal('91'), Decimal('94')),      # 5
-        (Decimal('94'), Decimal('95'), Decimal('90'), Decimal('93')),      # 6
-        (Decimal('93'), Decimal('94'), Decimal('89'), Decimal('92')),      # 7
-        (Decimal('92'), Decimal('93'), Decimal('88'), Decimal('91')),      # 8
-        (Decimal('91'), Decimal('92'), Decimal('87'), Decimal('90')),      # 9
-        (Decimal('90'), Decimal('91'), Decimal('85'), Decimal('89')),      # 9
-
-        # Candle 10: BULLISH TRANSITION
-        # Need: low[8] < min(low[9], low[10])
-        # low[8]=87, need low[9] > 87 and low[10] > 87
-        (Decimal('89'), Decimal('90'), Decimal('88'), Decimal('89')),      # 10: bullish, low[10]=88 > low[8]=87
-
-        # Strong bullish continuation (candles 11-19)
-        (Decimal('90'), Decimal('92'), Decimal('89'), Decimal('91')),      # 11
-        (Decimal('91'), Decimal('93'), Decimal('90'), Decimal('92')),      # 11
-        (Decimal('92'), Decimal('94'), Decimal('91'), Decimal('93')),      # 12
-        (Decimal('93'), Decimal('95'), Decimal('92'), Decimal('94')),      # 13
-        (Decimal('94'), Decimal('96'), Decimal('93'), Decimal('95')),      # 14
-        (Decimal('95'), Decimal('97'), Decimal('94'), Decimal('96')),      # 15
-        (Decimal('96'), Decimal('98'), Decimal('95'), Decimal('97')),      # 15
-        (Decimal('97'), Decimal('99'), Decimal('96'), Decimal('98')),      # 16
-        (Decimal('98'), Decimal('100'), Decimal('97'), Decimal('99')),     # 16
-        (Decimal('99'), Decimal('101'), Decimal('98'), Decimal('100')),    # 17
-        (Decimal('100'), Decimal('102'), Decimal('99'), Decimal('101')),   # 17
-        (Decimal('101'), Decimal('103'), Decimal('100'), Decimal('102')),  # 18
-        (Decimal('102'), Decimal('104'), Decimal('101'), Decimal('103')),  # 18
-        (Decimal('103'), Decimal('105'), Decimal('102'), Decimal('104')),  # 18
-
-        # Candle 18: BEARISH TRANSITION - high[16] > max(high[17], high[18])
-        # high[16]=105, need high[17] <= 105 and high[18] <= 105
-        (Decimal('102'), Decimal('103'), Decimal('98'), Decimal('101')),   # 19: high=103 < 105
-        (Decimal('100'), Decimal('101'), Decimal('95'), Decimal('99')),    # 20: high=101 < 105
-
-        # Strong bearish continuation (candles 21-28)
-        (Decimal('98'), Decimal('99'), Decimal('93'), Decimal('97')),      # 21
-        (Decimal('96'), Decimal('97'), Decimal('91'), Decimal('95')),      # 22
-        (Decimal('94'), Decimal('95'), Decimal('89'), Decimal('93')),      # 23
-        (Decimal('92'), Decimal('93'), Decimal('87'), Decimal('91')),      # 24
-        (Decimal('90'), Decimal('91'), Decimal('85'), Decimal('89')),      # 25
-        (Decimal('88'), Decimal('89'), Decimal('83'), Decimal('87')),      # 26
-        (Decimal('86'), Decimal('87'), Decimal('81'), Decimal('85')),      # 27
-
-        # Candle 28: Bearish crossunder of pivot_low (BOS)
-        # pivot_low was at index 10 (low[10]=87). Need close < 87 and prev_close >= 87
-        # Previous close at 27 = 85, current close at 28 < 87
-        (Decimal('84'), Decimal('85'), Decimal('80'), Decimal('82')),      # 28: close=82 < 87, prev=85 >= 87? No, 85 < 87. Need prev >= 87.
-        # Fix: candle 27 close should be >= 87
-        # Let me adjust candle 27: close = 88
-        (Decimal('87'), Decimal('88'), Decimal('82'), Decimal('88')),      # 27: close=88 >= 87
-        (Decimal('84'), Decimal('85'), Decimal('80'), Decimal('82')),      # 28: close=82 < 87, prev=88 >= 87 -> CROSSUNDER!
+        # 0: base high=110
+        (Decimal('108'), Decimal('110'), Decimal('105'), Decimal('108')),
+        # 1: base high=100
+        (Decimal('98'), Decimal('100'), Decimal('95'), Decimal('98')),
+        # 2: bearish start - high[0]=110 > max(high[1]=100, high[2]=95)=100
+        (Decimal('93'), Decimal('95'), Decimal('90'), Decimal('93')),
+        # 3: bearish continuation
+        (Decimal('91'), Decimal('93'), Decimal('88'), Decimal('91')),
+        # 4:
+        (Decimal('89'), Decimal('91'), Decimal('86'), Decimal('89')),
+        # 5:
+        (Decimal('87'), Decimal('89'), Decimal('84'), Decimal('87')),
+        # 6:
+        (Decimal('85'), Decimal('87'), Decimal('82'), Decimal('85')),
+        # 7:
+        (Decimal('83'), Decimal('85'), Decimal('80'), Decimal('83')),
+        # 8:
+        (Decimal('81'), Decimal('83'), Decimal('78'), Decimal('81')),
+        # 9: low=78 (raised from 76 to prevent early bullish transition at candle 11)
+        (Decimal('79'), Decimal('81'), Decimal('78'), Decimal('79')),
+        # 10: pivot_low candidate - low=78
+        (Decimal('79'), Decimal('81'), Decimal('78'), Decimal('80')),
+        # 11:
+        (Decimal('80'), Decimal('82'), Decimal('79'), Decimal('81')),
+        # 12: bullish start - low[10]=78 < min(low[11]=79, low[12]=80)=79
+        (Decimal('81'), Decimal('83'), Decimal('80'), Decimal('82')),
+        # 13: bullish continuation
+        (Decimal('82'), Decimal('84'), Decimal('81'), Decimal('83')),
+        # 14:
+        (Decimal('83'), Decimal('85'), Decimal('82'), Decimal('84')),
+        # 15:
+        (Decimal('84'), Decimal('86'), Decimal('83'), Decimal('85')),
+        # 16: pivot_high candidate - high=110
+        (Decimal('108'), Decimal('110'), Decimal('88'), Decimal('109')),
+        # 17:
+        (Decimal('98'), Decimal('100'), Decimal('90'), Decimal('98')),
+        # 18: bearish start - high[16]=110 > max(high[17]=100, high[18]=95)=100
+        (Decimal('93'), Decimal('95'), Decimal('88'), Decimal('93')),
+        # 19: bearish continuation
+        (Decimal('91'), Decimal('93'), Decimal('86'), Decimal('91')),
+        # 20:
+        (Decimal('89'), Decimal('91'), Decimal('84'), Decimal('89')),
+        # 21:
+        (Decimal('87'), Decimal('89'), Decimal('82'), Decimal('87')),
+        # 22:
+        (Decimal('85'), Decimal('87'), Decimal('80'), Decimal('85')),
+# 23:
+        (Decimal('83'), Decimal('85'), Decimal('78'), Decimal('83')),
+        # 24:
+        (Decimal('81'), Decimal('83'), Decimal('76'), Decimal('81')),
+        # 25: low=78, close=79 >= 78
+        (Decimal('79'), Decimal('81'), Decimal('78'), Decimal('79')),
+        # 26: low=78, close=80 >= 78
+        (Decimal('80'), Decimal('82'), Decimal('78'), Decimal('80')),
+        # 27: low=78, close=81 >= 78
+        (Decimal('81'), Decimal('83'), Decimal('78'), Decimal('81')),
+        # 28: crossunder - close=76 < 78, prev=81 >= 78, low=74
+        (Decimal('76'), Decimal('78'), Decimal('74'), Decimal('76')),
     ]
 
     # Build candles from raw data
@@ -117,9 +110,10 @@ def create_bearish_leg_then_bullish_leg_then_bearish_break() -> Tuple[List[Candl
         ))
 
     expected = {
-        'pivot_high_index': 0,    # At bearish leg start (candle 2, size_idx=0)
-        'pivot_low_index': 8,     # At bullish leg start (candle 10, size_idx=8)
-        'pivot_high_2_index': 16, # At second bearish start (candle 18, size_idx=16)
+        'pivot_low_index': 10,      # At bullish leg start (candle 12, size_idx=10)
+        'pivot_low_price': Decimal('78'),  # raw low[10]
+        'pivot_high_index': 16,     # At second bearish start (candle 18, size_idx=16)
+        'pivot_high_price': Decimal('110'), # raw high[16]
         'break_candle': 28,
         'break_type': 'BOS',
         'prev_trend': 'RANGING',
@@ -136,51 +130,58 @@ def create_bullish_leg_then_bearish_leg_then_bullish_break() -> Tuple[List[Candl
     1. Initial bearish (indices 0-1) to set up for bullish transition
     2. Bullish leg (indices 2-9): creates pivot_low at index 0 (low[0] at transition)
     3. Bearish leg (indices 10-17): creates pivot_high at index 8 (high[8] at transition)
-    4. Bullish leg (indices 18-25): breaks above pivot_high -> CHOCH
+    4. Bullish leg (indices 18-25): breaks above pivot_high -> CHOCH (prev_trend=BEARISH)
     """
     raw_data = [
-        # Indices 0-1: Initial bearish to set up
-        (Decimal('120'), Decimal('121'), Decimal('115'), Decimal('118')),  # 0
-        (Decimal('118'), Decimal('119'), Decimal('113'), Decimal('116')),  # 1
+        # 0-1: Initial bearish to set up
+        (Decimal('120'), Decimal('122'), Decimal('115'), Decimal('118')),  # 0: high=122
+        (Decimal('118'), Decimal('120'), Decimal('113'), Decimal('116')),  # 1: high=120
 
-        # Candle 2: BULLISH LEG starts - low[0] < min(low[1], low[2])
+        # 2: BULLISH LEG starts - low[0] < min(low[1], low[2])
         # low[0]=115, need low[1] > 115 and low[2] > 115
-        (Decimal('100'), Decimal('101'), Decimal('96'), Decimal('100')),   # 1: low=100 < 115
-        (Decimal('98'), Decimal('99'), Decimal('95'), Decimal('98')),      # 2: low=95 < 115 -> BULLISH at i=2
+        (Decimal('116'), Decimal('118'), Decimal('116'), Decimal('117')),  # 1: low=116 > 115
+        (Decimal('117'), Decimal('119'), Decimal('116'), Decimal('118')),  # 2: low=116 > 115 -> BULLISH at i=2
 
         # Strong bullish (3-8)
-        (Decimal('97'), Decimal('98'), Decimal('94'), Decimal('96')),
-        (Decimal('96'), Decimal('97'), Decimal('93'), Decimal('95')),
-        (Decimal('95'), Decimal('96'), Decimal('92'), Decimal('94')),
-        (Decimal('94'), Decimal('95'), Decimal('91'), Decimal('93')),
-        (Decimal('93'), Decimal('94'), Decimal('90'), Decimal('92')),
-        (Decimal('92'), Decimal('93'), Decimal('89'), Decimal('91')),
+        (Decimal('116'), Decimal('118'), Decimal('114'), Decimal('116')),
+        (Decimal('115'), Decimal('117'), Decimal('113'), Decimal('115')),
+        (Decimal('114'), Decimal('116'), Decimal('112'), Decimal('114')),
+        (Decimal('113'), Decimal('115'), Decimal('111'), Decimal('113')),
+        (Decimal('112'), Decimal('114'), Decimal('110'), Decimal('112')),
+        (Decimal('111'), Decimal('113'), Decimal('109'), Decimal('111')),
 
-        # Candle 8: BEARISH TRANSITION - high[6] > max(high[7], high[8])
-        # high[6]=100, need high[7]<=100, high[8]<=100
-        (Decimal('98'), Decimal('99'), Decimal('95'), Decimal('97')),      # 7
-        (Decimal('96'), Decimal('97'), Decimal('92'), Decimal('95')),      # 8: high=97 < 100
-        (Decimal('94'), Decimal('95'), Decimal('90'), Decimal('92')),      # 9: high=95 < 100
+        # 10: BEARISH TRANSITION - high[8] > max(high[9], high[10])
+        # high[8]=113, need high[9]<=113, high[10]<=113
+        (Decimal('113'), Decimal('113'), Decimal('109'), Decimal('111')),  # 9: high=113
+        (Decimal('111'), Decimal('112'), Decimal('107'), Decimal('110')),  # 10: high=112 <= 113
+        (Decimal('109'), Decimal('110'), Decimal('105'), Decimal('108')),  # 11: high=110 <= 113
 
-        # Strong bearish (10-15)
-        (Decimal('92'), Decimal('93'), Decimal('88'), Decimal('90')),
-        (Decimal('90'), Decimal('91'), Decimal('86'), Decimal('88')),
-        (Decimal('88'), Decimal('89'), Decimal('84'), Decimal('86')),
-        (Decimal('86'), Decimal('87'), Decimal('82'), Decimal('84')),
-        (Decimal('84'), Decimal('85'), Decimal('80'), Decimal('82')),
-        (Decimal('82'), Decimal('83'), Decimal('78'), Decimal('80')),
+        # Strong bearish (12-17)
+        (Decimal('109'), Decimal('110'), Decimal('103'), Decimal('108')),
+        (Decimal('107'), Decimal('108'), Decimal('101'), Decimal('106')),
+        (Decimal('105'), Decimal('106'), Decimal('99'), Decimal('104')),
+        (Decimal('103'), Decimal('104'), Decimal('97'), Decimal('102')),
+        (Decimal('101'), Decimal('102'), Decimal('95'), Decimal('100')),
+        (Decimal('99'), Decimal('100'), Decimal('93'), Decimal('98')),
 
-        # Candle 15: BULLISH TRANSITION - low[13] < min(low[14], low[15])
-        # low[13]=78, need low[14] > 78, low[15] > 78
-        (Decimal('79'), Decimal('80'), Decimal('77'), Decimal('78')),      # 14
-        (Decimal('78'), Decimal('79'), Decimal('76'), Decimal('77')),      # 15: low=76 < 78? NO, need >78. Fix: low=79
-        (Decimal('79'), Decimal('80'), Decimal('78'), Decimal('79')),      # 15: low=78 > 78? Need >. low=79
-        (Decimal('80'), Decimal('81'), Decimal('79'), Decimal('80')),      # 16
-        (Decimal('81'), Decimal('82'), Decimal('80'), Decimal('81')),      # 17
+        # 18: BULLISH TRANSITION - low[16] < min(low[17], low[18])
+        # low[16]=93, need low[17] > 93, low[18] > 93
+        (Decimal('98'), Decimal('100'), Decimal('94'), Decimal('99')),      # 17: low=94
+        (Decimal('97'), Decimal('99'), Decimal('94'), Decimal('98')),      # 18: low=94 > 93 -> BULLISH at i=18
 
-        # Candle 18: BULLISH BREAK of pivot_high (CHOCH)
-        # pivot_high was at index 8 (high[8]=100). Need close > 100 and prev_close <= 100
-        (Decimal('100'), Decimal('101'), Decimal('99'), Decimal('101')),   # 18: close=101 > 100, prev=80 <= 100 -> CHOCH!
+        # 19-25: bullish continuation
+        (Decimal('98'), Decimal('100'), Decimal('94'), Decimal('99')),
+        (Decimal('99'), Decimal('101'), Decimal('95'), Decimal('100')),
+        (Decimal('100'), Decimal('102'), Decimal('96'), Decimal('101')),
+        (Decimal('101'), Decimal('103'), Decimal('97'), Decimal('102')),
+        (Decimal('102'), Decimal('104'), Decimal('98'), Decimal('103')),
+        (Decimal('103'), Decimal('105'), Decimal('99'), Decimal('104')),
+        (Decimal('104'), Decimal('106'), Decimal('100'), Decimal('105')),
+
+        # 26: BULLISH BREAK of pivot_high (CHOCH)
+        # pivot_high was at index 8 (high[8]=113). Need close > 113 and prev_close <= 113
+        (Decimal('112'), Decimal('113'), Decimal('111'), Decimal('112')),  # 25: close=112 <= 113
+        (Decimal('114'), Decimal('115'), Decimal('113'), Decimal('114')),  # 26: close=114 > 113, prev=112 <= 113
     ]
 
     candles = []
@@ -196,7 +197,7 @@ def create_bullish_leg_then_bearish_leg_then_bullish_break() -> Tuple[List[Candl
     expected = {
         'pivot_low_index': 0,   # At bullish leg start (candle 2, size_idx=0)
         'pivot_high_index': 8,  # At bearish leg start (candle 10, size_idx=8)
-        'break_candle': 18,
+        'break_candle': 26,
         'break_type': 'CHOCH',
         'prev_trend': 'BEARISH',
         'new_trend': 'BULLISH',
@@ -209,59 +210,76 @@ def create_bearish_leg_then_bullish_break_choch() -> Tuple[List[Candle], Dict[st
     Fixture: Bearish leg -> Bullish leg -> Bearish break (BOS) -> Bullish break (CHOCH)
 
     Full 4-leg sequence (size=2):
+    1. Bearish leg (indices 2-11): creates pivot_high at index 0
+    2. Bullish leg (indices 12-19): creates pivot_low at index 10, breaks pivot_high -> CHOCH (trend=BULLISH)
+    3. Bearish leg (indices 20-27): creates pivot_high at index 18, breaks pivot_low -> BOS (trend=BEARISH)
+    4. Bullish leg (indices 28-35): breaks pivot_high -> CHOCH (prev_trend=BEARISH)
     """
     raw_data = [
-        # 0-1: Initial bullish
-        (Decimal('100'), Decimal('101'), Decimal('95'), Decimal('100')),
-        (Decimal('101'), Decimal('102'), Decimal('96'), Decimal('101')),
+        # 0-1: Initial flat
+        (Decimal('100'), Decimal('102'), Decimal('98'), Decimal('100')),
+        (Decimal('100'), Decimal('102'), Decimal('98'), Decimal('100')),
 
-        # 2: Bearish leg starts
-        (Decimal('118'), Decimal('119'), Decimal('113'), Decimal('116')),  # 2: bearish starts
-        (Decimal('116'), Decimal('117'), Decimal('111'), Decimal('114')),
-        (Decimal('114'), Decimal('115'), Decimal('109'), Decimal('112')),
-        (Decimal('112'), Decimal('113'), Decimal('107'), Decimal('110')),
-        (Decimal('110'), Decimal('111'), Decimal('105'), Decimal('108')),
-        (Decimal('108'), Decimal('109'), Decimal('103'), Decimal('106')),
-        (Decimal('106'), Decimal('107'), Decimal('101'), Decimal('104')),
-        (Decimal('104'), Decimal('105'), Decimal('99'), Decimal('102')),
-        (Decimal('102'), Decimal('103'), Decimal('97'), Decimal('100')),
-        (Decimal('100'), Decimal('101'), Decimal('95'), Decimal('98')),
+        # 2: Bearish leg starts - high[0]=102 > max(high[1]=102, high[2]=95)
+        (Decimal('93'), Decimal('95'), Decimal('90'), Decimal('93')),
 
-        # Bullish leg
-        (Decimal('98'), Decimal('99'), Decimal('94'), Decimal('97')),
-        (Decimal('97'), Decimal('98'), Decimal('93'), Decimal('96')),
-        (Decimal('96'), Decimal('97'), Decimal('92'), Decimal('95')),
-        (Decimal('95'), Decimal('96'), Decimal('91'), Decimal('93')),
-        (Decimal('93'), Decimal('94'), Decimal('89'), Decimal('91')),
-        (Decimal('91'), Decimal('92'), Decimal('87'), Decimal('89')),
-        (Decimal('89'), Decimal('90'), Decimal('85'), Decimal('87')),
-        (Decimal('87'), Decimal('88'), Decimal('83'), Decimal('85')),
-        (Decimal('85'), Decimal('86'), Decimal('81'), Decimal('83')),
-        (Decimal('83'), Decimal('84'), Decimal('79'), Decimal('81')),
+        # 3-11: bearish continuation
+        (Decimal('91'), Decimal('93'), Decimal('88'), Decimal('91')),
+        (Decimal('89'), Decimal('91'), Decimal('86'), Decimal('89')),
+        (Decimal('87'), Decimal('89'), Decimal('84'), Decimal('87')),
+        (Decimal('85'), Decimal('87'), Decimal('82'), Decimal('85')),
+        (Decimal('83'), Decimal('85'), Decimal('80'), Decimal('83')),
+        (Decimal('81'), Decimal('83'), Decimal('78'), Decimal('81')),
+        (Decimal('79'), Decimal('81'), Decimal('76'), Decimal('79')),
+        (Decimal('79'), Decimal('81'), Decimal('78'), Decimal('80')),  # 10: low=78 (pivot_low)
+        (Decimal('80'), Decimal('82'), Decimal('79'), Decimal('81')),  # 11
 
-        # Bearish break of pivot_low
-        (Decimal('81'), Decimal('82'), Decimal('77'), Decimal('79')),
-        (Decimal('79'), Decimal('80'), Decimal('75'), Decimal('77')),
-        (Decimal('77'), Decimal('78'), Decimal('73'), Decimal('75')),
-        (Decimal('75'), Decimal('76'), Decimal('71'), Decimal('73')),
-        (Decimal('73'), Decimal('74'), Decimal('69'), Decimal('71')),
-        (Decimal('71'), Decimal('72'), Decimal('67'), Decimal('69')),
-        (Decimal('69'), Decimal('70'), Decimal('65'), Decimal('67')),
-        (Decimal('67'), Decimal('68'), Decimal('63'), Decimal('65')),
-        (Decimal('65'), Decimal('66'), Decimal('61'), Decimal('63')),
-        (Decimal('63'), Decimal('64'), Decimal('59'), Decimal('61')),
+        # 12: Bullish start - low[10]=78 < min(low[11]=79, low[12]=80)=79
+        (Decimal('81'), Decimal('83'), Decimal('80'), Decimal('82')),
 
-        # Bullish break of pivot_high
-        (Decimal('61'), Decimal('62'), Decimal('57'), Decimal('59')),
-        (Decimal('59'), Decimal('60'), Decimal('55'), Decimal('57')),
-        (Decimal('57'), Decimal('58'), Decimal('53'), Decimal('55')),
-        (Decimal('55'), Decimal('56'), Decimal('51'), Decimal('53')),
-        (Decimal('53'), Decimal('54'), Decimal('49'), Decimal('51')),
-        (Decimal('51'), Decimal('52'), Decimal('47'), Decimal('49')),
-        (Decimal('49'), Decimal('50'), Decimal('45'), Decimal('47')),
-        (Decimal('47'), Decimal('48'), Decimal('43'), Decimal('45')),
-        (Decimal('45'), Decimal('46'), Decimal('41'), Decimal('43')),
-        (Decimal('43'), Decimal('44'), Decimal('39'), Decimal('41')),
+        # 13-17: bullish continuation
+        (Decimal('82'), Decimal('84'), Decimal('81'), Decimal('83')),
+        (Decimal('83'), Decimal('85'), Decimal('82'), Decimal('84')),
+        (Decimal('84'), Decimal('86'), Decimal('83'), Decimal('85')),
+        (Decimal('85'), Decimal('87'), Decimal('84'), Decimal('86')),
+        (Decimal('86'), Decimal('88'), Decimal('85'), Decimal('87')),
+
+        # 18: pivot_high - high=110
+        (Decimal('108'), Decimal('110'), Decimal('88'), Decimal('109')),
+
+        # 19: high=100
+        (Decimal('98'), Decimal('100'), Decimal('90'), Decimal('98')),
+
+        # 20: Bearish break of pivot_high -> CHOCH (trend=BULLISH)
+        # pivot_high at index 0 (high[0]=102). Need close > 102, prev_close <= 102
+        (Decimal('102'), Decimal('103'), Decimal('101'), Decimal('103')),  # 20: close=103 > 102, prev=87 <= 102 -> CHOCH
+
+        # 21-27: bearish continuation (trend=BULLISH, leg=BEARISH)
+        (Decimal('100'), Decimal('102'), Decimal('95'), Decimal('100')),
+        (Decimal('98'), Decimal('100'), Decimal('93'), Decimal('98')),
+        (Decimal('96'), Decimal('98'), Decimal('91'), Decimal('96')),
+        (Decimal('94'), Decimal('96'), Decimal('89'), Decimal('94')),
+        (Decimal('92'), Decimal('94'), Decimal('87'), Decimal('92')),
+        (Decimal('90'), Decimal('92'), Decimal('85'), Decimal('90')),
+        (Decimal('88'), Decimal('90'), Decimal('83'), Decimal('88')),
+
+        # 28: Bearish start (new leg) - high[26] > max(high[27], high[28])
+        # high[26]=102, need high[27]<=102, high[28]<=102
+        (Decimal('98'), Decimal('100'), Decimal('93'), Decimal('98')),   # 27
+        (Decimal('95'), Decimal('97'), Decimal('90'), Decimal('95')),   # 28: high=97 <= 102
+
+        # 29-35: bearish continuation
+        (Decimal('93'), Decimal('95'), Decimal('88'), Decimal('93')),
+        (Decimal('91'), Decimal('93'), Decimal('86'), Decimal('91')),
+        (Decimal('89'), Decimal('91'), Decimal('84'), Decimal('89')),
+        (Decimal('87'), Decimal('89'), Decimal('82'), Decimal('87')),
+        (Decimal('85'), Decimal('87'), Decimal('80'), Decimal('85')),
+        (Decimal('83'), Decimal('85'), Decimal('78'), Decimal('83')),
+        (Decimal('81'), Decimal('83'), Decimal('76'), Decimal('81')),
+
+        # 36: Bullish break of pivot_high -> CHOCH (prev_trend=BEARISH)
+        # pivot_high at index 26 (high[26]=102). Need close > 102, prev_close <= 102
+        (Decimal('102'), Decimal('103'), Decimal('101'), Decimal('103')), # 36: close=103 > 102
     ]
 
     candles = []
@@ -275,9 +293,9 @@ def create_bearish_leg_then_bullish_break_choch() -> Tuple[List[Candle], Dict[st
         ))
 
     expected = {
-        'first_choch_candle': 18,
-        'first_bos_candle': 30,
-        'second_choch_candle': 40,
+        'first_choch_candle': 20,
+        'first_bos_candle': 28,  # This will be a BOS from bearish break of pivot_low
+        'second_choch_candle': 36,
     }
     return candles, expected
 
