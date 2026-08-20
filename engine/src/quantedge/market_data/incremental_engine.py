@@ -15,6 +15,7 @@ Key features:
 - Future-data invariance guarantee
 """
 
+import csv
 import json
 import time
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ class IncrementalEngineConfig:
     symbol_local: str = "BTCUSD.P"
     delta_symbol: str = "BTCUSD"
     resolution: str = "1h"
+    timeframe: Timeframe = Timeframe.H1
     atr_period: int = 200
     atr_multiplier: float = 2.0
     internal_length: int = 5
@@ -289,7 +291,7 @@ class IncrementalSMCEngine:
 
     def _load_candles_from_csv(self, csv_path: Path) -> List[Candle]:
         """Load candles from CSV file."""
-        from quantedge.market_data.models import Candle, MarketDataSource
+        from quantedge.market_data.models import Candle, MarketDataSource, Timeframe
         candles = []
         if not csv_path.exists():
             return candles
