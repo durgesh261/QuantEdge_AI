@@ -22,8 +22,8 @@ sys.path.insert(0, str(ENGINE / "src"))
 from ob_snapshot_engine import OBSnapshotEngine, OBRecord
 
 REPO      = ENGINE.parent
-DATA_CSV  = ENGINE / "data" / "historical" / "BTCUSD.P" / "1h" / "2026_delta_india.csv"
-DATA_META = ENGINE / "data" / "historical" / "BTCUSD.P" / "1h" / "2026_delta_india_metadata.json"
+DATA_CSV  = REPO / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv"
+DATA_META = REPO / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026_metadata.json"
 
 OUT_ROOT  = REPO / "validation" / "tradingview_ob_reference"
 OUT_ROOT.mkdir(parents=True, exist_ok=True)

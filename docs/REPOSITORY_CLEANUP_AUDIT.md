@@ -41,10 +41,10 @@ Every candidate file/directory across the repository has been evaluated under fo
 
 ### Category A: Market Datasets (`engine/data/historical/`)
 
-| Path | Description | Classification | Rationale |
-|---|---|---|---|
-| `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv` | 5,545 Delta Exchange India 1H candles (2026) | **`KEEP`** | **CANONICAL DATASET** (SHA-256: `2000fe264d7...`). Will be structured canonically. |
-| `engine/data/historical/BTCUSD.P/1h/2026_delta_india_metadata.json` | Canonical metadata + quality report | **`KEEP`** | Required metadata for canonical dataset. |
+| `data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv` | 5,545 Delta Exchange India 1H candles (2026) | **`KEEP`** | **SOLE CANONICAL DATASET** (SHA-256: `2000fe264d7...`). |
+| `data/canonical/delta_exchange_india/BTCUSD/1h/2026_metadata.json` | Canonical metadata + quality report | **`KEEP`** | Required metadata for canonical dataset. |
+| `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv` | Duplicate mirror dataset | **`DELETE`** | Redundant mirror removed to enforce single source of truth. |
+| `engine/data/historical/BTCUSD.P/1h/2026_delta_india_metadata.json` | Duplicate mirror metadata | **`DELETE`** | Redundant mirror metadata removed. |
 | `engine/data/historical/BTCUSD.P/1h/2024.csv` | 8,784 Binance 1H candles (2024 proxy) | **`DELETE`** | Obsolete 2024 Binance proxy. Replaced by canonical Delta India dataset. |
 | `engine/data/historical/BTCUSD.P/1h/2024_metadata.json` | 2024 Binance proxy metadata | **`DELETE`** | Obsolete metadata. |
 | `engine/data/historical/BTCUSD.P/1h/2026.csv` | 5,544 Binance 1H candles (2026 proxy) | **`DELETE`** | Obsolete 2026 Binance proxy. |
@@ -176,9 +176,11 @@ Every candidate file/directory across the repository has been evaluated under fo
    - Delete obsolete proxy tools: `download_2026.py`, `download_delta_btcusdt.py`, `generate_3b_manifest.py`, `generate_3c_events.py`, `generate_comparison_manifest.py`, `ob_diagnostic.py`, `run_validation.py`, `engine/scripts/download_historical_data.py`.
    - Delete generated outputs: `engine/tv_val/`, `engine/validation_output*`, `engine/det_test/`, `engine/fi_test/`.
 
-3. **Establish Canonical Dataset Structure**:
-   - Retain `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv` (and copy/symlink to canonical location `data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv`).
-   - Retain complete metadata with SHA-256 `2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b`.
+3. **Establish Single Canonical Dataset Structure**:
+   - Store the sole canonical dataset at `data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv` (and metadata `2026_metadata.json`).
+   - Remove redundant duplicate mirror `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv`.
+   - Maintain complete metadata with SHA-256 `2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b`.
+
 
 4. **Update Documentation**:
    - Update `README.md`, `engine/README.md`, `docs/HISTORICAL_VALIDATION.md`, and `docs/REAL_MARKET_VALIDATION.md` to state Delta Exchange India as the sole canonical source.

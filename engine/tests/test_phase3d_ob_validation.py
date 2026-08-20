@@ -43,8 +43,9 @@ from ob_snapshot_engine import (
 
 
 # ── Paths ────────────────────────────────────────────────────────────────────────
-DATA_CSV  = ENGINE / "data" / "historical" / "BTCUSD.P" / "1h" / "2026_delta_india.csv"
-DATA_META = ENGINE / "data" / "historical" / "BTCUSD.P" / "1h" / "2026_delta_india_metadata.json"
+REPO_ROOT = ENGINE.parent
+DATA_CSV  = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv"
+DATA_META = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026_metadata.json"
 
 # Known snapshot timestamps (from generate_3d_snapshots.py)
 SNAP_TS = {

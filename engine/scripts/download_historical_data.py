@@ -11,7 +11,8 @@ for QuantEdge AI V2 validation and strategy development.
 
 Output:
   - data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv
-  - engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv
+  - data/canonical/delta_exchange_india/BTCUSD/1h/2026_metadata.json
+
 
 Usage:
   python engine/scripts/download_historical_data.py
@@ -220,18 +221,14 @@ def main():
     print(f"  Invalid OHLC  : {report['invalid_ohlc']}")
     print(f"  SHA-256       : {sha}")
 
-    # Output paths
-    paths = [
-        (REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv",
-         REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026_metadata.json"),
-        (ENGINE_ROOT / "data" / "historical" / SYMBOL_LOCAL / "1h" / "2026_delta_india.csv",
-         ENGINE_ROOT / "data" / "historical" / SYMBOL_LOCAL / "1h" / "2026_delta_india_metadata.json"),
-    ]
+    # Output path (single canonical dataset)
+    csv_path  = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv"
+    meta_path = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026_metadata.json"
 
-    for csv_path, meta_path in paths:
-        save_csv(csv_path, candles)
-        save_metadata(meta_path, report, sha)
-        print(f"  Saved -> {csv_path}")
+    save_csv(csv_path, candles)
+    save_metadata(meta_path, report, sha)
+    print(f"  Canonical Saved -> {csv_path}")
+
 
     print("\nCanonical download complete.")
 

@@ -108,8 +108,9 @@ timestamp_unix,open,high,low,close,volume\n
 for every candle, sorted ascending by timestamp. It uniquely identifies this
 exact dataset. Any modification to any candle would change this hash.
 
-Data file: `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv`  
-Metadata:  `engine/data/historical/BTCUSD.P/1h/2026_delta_india_metadata.json`
+Data file: `data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv`  
+Metadata:  `data/canonical/delta_exchange_india/BTCUSD/1h/2026_metadata.json`  
+*(There is exactly one canonical Delta Exchange India BTCUSD dataset across the repository.)*
 
 ---
 
@@ -130,7 +131,7 @@ TradingView shows at that bar.
 ### 7.2 snapshot_at() Contract
 
 ```python
-eng = OBSnapshotEngine.from_csv("2026_delta_india.csv")
+eng = OBSnapshotEngine.from_csv("data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv")
 snap = eng.snapshot_at("2026-07-31T14:00:00+00:00")
 
 snap.active_obs        # OBs visible/alive at that bar
@@ -406,7 +407,7 @@ Once the user provides TradingView OB data, run:
 from ob_snapshot_engine import OBSnapshotEngine, compare_snapshot_to_reference
 import json
 
-eng = OBSnapshotEngine.from_csv("engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv")
+eng = OBSnapshotEngine.from_csv("data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv")
 
 for sid in ["S1", "S2", "S3", "S4", "S5"]:
     snap = eng.snapshot_at(...)
@@ -606,8 +607,9 @@ Once reference data is provided, the comparison runs automatically.
 | `engine/download_delta_india_btcusd.py` | Delta India BTCUSD downloader |
 | `engine/ob_snapshot_engine.py` | Causal OB snapshot engine + matching algorithm |
 | `engine/generate_3d_snapshots.py` | Generates 5 Python OB inventories + TV templates |
-| `engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv` | 5,545 BTCUSD 1H candles |
-| `engine/data/historical/BTCUSD.P/1h/2026_delta_india_metadata.json` | Data quality + SHA-256 |
+| `data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv` | 5,545 BTCUSD 1H candles (sole canonical dataset) |
+| `data/canonical/delta_exchange_india/BTCUSD/1h/2026_metadata.json` | Canonical data quality + SHA-256 |
+
 | `engine/tests/test_phase3d_ob_validation.py` | 14 Phase 3D tests (all passing) |
 | `validation/tradingview_ob_reference/S[1-5]_python_active_obs.json` | Python OB inventories |
 | `validation/tradingview_ob_reference/S[1-5]_tradingview_reference.json` | TV reference templates |

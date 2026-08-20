@@ -26,7 +26,8 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 ENGINE = Path(__file__).parent
-DATA_ROOT = ENGINE / "data" / "historical"
+REPO_ROOT = ENGINE.parent
+CANONICAL_ROOT = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h"
 
 # ── Target ─────────────────────────────────────────────────────────────────────
 DELTA_INDIA_BASE = "https://api.india.delta.exchange/v2/history/candles"
@@ -229,16 +230,16 @@ def main():
     print(f"  Invalid OHLC  : {report['invalid_ohlc']}")
     print(f"  SHA-256       : {sha}")
 
-    # Save to BTCUSD.P/1h/2026_delta_india.csv  (distinct from global BTCUSDT)
-    out_csv  = DATA_ROOT / SYMBOL_LOCAL / "1h" / "2026_delta_india.csv"
-    out_meta = DATA_ROOT / SYMBOL_LOCAL / "1h" / "2026_delta_india_metadata.json"
+    # Save directly to canonical dataset path: data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv
+    out_csv  = CANONICAL_ROOT / "2026.csv"
+    out_meta = CANONICAL_ROOT / "2026_metadata.json"
 
     save_csv(out_csv, candles)
     save_metadata(out_meta, report, sha)
 
     print()
-    print(f"  CSV      -> {out_csv}")
-    print(f"  Metadata -> {out_meta.name}")
+    print(f"  Canonical CSV      -> {out_csv}")
+    print(f"  Canonical Metadata -> {out_meta.name}")
     print("\nDone.")
     return 0
 
