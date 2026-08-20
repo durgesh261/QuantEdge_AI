@@ -1,0 +1,29 @@
+{
+  "symbol": "BTCUSD.P",
+  "exchange": "Delta Exchange India",
+  "timeframe": "1h",
+  "_instruction": "Navigate to BTCUSD.P 1H chart at Delta Exchange India. Go to date: 2026-02-10 00:00 UTC (2026-02-10 05:30 IST). Record ALL LuxAlgo OB boxes visible on the chart at this candle. For each box: direction (blue=bullish, red=bearish), approximate top/bottom price, whether internal or swing, and whether the label shows it as fresh/touched.",
+  "_status": "REFERENCE_REQUIRED",
+  "settings": {
+    "swing_length": 50,
+    "internal_length": 5,
+    "ob_filter": "ATR",
+    "ob_mitigation": "High/Low"
+  },
+  "snapshot_timestamp": "2026-02-10T00:00:00+00:00",
+  "category": "bearish_trend",
+  "description": "End of Jan-Feb 2026 BTC correction \u2014 bearish OBs active",
+  "python_active_ob_count": 16,
+  "order_blocks": [
+    {
+      "_comment": "Fill in one entry per LuxAlgo OB box visible at this timestamp",
+      "structure_type": "<internal or swing>",
+      "direction": "<bullish or bearish>",
+      "creation_timestamp": "<UTC ISO8601 of OB formation candle if known, else empty>",
+      "source_timestamp": "<UTC ISO8601 of source/extreme candle if known, else empty>",
+      "upper": 0.0,
+      "lower": 0.0,
+      "state": "<fresh or touched>"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "symbol": "BTCUSD.P",
+  "exchange": "Delta Exchange India",
+  "timeframe": "1h",
+  "_instruction": "Navigate to BTCUSD.P 1H chart. Go to date: 2026-05-20 00:00 UTC (2026-05-20 05:30 IST). Record ALL visible LuxAlgo OB boxes. Pay special attention to boxes that appear 'lighter' or 'faded' \u2014 these may be touched (visited but not broken).",
+  "_status": "REFERENCE_REQUIRED",
+  "settings": {
+    "swing_length": 50,
+    "internal_length": 5,
+    "ob_filter": "ATR",
+    "ob_mitigation": "High/Low"
+  },
+  "snapshot_timestamp": "2026-05-20T00:00:00+00:00",
+  "category": "ranging_consolidation",
+  "description": "May 2026 consolidation \u2014 mixed OBs, some touched but alive",
+  "python_active_ob_count": 32,
+  "order_blocks": [
+    {
+      "_comment": "Fill in one entry per LuxAlgo OB box visible at this timestamp",
+      "structure_type": "<internal or swing>",
+      "direction": "<bullish or bearish>",
+      "creation_timestamp": "<UTC ISO8601 of OB formation candle if known, else empty>",
+      "source_timestamp": "<UTC ISO8601 of source/extreme candle if known, else empty>",
+      "upper": 0.0,
+      "lower": 0.0,
+      "state": "<fresh or touched>"
+    }
+  ]
+}

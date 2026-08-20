@@ -1,0 +1,84 @@
+{
+  "symbol": "BTCUSD.P",
+  "exchange": "Delta Exchange India",
+  "timeframe": "1h",
+  "data_sha256": "2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b",
+  "candle_count": 5545,
+  "first_candle": "2026-01-01T00:00:00+00:00",
+  "last_candle": "2026-08-20T00:00:00+00:00",
+  "smc_config": {
+    "atr_period": 200,
+    "atr_mult": 2.0,
+    "internal_length": 5,
+    "swing_length": 50,
+    "ob_filter": "ATR",
+    "ob_mitigation": "High/Low"
+  },
+  "snapshots": [
+    {
+      "id": "S1",
+      "timestamp": "2026-02-10T00:00:00+00:00",
+      "category": "bearish_trend",
+      "description": "End of Jan-Feb 2026 BTC correction \u2014 bearish OBs active",
+      "active_obs": 16,
+      "all_obs": 50,
+      "invalidated_obs": 34,
+      "future_invariant": true,
+      "python_file": "S1_python_active_obs.json",
+      "tv_template": "S1_tradingview_reference.json",
+      "tv_status": "REFERENCE_REQUIRED"
+    },
+    {
+      "id": "S2",
+      "timestamp": "2026-04-01T00:00:00+00:00",
+      "category": "bullish_trend",
+      "description": "End of Mar-Apr 2026 recovery rally \u2014 bullish OBs active",
+      "active_obs": 23,
+      "all_obs": 129,
+      "invalidated_obs": 106,
+      "future_invariant": true,
+      "python_file": "S2_python_active_obs.json",
+      "tv_template": "S2_tradingview_reference.json",
+      "tv_status": "REFERENCE_REQUIRED"
+    },
+    {
+      "id": "S3",
+      "timestamp": "2026-05-20T00:00:00+00:00",
+      "category": "ranging_consolidation",
+      "description": "May 2026 consolidation \u2014 mixed OBs, some touched but alive",
+      "active_obs": 32,
+      "all_obs": 204,
+      "invalidated_obs": 172,
+      "future_invariant": true,
+      "python_file": "S3_python_active_obs.json",
+      "tv_template": "S3_tradingview_reference.json",
+      "tv_status": "REFERENCE_REQUIRED"
+    },
+    {
+      "id": "S4",
+      "timestamp": "2026-07-31T14:00:00+00:00",
+      "category": "bearish_swing_bos",
+      "description": "Jul 31 2026 \u2014 swing-level BOS bearish, multiple OBs active",
+      "active_obs": 36,
+      "all_obs": 314,
+      "invalidated_obs": 278,
+      "future_invariant": true,
+      "python_file": "S4_python_active_obs.json",
+      "tv_template": "S4_tradingview_reference.json",
+      "tv_status": "REFERENCE_REQUIRED"
+    },
+    {
+      "id": "S5",
+      "timestamp": "2026-08-19T14:00:00+00:00",
+      "category": "bullish_swing_choch",
+      "description": "Aug 19 2026 \u2014 swing CHOCH bullish, fresh bullish OBs forming",
+      "active_obs": 39,
+      "all_obs": 341,
+      "invalidated_obs": 302,
+      "future_invariant": true,
+      "python_file": "S5_python_active_obs.json",
+      "tv_template": "S5_tradingview_reference.json",
+      "tv_status": "REFERENCE_REQUIRED"
+    }
+  ]
+}
