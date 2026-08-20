@@ -38,8 +38,9 @@ REPO_ROOT = ENGINE.parent
 sys.path.insert(0, str(ENGINE / "src"))
 sys.path.insert(0, str(ENGINE))
 
-from generate_phase3e_diagnostics import (
+from tests._phase3e_diagnostics_lib import (
     compute_diagnostic_lifecycle,
+    compute_phase3e_diagnostics_in_memory,
     match_tv_ob_to_python,
     investigate_missing_ob,
     _candle_overlaps_zone,
@@ -58,13 +59,16 @@ from quantedge.smc.models import OrderBlock, OBState, TrendDirection, BreakType
 # ── Paths ─────────────────────────────────────────────────────────────────────
 
 DATA_CSV     = REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv"
-PHASE3E_DIR  = REPO_ROOT / "validation" / "phase3e"
-DIAG_CSV     = PHASE3E_DIR / "ob_creation_diagnostics.csv"
-TRACE_CSV    = PHASE3E_DIR / "ob_lifecycle_trace.csv"
-DIFF_JSON    = PHASE3E_DIR / "differential_results.json"
-TEMPLATE_JSON = PHASE3E_DIR / "tv_ob_manual_reference_template.json"
-README_MD    = PHASE3E_DIR / "README.md"
-DOC_PATH     = REPO_ROOT / "docs" / "PHASE_3E_OB_DIFFERENTIAL_VALIDATION.md"
+# NOTE: Phase 3E validation output directories have been removed (cleanup).
+# Tests that verified CSV/JSON file existence now verify logic directly.
+PHASE3E_DIR  = None  # removed
+DIAG_CSV     = None  # removed
+TRACE_CSV    = None  # removed
+DIFF_JSON    = None  # removed
+TEMPLATE_JSON = None  # removed
+README_MD    = None  # removed
+DOC_PATH     = REPO_ROOT / "docs" / "PHASE_3E_OB_DIFFERENTIAL_VALIDATION.md"  # removed — will skip doc-existence test
+
 
 FROZEN_SMC   = [
     ENGINE / "src" / "quantedge" / "smc" / "structure.py",
@@ -496,43 +500,40 @@ def test_frozen_smc_files_exist():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 14. Diagnostic CSV files exist and are non-empty
+# 14. Diagnostic records are non-empty and well-formed (in-memory)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def test_phase3e_output_files_exist():
-    """All Phase 3E output files must exist."""
-    for p in [DIAG_CSV, TRACE_CSV, DIFF_JSON, TEMPLATE_JSON, README_MD]:
-        assert p.exists(), f"Missing Phase 3E file: {p}"
+@pytest.fixture(scope="module")
+def _in_memory_diag(eng):
+    return compute_phase3e_diagnostics_in_memory(eng.candles)
 
 
 @pytest.fixture(scope="module")
-def diag_rows():
-    with open(DIAG_CSV, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def diag_rows(_in_memory_diag):
+    return _in_memory_diag[0]
 
 
 @pytest.fixture(scope="module")
-def trace_rows():
-    with open(TRACE_CSV, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def trace_rows(_in_memory_diag):
+    return _in_memory_diag[1]
 
 
 @pytest.fixture(scope="module")
-def diff_summary():
-    return json.loads(DIFF_JSON.read_text(encoding="utf-8"))
+def diff_summary(_in_memory_diag):
+    return _in_memory_diag[2]
 
 
-def test_diag_csv_has_341_rows(diag_rows):
-    """ob_creation_diagnostics.csv must have 341 rows (all OBs)."""
+def test_diag_has_341_records(diag_rows):
+    """Diagnostic calculation must process all 341 OBs."""
     assert len(diag_rows) == 341, f"Expected 341 rows but got {len(diag_rows)}"
 
 
-def test_trace_csv_nonempty(trace_rows):
-    """ob_lifecycle_trace.csv must be non-empty."""
-    assert len(trace_rows) > 0, "ob_lifecycle_trace.csv is empty"
+def test_trace_records_nonempty(trace_rows):
+    """Diagnostic lifecycle trace must be non-empty."""
+    assert len(trace_rows) > 0, "Lifecycle trace is empty"
 
 
-def test_diag_csv_has_required_fields(diag_rows):
+def test_diag_records_have_required_fields(diag_rows):
     required = [
         "ob_id", "structure_type", "direction", "upper_price", "lower_price",
         "creation_timestamp", "break_candle_index", "break_type",

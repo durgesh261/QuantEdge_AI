@@ -30,7 +30,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
-ENGINE    = Path(__file__).parent
+ENGINE    = Path(__file__).parent.parent
 REPO_ROOT = ENGINE.parent
 
 sys.path.insert(0, str(ENGINE / "src"))
@@ -708,6 +708,132 @@ def run_full_pipeline(candles: List[Candle]):
     return snap, parsed, int_brk, sw_brk, int_piv, sw_piv, raw_obs, break_map
 
 
+def compute_phase3e_diagnostics_in_memory(
+    candles: List[Candle],
+    dataset_meta_path: Path = DATA_META,
+) -> Tuple[List[dict], List[dict], dict]:
+    """
+    Run full diagnostic calculation in memory without writing to disk.
+    Returns (diag_rows, trace_rows, diff_results).
+    """
+    gen_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = json.loads(dataset_meta_path.read_text(encoding="utf-8")) if dataset_meta_path.exists() else {"sha256": EXPECTED_SHA256, "candle_count": EXPECTED_CANDLES}
+
+    snap, parsed, int_brk, sw_brk, int_piv, sw_piv, raw_obs, break_map = run_full_pipeline(candles)
+    all_obs_sorted = sorted(snap.all_obs, key=lambda r: r.creation_timestamp)
+
+    raw_ob_map = {}
+    for ob in raw_obs:
+        key = (ob.formation_candle.timestamp, "bullish" if ob.type == "BULLISH" else "bearish")
+        raw_ob_map[key] = ob
+
+    all_diag: List[DiagnosticLifecycleResult] = []
+    for i, ob_record in enumerate(all_obs_sorted):
+        ob_id = i + 1
+        direction = ob_record.direction
+        raw_key = (ob_record.creation_timestamp, direction)
+        raw_ob = raw_ob_map.get(raw_key)
+        if raw_ob is None:
+            continue
+
+        break_type = ob_record.break_type if ob_record.break_type else "bos"
+        diag = compute_diagnostic_lifecycle(
+            ob=raw_ob,
+            ob_id=ob_id,
+            candles=candles,
+            break_candle_index=ob_record.break_candle_index,
+            break_type=break_type,
+            structure_type=ob_record.structure_type,
+            production_state=ob_record.state,
+            max_trace_candles=100,
+        )
+        all_diag.append(diag)
+
+    discrepancies = [d for d in all_diag if d.production_state != d.diag_state]
+    break_overlap_count = sum(1 for d in all_diag if d.break_candle_overlaps_zone)
+
+    active_sorted = sorted(
+        [d for d in all_diag if d.production_state != "invalidated"],
+        key=lambda d: d.creation_timestamp,
+        reverse=True,
+    )
+    trace_targets = active_sorted[:10] + [d for d in discrepancies if d not in active_sorted[:10]]
+
+    trace_rows = []
+    for d in trace_targets:
+        for c in d.candle_trace:
+            row = {
+                "ob_id":           d.ob_id,
+                "structure_type":  d.structure_type,
+                "direction":       d.direction,
+                "ob_upper":        float(d.upper_price),
+                "ob_lower":        float(d.lower_price),
+                "creation_ts":     d.creation_timestamp.isoformat(),
+                "production_state": d.production_state,
+                "diag_state_final": d.diag_state,
+                "break_overlaps":  d.break_candle_overlaps_zone,
+            }
+            row.update(c.to_dict())
+            trace_rows.append(row)
+
+    diag_rows = []
+    for d in all_diag:
+        diag_rows.append({
+            "ob_id":                     d.ob_id,
+            "structure_type":            d.structure_type,
+            "direction":                 d.direction,
+            "upper_price":               float(d.upper_price),
+            "lower_price":               float(d.lower_price),
+            "ob_height":                 float(d.upper_price - d.lower_price),
+            "creation_timestamp":        d.creation_timestamp.isoformat(),
+            "break_candle_index":        d.break_candle_index,
+            "break_timestamp":           d.break_timestamp.isoformat() if d.break_timestamp else "",
+            "break_type":                d.break_type,
+            "break_candle_overlaps_zone": d.break_candle_overlaps_zone,
+            "production_state":          d.production_state,
+            "diag_state":                d.diag_state,
+            "state_discrepancy":         d.production_state != d.diag_state,
+            "diag_touch_timestamp":      d.diag_touch_ts.isoformat() if d.diag_touch_ts else "",
+            "diag_invalid_timestamp":    d.diag_invalid_ts.isoformat() if d.diag_invalid_ts else "",
+        })
+
+    diff_results = {
+        "generated_at": gen_ts,
+        "dataset_cutoff": DATASET_CUTOFF,
+        "dataset_sha256": meta["sha256"],
+        "status": "PENDING_TV_REFERENCE_DATA",
+        "fvg_exclusion_policy": (
+            "GREEN LuxAlgo zones are FVGs. Only BLUE OB zones are compared. "
+            "Any entry with is_fvg=true is automatically excluded."
+        ),
+        "discrepancy_statistics": {
+            "total_obs": len(all_diag),
+            "break_candle_overlaps_zone": break_overlap_count,
+            "state_discrepancies_prod_vs_diag": len(discrepancies),
+            "pct_touched_by_break_candle": (
+                round(break_overlap_count / len(all_diag) * 100, 1) if all_diag else 0
+            ),
+        },
+        "all_ob_diag_summary": [
+            {
+                "ob_id": d.ob_id,
+                "direction": d.direction,
+                "structure_type": d.structure_type,
+                "upper": float(d.upper_price),
+                "lower": float(d.lower_price),
+                "creation_ts": d.creation_timestamp.isoformat(),
+                "production_state": d.production_state,
+                "diag_state": d.diag_state,
+                "break_overlaps": d.break_candle_overlaps_zone,
+                "state_discrepancy": d.production_state != d.diag_state,
+            }
+            for d in all_diag
+        ],
+    }
+
+    return diag_rows, trace_rows, diff_results
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 6. MAIN GENERATION
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -717,6 +843,7 @@ def main():
     print("=" * 60)
     print("Phase 3E: LuxAlgo OB Differential Validation Diagnostics")
     print("=" * 60)
+
 
     # ── Verify canonical dataset ─────────────────────────────────────────────
     meta = json.loads(DATA_META.read_text(encoding="utf-8"))

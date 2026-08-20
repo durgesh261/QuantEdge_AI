@@ -26,7 +26,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import List, Optional, Dict, Tuple
 
-ENGINE    = Path(__file__).parent
+ENGINE    = Path(__file__).parent.parent
 REPO_ROOT = ENGINE.parent
 OUT_DIR   = REPO_ROOT / "validation" / "phase3e4"
 

@@ -29,7 +29,7 @@ REPO_ROOT = ENGINE.parent
 sys.path.insert(0, str(ENGINE / "src"))
 sys.path.insert(0, str(ENGINE))
 
-from generate_phase3e4_69k_analysis import (
+from tests._phase3e4_69k_lib import (
     section1_region_obs,
     section2_structure_events,
     section3_candidate_obs,
@@ -38,14 +38,9 @@ from generate_phase3e4_69k_analysis import (
     WINDOW_START_ISO, WINDOW_END_ISO,
     DATASET_CUTOFF, EXPECTED_SHA256, EXPECTED_CANDLES,
     LUXALGO_INTERNAL_OB_LIMIT, LUXALGO_SWING_OB_LIMIT,
-    DATA_CSV, OUT_DIR,
+    DATA_CSV,
 )
 from ob_snapshot_engine import OBSnapshotEngine, OBRecord
-
-REGION_CSV  = OUT_DIR / "69k_region_obs.csv"
-EVENTS_CSV  = OUT_DIR / "69k_structure_events.csv"
-CAND_CSV    = OUT_DIR / "69k_candidate_obs.csv"
-DIFF_JSON   = OUT_DIR / "69k_differential.json"
 
 FROZEN_SMC = [
     ENGINE / "src" / "quantedge" / "smc" / "structure.py",
@@ -74,38 +69,31 @@ def pipeline(eng):
 
 
 @pytest.fixture(scope="module")
-def diff():
-    return json.loads(DIFF_JSON.read_text(encoding="utf-8"))
+def region_rows(snap, eng):
+    return section1_region_obs(snap.all_obs, eng.candles)
 
 
 @pytest.fixture(scope="module")
-def region_rows():
-    with open(REGION_CSV, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def break_events(pipeline):
+    candles, int_brk, sw_brk, int_piv, sw_piv = pipeline
+    win_start = datetime.fromisoformat(WINDOW_START_ISO)
+    win_end = datetime.fromisoformat(WINDOW_END_ISO)
+    b_rows, p_rows = section2_structure_events(candles, int_brk, sw_brk, int_piv, sw_piv, win_start, win_end)
+    return b_rows, p_rows
 
 
 @pytest.fixture(scope="module")
-def cand_rows():
-    with open(CAND_CSV, newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+def cand_rows(pipeline, break_events, snap):
+    candles, _, _, _, _ = pipeline
+    b_rows, _ = break_events
+    return section3_candidate_obs(candles, b_rows, snap.all_obs)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Output file existence
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class TestOutputFilesExist:
-    def test_region_csv_exists(self):
-        assert REGION_CSV.exists(), "69k_region_obs.csv missing"
-
-    def test_events_csv_exists(self):
-        assert EVENTS_CSV.exists(), "69k_structure_events.csv missing"
-
-    def test_candidate_csv_exists(self):
-        assert CAND_CSV.exists(), "69k_candidate_obs.csv missing"
-
-    def test_differential_json_exists(self):
-        assert DIFF_JSON.exists(), "69k_differential.json missing"
+@pytest.fixture(scope="module")
+def diff(pipeline, snap, break_events):
+    candles, int_brk, sw_brk, int_piv, sw_piv = pipeline
+    b_rows, _ = break_events
+    return section4_differential(candles, snap.all_obs, snap.active_obs, int_brk, sw_brk, int_piv, sw_piv, b_rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -123,7 +111,7 @@ class TestPriceRegionSearch:
 
     def test_all_region_obs_are_invalidated(self, region_rows):
         """CRITICAL: Zero active OBs in the 69k region at cutoff."""
-        active = [r for r in region_rows if r["is_active"] == "True"]
+        active = [r for r in region_rows if r["is_active"] in (True, "True")]
         assert not active, (
             f"Expected 0 active OBs in 69k region, found {len(active)}: "
             f"{[(r['creation_timestamp'][:10], r['direction']) for r in active]}"
@@ -174,13 +162,10 @@ class TestPriceRegionSearch:
 class TestStructureEvents:
     """Structure breaks in the Aug 14-20 window are correctly identified."""
 
-    def test_nine_breaks_in_window(self, diff):
+    def test_nine_breaks_in_window(self, break_events):
         """Exactly 9 structure breaks (8 unique index events × 1 swing+1 internal at 5534)."""
-        # From the generator output: 9 break rows in window
-        rows = list(csv.DictReader(open(EVENTS_CSV, newline="", encoding="utf-8")))
-        # Filter to just breaks (not pivots) — all rows are breaks since we combined
-        break_rows = [r for r in rows if "break_price" in r and r.get("break_price", "")]
-        # We expect 9 break events (including both internal and swing at 5534)
+        b_rows, _ = break_events
+        break_rows = [r for r in b_rows if "break_price" in r and r.get("break_price", "")]
         assert len(break_rows) == 9, f"Expected 9 break events, got {len(break_rows)}"
 
     def test_last_break_is_idx_5534(self, diff):
@@ -236,7 +221,7 @@ class TestCandidateOBReconstruction:
 
     def test_no_candidate_in_69k_region(self, cand_rows):
         """CRITICAL: Zero reconstructed candidate OBs fall in 68500–69500."""
-        in_region = [r for r in cand_rows if r["in_69k_region"] == "True"]
+        in_region = [r for r in cand_rows if r["in_69k_region"] in (True, "True")]
         assert not in_region, (
             f"Expected 0 candidates in 69k region, found {len(in_region)}: "
             f"{[(r['break_index'], r['reconstructed_upper'], r['reconstructed_lower']) for r in in_region]}"
@@ -256,7 +241,7 @@ class TestCandidateOBReconstruction:
         # The key invariant is: mismatching reconstructions must NOT be in the 69k region.
         unexpected_mismatches = [
             r for r in cand_rows
-            if r["reconstruction_matches"] == "False" and r["in_69k_region"] == "True"
+            if r["reconstruction_matches"] in (False, "False") and r["in_69k_region"] in (True, "True")
         ]
         assert not unexpected_mismatches, (
             f"Found {len(unexpected_mismatches)} reconstruction mismatches IN THE 69k REGION — "
@@ -270,13 +255,13 @@ class TestCandidateOBReconstruction:
         # Document (not fail) the break-5534 source-selection discrepancy
         known_mismatches = [
             r for r in cand_rows
-            if r["reconstruction_matches"] == "False"
+            if r["reconstruction_matches"] in (False, "False")
         ]
         for km in known_mismatches:
             assert int(km["break_index"]) == 5534, (
                 f"Unexpected mismatch at break={km['break_index']} — only break-5534 is known"
             )
-            assert km["in_69k_region"] == "False", (
+            assert km["in_69k_region"] in (False, "False"), (
                 f"Known mismatch at break-5534 must NOT be in 69k region"
             )
 
@@ -530,8 +515,3 @@ def test_dataset_sha256_unchanged():
         line = f"{ts},{row['open']},{row['high']},{row['low']},{row['close']},{row['volume']}\n"
         h.update(line.encode())
     assert h.hexdigest() == EXPECTED_SHA256
-
-
-def test_output_all_four_files_exist():
-    for p in [REGION_CSV, EVENTS_CSV, CAND_CSV, DIFF_JSON]:
-        assert p.exists(), f"Missing output: {p}"

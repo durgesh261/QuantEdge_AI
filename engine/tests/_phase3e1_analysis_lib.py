@@ -28,7 +28,7 @@ from typing import Optional, List, Dict, Tuple, Any
 from dataclasses import dataclass, field
 from collections import defaultdict
 
-ENGINE    = Path(__file__).parent
+ENGINE    = Path(__file__).parent.parent
 REPO_ROOT = ENGINE.parent
 OUT_DIR   = REPO_ROOT / "validation" / "phase3e1"
 
@@ -826,7 +826,6 @@ def section_f_tv_differential(
                 f"Without a break, no OB can be formed at this zone."
             )
         else:
-            # Breaks exist but no Python OB in range
             result = "NOT_CREATED_ATR_OR_RANGE"
             explanation = (
                 f"{len(dir_breaks)} {tv_dir.upper()} structural breaks exist in window. "
@@ -884,6 +883,70 @@ def _write_csv(path: Path, rows: list, fields: list):
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+
+
+def compute_phase3e1_analysis_in_memory(
+    eng: OBSnapshotEngine,
+    dataset_meta_path: Path = DATA_META,
+) -> Tuple[List[dict], List[dict], List[dict], List[dict], List[dict], dict]:
+    """
+    Run Phase 3E.1 calculations in memory without writing to disk.
+    Returns (trace_rows, cmp_rows, replay_rows, id_rows, diff_rows, summary).
+    """
+    gen_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    meta = json.loads(dataset_meta_path.read_text(encoding="utf-8")) if dataset_meta_path.exists() else {"sha256": EXPECTED_SHA256, "candle_count": EXPECTED_CANDLES}
+
+    candles = eng.candles
+    snap = eng.snapshot_at(DATASET_CUTOFF)
+    parsed, int_brk, sw_brk, int_piv, sw_piv, raw_obs = eng._run_pipeline(candles)
+    break_map = {b.index: b for b in int_brk + sw_brk}
+
+    trace_rows = section_a_ob_trace(candles)
+    first_touch_a = next((r for r in trace_rows if r["transition_a"].endswith("TOUCHED")), None)
+    first_touch_b = next((r for r in trace_rows if r["transition_b"].endswith("TOUCHED")), None)
+
+    cmp_rows = section_b_model_comparison(snap.all_obs, candles, break_map)
+    agree_counts = {}
+    for r in cmp_rows:
+        agree_counts[r["agreement"]] = agree_counts.get(r["agreement"], 0) + 1
+
+    replay_rows = section_d_temporal_replay(eng)
+    aug19_replay = [r for r in replay_rows if r["ob_label"] == "Aug19_BULL"]
+
+    id_rows, id_summary = section_e_identity_analysis(
+        snap.all_obs, candles, int_brk, sw_brk, int_piv, sw_piv
+    )
+    verdicts = {}
+    for r in id_rows:
+        verdicts[r["verdict"]] = verdicts.get(r["verdict"], 0) + 1
+
+    diff_rows = section_f_tv_differential(
+        TV_OBSERVATIONS, snap.all_obs, snap.active_obs,
+        candles, int_brk, sw_brk, int_piv, sw_piv
+    )
+
+    summary = {
+        "generated_at": gen_ts,
+        "dataset_sha256": meta["sha256"],
+        "dataset_cutoff": DATASET_CUTOFF,
+        "total_obs": snap.all_count,
+        "active_obs": snap.active_count,
+        "model_agreement": agree_counts,
+        "identity_summary": id_summary,
+        "identity_verdicts": verdicts,
+        "tv_differential_results": {r["tv_id"]: r["result"] for r in diff_rows},
+        "aug19_ob_trace": {
+            "upper": float(AUG19_UPPER),
+            "lower": float(AUG19_LOWER),
+            "first_touch_model_a": first_touch_a["timestamp"] if first_touch_a else None,
+            "first_touch_model_a_label": first_touch_a["extended_label"] if first_touch_a else None,
+            "first_touch_model_b": first_touch_b["timestamp"] if first_touch_b else None,
+            "first_touch_model_b_label": first_touch_b["extended_label"] if first_touch_b else None,
+        },
+        "aug19_temporal_replay": aug19_replay,
+    }
+
+    return trace_rows, cmp_rows, replay_rows, id_rows, diff_rows, summary
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
