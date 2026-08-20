@@ -1,0 +1,29 @@
+{
+  "_description": "TradingView LuxAlgo BLUE OB Manual Reference Template. Enter one entry per BLUE OB box visible on TradingView. GREEN zones are FVGs \u2014 set is_fvg=true to exclude them from matching.",
+  "_exchange": "Delta Exchange India",
+  "_symbol": "BTCUSD.P",
+  "_timeframe": "1H",
+  "_luxalgo_settings": {
+    "swing_length": 50,
+    "internal_length": 5,
+    "ob_filter": "ATR",
+    "ob_mitigation": "High/Low"
+  },
+  "_status": "REFERENCE_REQUIRED \u2014 fill in from TradingView LuxAlgo",
+  "_fvg_note": "GREEN zones = FVGs. Set is_fvg=true for any green zone to exclude it.",
+  "observations": [
+    {
+      "_note": "Example: blue OB observed near ~69k in TradingView screenshots",
+      "_note2": "Fill in exact values from TradingView LuxAlgo tooltip hover",
+      "direction": "bullish",
+      "upper": 0.0,
+      "lower": 0.0,
+      "creation_timestamp": "",
+      "observed_timestamp": "2026-08-20T00:00:00+00:00",
+      "structure_type": "unknown",
+      "state": "",
+      "is_fvg": false,
+      "notes": "Blue OB visible at ~69k region in TradingView screenshot. Exact prices TBD."
+    }
+  ]
+}
