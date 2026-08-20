@@ -85,12 +85,13 @@ def _make_ob_record(
 ) -> OBRecord:
     """Minimal mock OBRecord for lifecycle model tests."""
     form_ts = datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(hours=creation_hours)
+    break_ts = form_ts + timedelta(hours=break_idx)
     return OBRecord(
         structure_type         = "internal",
         direction              = direction,
         creation_timestamp     = form_ts,
         creation_candle_index  = 0,
-        break_timestamp        = form_ts + timedelta(hours=break_idx),
+        break_timestamp        = break_ts,
         break_candle_index     = break_idx,
         break_type             = "bos",
         source_candle_index    = 0,
@@ -100,6 +101,7 @@ def _make_ob_record(
         state                  = state,
         first_touch_timestamp  = None,
         invalidation_timestamp = None,
+        activated_at           = break_ts,
         pivot_index            = None,
         pivot_timestamp        = None,
         pivot_price            = None,

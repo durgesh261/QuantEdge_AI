@@ -71,12 +71,12 @@ class MatchResult:
 
 @dataclass
 class OBRecord:
-    """Rich OB record with all fields required by Phase 3D spec."""
+    """Rich OB record with all fields required by Phase 3D/3E spec."""
     structure_type:         str        # "internal" | "swing"
     direction:              str        # "bullish"  | "bearish"
-    creation_timestamp:     datetime   # formation_candle.timestamp
+    creation_timestamp:     datetime   # formation_candle.timestamp (OB identity)
     creation_candle_index:  int        # formation_index
-    break_timestamp:        datetime   # break candle timestamp
+    break_timestamp:        datetime   # break candle timestamp (OB activation)
     break_candle_index:     int        # break_index
     break_type:             str        # "bos" | "choch"
     source_candle_index:    int        # same as formation_index (OB source candle)
@@ -84,8 +84,9 @@ class OBRecord:
     upper_price:            Decimal    # top_price
     lower_price:            Decimal    # bottom_price
     state:                  str        # OBState value
-    first_touch_timestamp:  Optional[datetime]  # invalidated_at if touched
+    first_touch_timestamp:  Optional[datetime]  # first genuine retest after activation
     invalidation_timestamp: Optional[datetime]
+    activated_at:           Optional[datetime]  # = break_timestamp (OB becomes live)
     # Pivot info (the pivot that was broken)
     pivot_index:            Optional[int]
     pivot_timestamp:        Optional[datetime]
@@ -117,6 +118,7 @@ class OBRecord:
             "state":                 self.state,
             "first_touch_timestamp": _fmt(self.first_touch_timestamp),
             "invalidation_timestamp":_fmt(self.invalidation_timestamp),
+            "activated_at":          _fmt(self.activated_at),
             "pivot_index":           self.pivot_index,
             "pivot_timestamp":       _fmt(self.pivot_timestamp),
             "pivot_price":           _fmt(self.pivot_price),
@@ -347,14 +349,20 @@ class OBSnapshotEngine:
             piv_ts   = piv.timestamp if piv else None
             piv_pr   = piv.price     if piv else None
 
-            # Apply candle-by-candle lifecycle *after* formation
+            # Apply candle-by-candle lifecycle starting AFTER the break candle.
+            # The OB is activated at the break event; the break candle itself
+            # is the trigger, not a retest. Lifecycle begins at break_candle_index + 1.
             state      = OBState.FRESH
             touch_ts   = None
             invalid_ts = None
+            activated_ts = break_ts
 
-            for c in candles:
-                if c.timestamp <= ob.formation_candle.timestamp:
-                    continue  # skip candles before OB formation
+            # Lifecycle begins at the candle AFTER the break candle
+            lifecycle_start_idx = brk_idx + 1
+
+            for i, c in enumerate(candles):
+                if i < lifecycle_start_idx:
+                    continue  # skip candles up to and including break candle
                 if state == OBState.INVALIDATED:
                     break
 
@@ -393,6 +401,7 @@ class OBSnapshotEngine:
                 state                  = state.value,
                 first_touch_timestamp  = touch_ts,
                 invalidation_timestamp = invalid_ts,
+                activated_at           = activated_ts,
                 pivot_index            = piv_idx,
                 pivot_timestamp        = piv_ts,
                 pivot_price            = piv_pr,

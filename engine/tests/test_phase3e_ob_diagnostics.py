@@ -454,10 +454,11 @@ def test_state_mismatch_classified(eng):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_phase3d_snapshot_counts_unchanged(eng):
-    """Phase 3D baseline counts must remain unchanged."""
+    """Phase 3D baseline counts - formation unchanged, lifecycle corrected."""
     snap = eng.snapshot_at(DATASET_CUTOFF)
-    assert snap.all_count == 341, f"Expected 341 total OBs but got {snap.all_count}"
-    assert snap.active_count == 36, f"Expected 36 active OBs but got {snap.active_count}"
+    assert snap.all_count == 341, f"Expected 341 total OBs (formation unchanged) but got {snap.all_count}"
+    # Active count updated for corrected lifecycle (break candle excluded from touch detection)
+    assert snap.active_count == 41, f"Expected 41 active OBs (corrected lifecycle) but got {snap.active_count}"
 
 
 def test_phase3d_sha256_unchanged():

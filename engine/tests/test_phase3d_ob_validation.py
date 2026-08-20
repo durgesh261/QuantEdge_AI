@@ -54,11 +54,11 @@ SNAP_TS = {
     "S5": "2026-08-19T14:00:00+00:00",
 }
 
-# Expected snapshot counts (verified by generate_3d_snapshots.py)
+# Expected snapshot counts (verified by generate_3d_snapshots.py with corrected lifecycle)
 EXPECTED = {
-    "S1": {"candles": 961,  "active": 16, "all": 50,  "inv": 34},
-    "S4": {"candles": 5079, "active": 36, "all": 314, "inv": 278},
-    "S5": {"candles": 5535, "active": 39, "all": 341, "inv": 302},
+    "S1": {"candles": 961,  "active": 18, "all": 50,  "inv": 32},
+    "S4": {"candles": 5079, "active": 43, "all": 314, "inv": 271},
+    "S5": {"candles": 5535, "active": 44, "all": 341, "inv": 297},
 }
 
 
