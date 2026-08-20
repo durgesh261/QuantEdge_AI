@@ -1,8 +1,15 @@
 # QuantEdge AI V2 — REAL MARKET VALIDATION REPORT
 
+> [!NOTE]
+> **HISTORICAL NON-CANONICAL VALIDATION — PHASE 3A (BINANCE 2024 PROXY DATA)**
+> This document records Phase 3A automated replay testing using 2024 Binance proxy data.
+> Per the project canonical data policy, **Delta Exchange India BTCUSD (1H)** is the sole
+> canonical market-data source for QuantEdge AI V2. This report is preserved for
+> historical reproducibility of the Phase 3A historical OB replay pipeline fix.
+
 **Repository commit**: ed192a1 (pre-fix) → Phase 3A fix commit  
 **Validation date**: 2026-08-20  
-**Status**: PHASE 3A — OB PIPELINE FIXED, TRADINGVIEW VALIDATION PENDING  
+**Status**: PHASE 3A — OB PIPELINE FIXED (HISTORICAL RECORD)  
 **Tests**: 159 passed, 1 skipped (133 original + 26 new OB regression tests)
 
 ---

@@ -1,302 +1,240 @@
 #!/usr/bin/env python3
 """
-Download historical 1H OHLCV data for QuantEdge validation symbols.
+Canonical Historical Data Downloader for QuantEdge AI V2.
 
-Uses ccxt to fetch data from exchanges. Defaults to Binance (which has good
-perpetual futures data).
+Source: Delta Exchange India (api.india.delta.exchange)
+Symbol: BTCUSD (TradingView: BTCUSD.P)
+Resolution: 1h
 
-Output: data/historical/{SYMBOL}/1h/{YEAR}.csv
+Delta Exchange India BTCUSD is the ONLY canonical market-data source
+for QuantEdge AI V2 validation and strategy development.
 
-CSV Format:
-timestamp,open,high,low,close,volume
+Output:
+  - data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv
+  - engine/data/historical/BTCUSD.P/1h/2026_delta_india.csv
+
+Usage:
+  python engine/scripts/download_historical_data.py
 """
 
-import asyncio
-import ccxt
-import pandas as pd
-from datetime import datetime, timezone
-from decimal import Decimal
-from pathlib import Path
-import hashlib
-import json
 import sys
-import os
-import argparse
+import csv
+import json
+import time
+import hashlib
+import urllib.request
+import urllib.parse
+from pathlib import Path
+from datetime import datetime, timezone
 
-# Symbol mapping: our internal symbol -> exchange symbol
-SYMBOL_MAP = {
-    "BTCUSD.P": "BTCUSDT",
-    "ETHUSD.P": "ETHUSDT",
-    "SOLUSD.P": "SOLUSDT",
-    "XRPUSD.P": "XRPUSDT",
-}
+ENGINE_ROOT = Path(__file__).parent.parent
+REPO_ROOT   = ENGINE_ROOT.parent
 
-EXCHANGES = {
-    "binance": {
-        "class": "binance",
-        "options": {"defaultType": "future"},
-        "symbol_map": SYMBOL_MAP,
-    },
-}
+DELTA_INDIA_BASE = "https://api.india.delta.exchange/v2/history/candles"
+SYMBOL_DELTA     = "BTCUSD"      # Delta India native symbol
+SYMBOL_LOCAL     = "BTCUSD.P"   # QuantEdge symbol key
 
-DATA_ROOT = Path("data/historical")
-TIMEFRAME = "1h"
-DEFAULT_START = "2024-01-01"
-DEFAULT_END = "2024-12-31"
+START_DT = datetime(2026, 1, 1,  0, 0, 0, tzinfo=timezone.utc)
+END_DT   = datetime(2026, 8, 20, 0, 0, 0, tzinfo=timezone.utc)
+
+CHUNK_CANDLES = 2000
+CHUNK_SECS    = CHUNK_CANDLES * 3600
 
 
-def create_exchange(exchange_name: str):
-    """Create and configure ccxt exchange instance."""
-    config = EXCHANGES[exchange_name]
-    exchange_class = getattr(ccxt, config["class"])
-    exchange = exchange_class({
-        "enableRateLimit": True,
-        "options": config["options"],
+def fetch_window(start_ts: int, end_ts: int) -> list:
+    """Fetch one window of BTCUSD 1H candles from Delta India API."""
+    params = urllib.parse.urlencode({
+        "symbol":     SYMBOL_DELTA,
+        "resolution": "1h",
+        "start":      str(start_ts),
+        "end":        str(end_ts),
     })
-    exchange.load_markets()
-    return exchange, config["symbol_map"]
+    url = DELTA_INDIA_BASE + "?" + params
+    req = urllib.request.Request(url, headers={
+        "Accept":     "application/json",
+        "User-Agent": "QuantEdge-Canonical-Downloader/1.0",
+    })
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read())
+    if not data.get("success"):
+        raise RuntimeError(f"Delta India API error: {data}")
+    return data.get("result", [])
 
 
-def ohlcv_to_dataframe(ohlcv: list) -> pd.DataFrame:
-    """Convert ccxt OHLCV to DataFrame."""
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col])
-    return df
+def fetch_all(start_ts: int, end_ts: int) -> list:
+    """Page through Delta India API to collect all 1H candles."""
+    all_candles = []
+    cursor_end = end_ts
 
+    print(f"  Symbol   : {SYMBOL_DELTA} (Delta Exchange India)")
+    print(f"  Period   : {datetime.fromtimestamp(start_ts, tz=timezone.utc).date()} "
+          f"to {datetime.fromtimestamp(end_ts, tz=timezone.utc).date()}")
 
-def validate_dataframe(df: pd.DataFrame, symbol: str) -> dict:
-    """Validate OHLCV data quality."""
-    issues = []
-    
-    if df.empty:
-        issues.append("Empty dataframe")
-        return {"valid": False, "issues": issues, "row_count": 0}
-    
-    # Check chronological order
-    if not df["timestamp"].is_monotonic_increasing:
-        issues.append("Timestamps not monotonically increasing")
-    
-    # Duplicate timestamps
-    dup_count = df["timestamp"].duplicated().sum()
-    if dup_count > 0:
-        issues.append(f"Duplicate timestamps: {dup_count}")
-    
-    # Missing OHLC
-    null_counts = df[["open", "high", "low", "close", "volume"]].isnull().sum()
-    if null_counts.any():
-        issues.append(f"Missing values: {null_counts[null_counts > 0].to_dict()}")
-    
-    # Invalid OHLC relationships
-    invalid_ohlc = (
-        (df["high"] < df["low"]) |
-        (df["high"] < df["open"]) |
-        (df["high"] < df["close"]) |
-        (df["low"] > df["open"]) |
-        (df["low"] > df["close"])
-    ).sum()
-    if invalid_ohlc > 0:
-        issues.append(f"Invalid OHLC relationships: {invalid_ohlc}")
-    
-    # Zero/negative prices
-    zero_prices = (
-        (df["open"] <= 0) | (df["high"] <= 0) | 
-        (df["low"] <= 0) | (df["close"] <= 0)
-    ).sum()
-    if zero_prices > 0:
-        issues.append(f"Zero/negative prices: {zero_prices}")
-    
-    # Timeframe consistency (1H intervals)
-    expected_interval = pd.Timedelta(hours=1)
-    time_diffs = df["timestamp"].diff().dropna()
-    off_interval = (abs(time_diffs - pd.Timedelta(hours=1)) > pd.Timedelta(minutes=5)).sum()
-    if off_interval > len(df) * 0.05:
-        issues.append(f"Timeframe inconsistency: {off_interval} intervals off")
-    
-    return {
-        "valid": len(issues) == 0,
-        "issues": issues,
-        "row_count": len(df),
-        "date_range": {
-            "start": df["timestamp"].min().isoformat(),
-            "end": df["timestamp"].max().isoformat(),
-        }
-    }
-
-
-def compute_file_hash(filepath: Path) -> str:
-    """Compute SHA256 hash of file."""
-    hasher = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def save_dataframe(df: pd.DataFrame, symbol: str, year: int, data_root: Path) -> Path:
-    """Save DataFrame to CSV with proper format."""
-    symbol_dir = data_root / symbol / "1h"
-    symbol_dir.mkdir(parents=True, exist_ok=True)
-    
-    filepath = symbol_dir / f"{year}.csv"
-    
-    output_df = df.copy()
-    output_df["timestamp"] = output_df["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
-    
-    for col in ["open", "high", "low", "close"]:
-        output_df[col] = output_df[col].round(8)
-    output_df["volume"] = output_df["volume"].round(8)
-    
-    output_df.to_csv(filepath, index=False, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    
-    return filepath
-
-
-def compute_file_hash(filepath: Path) -> str:
-    """Compute SHA256 hash of file."""
-    hasher = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def create_metadata(symbol: str, year: int, filepath: Path, df: pd.DataFrame, exchange_name: str, symbol_map: dict) -> dict:
-    """Create dataset metadata."""
-    file_hash = compute_file_hash(filepath)
-    
-    return {
-        "dataset_id": f"{symbol}_1h_{year}_{compute_file_hash(filepath)[:16]}",
-        "symbol": symbol,
-        "timeframe": "1h",
-        "year": year,
-        "source": exchange_name,
-        "source_symbol": symbol_map.get(symbol, "unknown"),
-        "start_time": df["timestamp"].min().isoformat(),
-        "end_time": df["timestamp"].max().isoformat(),
-        "downloaded_at": datetime.now(timezone.utc).isoformat(),
-        "file_hash": compute_file_hash(filepath),
-        "schema_version": "1.0",
-        "candle_count": len(df),
-        "file_path": str(filepath),
-    }
-
-
-async def download_symbol_data(exchange_name: str, symbol: str, start_date: str, end_date: str, data_root: Path):
-    """Download and save historical data for a single symbol."""
-    print(f"\n{'='*60}")
-    print(f"Downloading {symbol} from {exchange_name}")
-    print(f"{'='*60}")
-    
-    exchange, symbol_map = create_exchange(exchange_name)
-    ccxt_symbol = symbol_map.get(symbol)
-    
-    if not ccxt_symbol:
-        raise ValueError(f"Symbol not found in mapping: {symbol}")
-    
-    print(f"Exchange symbol: {ccxt_symbol}")
-    
-    # Parse dates
-    since = int(datetime.fromisoformat(start_date).replace(tzinfo=timezone.utc).timestamp() * 1000)
-    end_ts = int(datetime.fromisoformat(end_date).replace(tzinfo=timezone.utc).timestamp() * 1000)
-    
-    print(f"Fetching from {start_date} to {end_date}")
-    
-    all_ohlcv = []
-    current_since = since
-    exchange = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "future"}})
-    exchange.load_markets()
-    
-    while current_since < end_ts:
+    while cursor_end > start_ts:
+        cursor_start = max(start_ts, cursor_end - CHUNK_SECS)
         try:
-            ohlcv = exchange.fetch_ohlcv(ccxt_symbol, "1h", since=current_since, limit=1000)
-            if not ohlcv:
-                break
-            
-            all_ohlcv.extend(ohlcv)
-            last_ts = ohlcv[-1][0]
-            current_since = last_ts + 1
-            
-            if len(ohlcv) < 1000:
-                break
-            
-            await asyncio.sleep(exchange.rateLimit / 1000)
-            
-            if ohlcv[-1][0] >= end_ts:
-                break
-                
-        except Exception as e:
-            print(f"Error fetching: {e}")
+            candles = fetch_window(cursor_start, cursor_end)
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            print(f"    [ERROR] HTTP {e.code}: {body[:300]}")
             break
-    
-    if not all_ohlcv:
-        print(f"No data returned")
-        return
-    
-    df = pd.DataFrame(all_ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-    for col in ["open", "high", "low", "close", "volume"]:
-        df[col] = pd.to_numeric(df[col])
-    
-    # Filter to exact date range
-    start_ts = pd.Timestamp(start_date, tz="UTC")
-    end_ts = pd.Timestamp(end_date, tz="UTC")
-    df = df[(df["timestamp"] >= start_ts) & (df["timestamp"] <= end_ts)]
-    
-    print(f"Fetched {len(df)} candles")
-    
-    # Validate
-    quality = validate_dataframe(df, symbol)
-    print(f"Validation: {'PASS' if quality['valid'] else 'FAIL'}")
-    for issue in quality["issues"]:
-        print(f"  ISSUE: {issue}")
-    
-    # Split by year and save
-    for year, group in df.groupby(df["timestamp"].dt.year):
-        symbol_dir = data_root / symbol / "1h"
-        symbol_dir.mkdir(parents=True, exist_ok=True)
-        
-        filepath = symbol_dir / f"{year}.csv"
-        
-        output_df = group.copy()
-        output_df["timestamp"] = output_df["timestamp"].dt.strftime("%Y-%m-%dT%H:%M:%S")
-        
-        for col in ["open", "high", "low", "close"]:
-            output_df[col] = output_df[col].round(8)
-        output_df["volume"] = output_df["volume"].round(8)
-        
-        output_df.to_csv(filepath, index=False, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        
-        metadata = create_metadata(symbol, year, filepath, group, exchange_name, symbol_map)
-        
-        metadata_path = data_root / symbol / "1h" / f"{year}_metadata.json"
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2, default=str)
-        
-        print(f"Saved {len(group)} candles to {filepath}")
+        except Exception as e:
+            print(f"    [WARN] {type(e).__name__}: {e} — retrying in 3s")
+            time.sleep(3)
+            continue
+
+        if not candles:
+            print(f"    [WARN] No candles for window {cursor_start}–{cursor_end}")
+            cursor_end = cursor_start
+            continue
+
+        all_candles.extend(candles)
+        oldest_ts = min(c["time"] for c in candles)
+        oldest_dt = datetime.fromtimestamp(oldest_ts, tz=timezone.utc)
+        print(f"    +{len(candles):4d} candles | oldest: {oldest_dt.isoformat()}")
+        cursor_end = oldest_ts - 1
+        time.sleep(0.25)
+
+    all_candles.sort(key=lambda c: c["time"])
+    seen = set()
+    deduped = []
+    for c in all_candles:
+        ts = c["time"]
+        if ts not in seen:
+            seen.add(ts)
+            deduped.append(c)
+
+    return deduped
 
 
-async def main():
-    parser = argparse.ArgumentParser(description="Download historical OHLCV data")
-    parser.add_argument("--exchange", default="binance", choices=["binance"], help="Exchange to use")
-    parser.add_argument("--symbols", nargs="+", default=["BTCUSD.P", "ETHUSD.P", "SOLUSD.P", "XRPUSD.P"], help="Symbols to download")
-    parser.add_argument("--start", default="2024-01-01", help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end", default="2024-12-31", help="End date (YYYY-MM-DD)")
-    parser.add_argument("--data-root", default="data/historical", help="Data root directory")
-    
-    args = parser.parse_args()
-    
-    print(f"Downloading {len(args.symbols)} symbols")
-    print(f"Date range: {args.start} to {args.end}")
-    print(f"Data root: {args.data_root}")
-    
-    for symbol in args.symbols:
-        await download_symbol_data(args.exchange, symbol, args.start, args.end, Path(args.data_root))
-    
-    print("\nDone!")
+def validate_candles(candles: list) -> dict:
+    """Run data quality checks."""
+    report = {
+        "candle_count":    len(candles),
+        "first_timestamp": None,
+        "last_timestamp":  None,
+        "gap_count":       0,
+        "max_gap_hours":   0.0,
+        "invalid_ohlc":    0,
+        "gaps":            [],
+    }
+    if not candles:
+        return report
+
+    report["first_timestamp"] = datetime.fromtimestamp(
+        candles[0]["time"], tz=timezone.utc).isoformat()
+    report["last_timestamp"]  = datetime.fromtimestamp(
+        candles[-1]["time"], tz=timezone.utc).isoformat()
+
+    prev_ts = None
+    for c in candles:
+        ts  = c["time"]
+        o   = float(c["open"])
+        h   = float(c["high"])
+        l   = float(c["low"])
+        cl  = float(c["close"])
+
+        if h < l or h < o or h < cl or l > o or l > cl:
+            report["invalid_ohlc"] += 1
+
+        if prev_ts is not None:
+            gap_h = (ts - prev_ts) / 3600
+            if gap_h > 1.0:
+                report["gap_count"] += 1
+                gap_dt = datetime.fromtimestamp(prev_ts + 3600, tz=timezone.utc).isoformat()
+                report["gaps"].append({"at": gap_dt, "gap_hours": round(gap_h, 2)})
+                if gap_h > report["max_gap_hours"]:
+                    report["max_gap_hours"] = gap_h
+        prev_ts = ts
+
+    return report
+
+
+def sha256_candles(candles: list) -> str:
+    """Deterministic SHA-256 over all candle data."""
+    h = hashlib.sha256()
+    for c in candles:
+        row = (f"{c['time']},{c['open']},{c['high']},"
+               f"{c['low']},{c['close']},{c['volume']}\n")
+        h.update(row.encode())
+    return h.hexdigest()
+
+
+def save_csv(out_path: Path, candles: list):
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["timestamp", "open", "high", "low", "close", "volume"])
+        for c in candles:
+            dt = datetime.fromtimestamp(c["time"], tz=timezone.utc).isoformat()
+            w.writerow([dt, c["open"], c["high"], c["low"], c["close"], c["volume"]])
+
+
+def save_metadata(meta_path: Path, report: dict, sha: str):
+    meta = {
+        "symbol":              SYMBOL_LOCAL,
+        "delta_symbol":        SYMBOL_DELTA,
+        "tradingview_symbol":  SYMBOL_LOCAL,
+        "exchange":            "Delta Exchange India (api.india.delta.exchange)",
+        "description":         "Bitcoin Perpetual futures, quoted, settled & margined in US Dollar",
+        "timeframe":           "1h",
+        "source_url":          DELTA_INDIA_BASE,
+        "download_utc":        datetime.now(tz=timezone.utc).isoformat(),
+        "candle_count":        report["candle_count"],
+        "first_timestamp":     report["first_timestamp"],
+        "last_timestamp":      report["last_timestamp"],
+        "gap_count":           report["gap_count"],
+        "max_gap_hours":       report["max_gap_hours"],
+        "gaps":                report["gaps"],
+        "invalid_ohlc":        report["invalid_ohlc"],
+        "sha256":              sha,
+        "policy":              "Delta Exchange India BTCUSD is the ONLY canonical market-data source for QuantEdge AI V2.",
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+
+def main():
+    start_ts = int(START_DT.timestamp())
+    end_ts   = int(END_DT.timestamp())
+
+    print("=" * 60)
+    print("QuantEdge Canonical Data Downloader")
+    print("Source: Delta Exchange India BTCUSD 1H")
+    print("=" * 60)
+
+    candles = fetch_all(start_ts, end_ts)
+    if not candles:
+        print("[FATAL] No candles downloaded.")
+        sys.exit(1)
+
+    report = validate_candles(candles)
+    sha    = sha256_candles(candles)
+
+    print()
+    print("Data Quality Report:")
+    print(f"  Candles       : {report['candle_count']}")
+    print(f"  First         : {report['first_timestamp']}")
+    print(f"  Last          : {report['last_timestamp']}")
+    print(f"  Gaps (>1H)    : {report['gap_count']} (max: {report['max_gap_hours']:.1f}H)")
+    print(f"  Invalid OHLC  : {report['invalid_ohlc']}")
+    print(f"  SHA-256       : {sha}")
+
+    # Output paths
+    paths = [
+        (REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026.csv",
+         REPO_ROOT / "data" / "canonical" / "delta_exchange_india" / "BTCUSD" / "1h" / "2026_metadata.json"),
+        (ENGINE_ROOT / "data" / "historical" / SYMBOL_LOCAL / "1h" / "2026_delta_india.csv",
+         ENGINE_ROOT / "data" / "historical" / SYMBOL_LOCAL / "1h" / "2026_delta_india_metadata.json"),
+    ]
+
+    for csv_path, meta_path in paths:
+        save_csv(csv_path, candles)
+        save_metadata(meta_path, report, sha)
+        print(f"  Saved -> {csv_path}")
+
+    print("\nCanonical download complete.")
 
 
 if __name__ == "__main__":
-    import argparse
-    asyncio.run(main())
+    main()

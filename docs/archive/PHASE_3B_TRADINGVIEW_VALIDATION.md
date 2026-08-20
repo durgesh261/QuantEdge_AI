@@ -1,10 +1,17 @@
-﻿# Phase 3B: TradingView / LuxAlgo Manual Validation
+# Phase 3B: TradingView / LuxAlgo Manual Validation
+
+> [!NOTE]
+> **HISTORICAL / NON-CANONICAL VALIDATION — BINANCE PROXY DATA**
+> This document records an earlier validation phase using Binance proxy market data.
+> Per the project canonical data policy, **Delta Exchange India BTCUSD** is the sole
+> canonical market data source for QuantEdge AI V2. This report is preserved for
+> historical reference and reproducibility only.
 
 **Document Version:** 1.0
 **Date:** 2026-08-20
 **Author:** QuantEdge AI Validation Pipeline
 **Previous Phase:** Phase 3A (Automated Historical Validation — COMPLETE)
-**Status:** Phase 3B COMPLETE
+**Status:** ARCHIVED (Historical Reference)
 
 ---
 

@@ -1,5 +1,14 @@
 # Historical Validation for QuantEdge LuxAlgo SMC
 
+> [!IMPORTANT]
+> **CANONICAL MARKET DATA SOURCE POLICY**
+> **Delta Exchange India BTCUSD (1H)** is the sole canonical market-data source for
+> QuantEdge AI V2 validation and strategy development.
+> - **Exchange:** Delta Exchange India (`api.india.delta.exchange`)
+> - **TradingView Symbol:** `BTCUSD.P` | **Delta API Symbol:** `BTCUSD`
+> - **Canonical Dataset:** 5,545 candles (2026-01-01 to 2026-08-20, SHA-256: `2000fe264d7a...`)
+> Historical references to 2024 Binance data below describe initial Phase 3A testing and are non-canonical.
+
 This document describes the historical validation infrastructure for the QuantEdge LuxAlgo SMC implementation.
 
 ## Overview

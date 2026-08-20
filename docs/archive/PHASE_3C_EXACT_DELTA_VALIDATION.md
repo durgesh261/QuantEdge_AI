@@ -1,10 +1,17 @@
-﻿# Phase 3C: Exact Delta Exchange BTCUSDT Validation
+# Phase 3C: Exact Delta Exchange BTCUSDT Validation
+
+> [!NOTE]
+> **HISTORICAL / NON-CANONICAL VALIDATION — DELTA GLOBAL BTCUSDT (NON-INDIA)**
+> This document records Phase 3C investigation using Delta Exchange Global BTCUSDT data.
+> Per the project canonical data policy, **Delta Exchange India BTCUSD** is the sole
+> canonical market data source for QuantEdge AI V2. This report is preserved for
+> historical reference and reproducibility only.
 
 **Document Version:** 1.0
 **Date:** 2026-08-20
 **Author:** QuantEdge AI Validation Pipeline
 **Follows:** Phase 3B (Binance proxy validation — VALIDATED)
-**Status:** Phase 3C COMPLETE — See verdict in Section 11.
+**Status:** ARCHIVED (Historical Reference)
 
 ---
 
