@@ -1,0 +1,49 @@
+{
+  "symbol": "XRPUSD.P",
+  "timeframe": "1h",
+  "dataset": {
+    "dataset_id": "XRPUSD.P_1h_ff1c73621c3ee5bb",
+    "symbol": "XRPUSD.P",
+    "timeframe": "1h",
+    "start_time": "2024-01-01T00:00:00",
+    "end_time": "2024-12-31T00:00:00",
+    "candle_count": 8761,
+    "file_hash": "ff1c73621c3ee5bb37c4a6062cfd236e2da6635eb2f3238da02f112c6d5e47f3",
+    "gaps": [],
+    "quality_report": {
+      "status": "clean",
+      "issues": [],
+      "candle_count": 8761,
+      "date_range": {
+        "start": "2024-01-01T00:00:00",
+        "end": "2024-12-31T00:00:00"
+      }
+    }
+  },
+  "config": {
+    "internal_length": 5,
+    "swing_length": 50,
+    "atr_period": 200,
+    "atr_multiplier": 2.0
+  },
+  "statistics": {
+    "total_candles": 8761,
+    "internal_leg_changes": 1293,
+    "swing_leg_changes": 151,
+    "internal_pivots": 1293,
+    "swing_pivots": 151,
+    "internal_bos": 212,
+    "internal_choch": 242,
+    "swing_bos": 19,
+    "swing_choch": 35,
+    "internal_obs": 454,
+    "swing_obs": 54,
+    "ob_invalidations": 0,
+    "ob_touches": 0
+  },
+  "output": {
+    "events_file": "tv_val\\XRPUSD.P\\XRPUSD.P\\1h\\events.jsonl",
+    "summary_file": "tv_val\\XRPUSD.P\\XRPUSD.P\\1h\\summary.json",
+    "total_events": 3755
+  }
+}

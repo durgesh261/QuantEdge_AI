@@ -1,0 +1,49 @@
+{
+  "symbol": "BTCUSD.P",
+  "timeframe": "1h",
+  "dataset": {
+    "dataset_id": "BTCUSD.P_1h_6e3de37bef896952",
+    "symbol": "BTCUSD.P",
+    "timeframe": "1h",
+    "start_time": "2024-01-01T00:00:00",
+    "end_time": "2024-12-31T00:00:00",
+    "candle_count": 8761,
+    "file_hash": "6e3de37bef8969524f08e4eb1edbb359c375278470460bd9192b03f7e4239721",
+    "gaps": [],
+    "quality_report": {
+      "status": "clean",
+      "issues": [],
+      "candle_count": 8761,
+      "date_range": {
+        "start": "2024-01-01T00:00:00",
+        "end": "2024-12-31T00:00:00"
+      }
+    }
+  },
+  "config": {
+    "internal_length": 5,
+    "swing_length": 50,
+    "atr_period": 200,
+    "atr_multiplier": 2.0
+  },
+  "statistics": {
+    "total_candles": 8761,
+    "internal_leg_changes": 1311,
+    "swing_leg_changes": 129,
+    "internal_pivots": 1311,
+    "swing_pivots": 129,
+    "internal_bos": 199,
+    "internal_choch": 269,
+    "swing_bos": 30,
+    "swing_choch": 23,
+    "internal_obs": 468,
+    "swing_obs": 53,
+    "ob_invalidations": 0,
+    "ob_touches": 0
+  },
+  "output": {
+    "events_file": "tv_val\\BTCUSD.P\\BTCUSD.P\\1h\\events.jsonl",
+    "summary_file": "tv_val\\BTCUSD.P\\BTCUSD.P\\1h\\summary.json",
+    "total_events": 3795
+  }
+}
