@@ -331,12 +331,17 @@ class IncrementalSMCEngine:
         )
 
         # Process all candles through structure detectors
+        internal_breaks = []
+        swing_breaks = []
         for i, pc in enumerate(parsed):
             if hasattr(self._internal_detector, 'process_candle'):
-                self._internal_detector.process_candle(pc, i)
+                breaks = self._internal_detector.process_candle(pc, i)
+                if breaks:
+                    internal_breaks.extend(breaks)
             if hasattr(self._swing_detector, 'process_candle'):
-                self._swing_detector.process_candle(pc, i)
-
+                breaks = self._swing_detector.process_candle(pc, i)
+                if breaks:
+                    swing_breaks.extend(breaks)
         # Store candles and parsed
         self._all_candles = [pc.original for pc in parsed]
         self._all_parsed_candles = parsed
@@ -346,9 +351,8 @@ class IncrementalSMCEngine:
         self._swing_pivots = self._extract_pivots(self._swing_detector)
 
         # Collect breaks
-        self._internal_breaks = self._internal_detector.get_breaks()
-        self._swing_breaks = self._swing_detector.get_breaks()
-
+        self._internal_breaks = internal_breaks
+        self._swing_breaks = swing_breaks
         # Detect order blocks from historical data
         self._detect_order_blocks()
 
@@ -372,10 +376,9 @@ class IncrementalSMCEngine:
 
     def _detect_order_blocks(self):
         """Detect order blocks from historical breaks."""
-        # Get all breaks
-        internal_breaks = self._internal_detector.get_breaks()
-        swing_breaks = self._swing_detector.get_breaks()
-
+        # Get stored breaks from initialization
+        internal_breaks = self._internal_breaks
+        swing_breaks = self._swing_breaks
         # Get pivots
         internal_pivots = self._extract_pivots(self._internal_detector)
         swing_pivots = self._extract_pivots(self._swing_detector)
@@ -402,12 +405,31 @@ class IncrementalSMCEngine:
     def _create_ob_from_break(self, break_event, structure_type: str):
         """Create an order block from a structure break."""
         from quantedge.smc.order_blocks import OrderBlock
-        from quantedge.smc.models import OBState, TrendDirection
+        from quantedge.smc.models import OBState, TrendDirection, BreakType
 
-        # This would use the OB detector logic
-        # For now, return None
-        return None
+        # Create OrderBlock from break event data
+        confirmation = break_event.confirmation_candle
 
+        ob = OrderBlock(
+            index=break_event.index,
+            symbol=confirmation.symbol if confirmation else "BTCUSD.P",
+            timeframe=confirmation.timeframe if confirmation else "1h",
+            type="BULLISH" if break_event.direction == TrendDirection.BULLISH else "BEARISH",
+            top_price=confirmation.high if confirmation else Decimal("0"),
+            bottom_price=confirmation.low if confirmation else Decimal("0"),
+            formation_candle=confirmation if confirmation else None,
+            formation_index=break_event.index,
+            break_index=break_event.index,
+            break_type=break_event.break_type,
+            trend_before_break=break_event.previous_trend,
+            swing_trend=TrendDirection.RANGING,
+            internal_trend=break_event.previous_trend,
+        )
+
+        if ob.state in (OBState.FRESH, OBState.TOUCHED):
+            self._register_ob(ob)
+
+        return ob
     def _register_ob(self, ob):
         """Register an OB in the engine state."""
         ob_id = len(self._all_obs)
@@ -583,10 +605,11 @@ class IncrementalSMCEngine:
         """Detect gaps in historical data."""
         from quantedge.market_data.ingestion import detect_gaps
         if hasattr(self, '_all_candles') and self._all_candles:
-            self._gaps_detected = detect_gaps(self._all_candles)
+            # detect_gaps expects a dict keyed by timestamp
+            candles_dict = {int(c.timestamp.timestamp()): {"timestamp": c.timestamp.isoformat()} for c in self._all_candles}
+            self._gaps_detected = detect_gaps(candles_dict)
         else:
             self._gaps_detected = []
-
 
 # Convenience functions for common operations
 def create_incremental_engine(

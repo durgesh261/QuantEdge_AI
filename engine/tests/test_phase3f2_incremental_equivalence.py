@@ -131,7 +131,7 @@ class TestPhase3F2Equivalence:
             candle_dict = {i: {"timestamp": f"2026-01-01T0{i:02d}:00:00Z",
                               "open": "50000", "high": "50100", "low": "49900",
                               "close": "50050", "volume": "1000"}
-                          for i in range(200)}
+                          for i in range(201)}
             csv_path = tmp / "test.csv"
             write_candles(csv_path, candle_dict)
             
