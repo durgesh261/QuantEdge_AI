@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-08-20T11:50:40Z",
+  "dataset_sha256": "2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b",
+  "dataset_cutoff": "2026-08-20T00:00:00+00:00",
+  "total_obs": 341,
+  "active_obs": 36,
+  "model_agreement": {
+    "AGREE": 299,
+    "C_DIFFERS": 36,
+    "B_DIFFERS": 6
+  },
+  "identity_summary": {
+    "total_obs": 341,
+    "unique_source_groups": 323,
+    "single_ob_groups": 305,
+    "multi_ob_groups": 18,
+    "total_multi_obs": 36
+  },
+  "identity_verdicts": {
+    "LEGITIMATE_DISTINCT_BREAK_EVENT": 8,
+    "LEGITIMATE_DISTINCT_STRUCTURE_LEVEL": 28
+  },
+  "tv_differential_results": {
+    "TV_OB_001": "FOUND_IN_PYTHON",
+    "TV_OB_002": "FOUND_NEARBY_PRICE_DIFFERS"
+  },
+  "aug19_ob_trace": {
+    "upper": 64328.0,
+    "lower": 64137.5,
+    "first_touch_model_a": "2026-08-19T07:00:00+00:00",
+    "first_touch_model_a_label": "FIRST_RETEST",
+    "first_touch_model_b": "2026-08-19T07:00:00+00:00",
+    "first_touch_model_b_label": "FIRST_RETEST"
+  },
+  "aug19_temporal_replay": [
+    {
+      "ob_label": "Aug19_BULL",
+      "direction": "bullish",
+      "upper": 64328.0,
+      "lower": 64137.5,
+      "creation_ts": "2026-08-19T06:00:00+00:00",
+      "checkpoint_label": "formation",
+      "checkpoint_ts": "2026-08-19T06:00:00+00:00",
+      "state": "NOT_YET_CREATED",
+      "is_active": false,
+      "first_touch_ts": "",
+      "invalidation_ts": ""
+    },
+    {
+      "ob_label": "Aug19_BULL",
+      "direction": "bullish",
+      "upper": 64328.0,
+      "lower": 64137.5,
+      "creation_ts": "2026-08-19T06:00:00+00:00",
+      "checkpoint_label": "+1h",
+      "checkpoint_ts": "2026-08-19T07:00:00+00:00",
+      "state": "NOT_YET_CREATED",
+      "is_active": false,
+      "first_touch_ts": "",
+      "invalidation_ts": ""
+    },
+    {
+      "ob_label": "Aug19_BULL",
+      "direction": "bullish",
+      "upper": 64328.0,
+      "lower": 64137.5,
+      "creation_ts": "2026-08-19T06:00:00+00:00",
+      "checkpoint_label": "+5h",
+      "checkpoint_ts": "2026-08-19T11:00:00+00:00",
+      "state": "NOT_YET_CREATED",
+      "is_active": false,
+      "first_touch_ts": "",
+      "invalidation_ts": ""
+    },
+    {
+      "ob_label": "Aug19_BULL",
+      "direction": "bullish",
+      "upper": 64328.0,
+      "lower": 64137.5,
+      "creation_ts": "2026-08-19T06:00:00+00:00",
+      "checkpoint_label": "+10h",
+      "checkpoint_ts": "2026-08-19T16:00:00+00:00",
+      "state": "touched",
+      "is_active": true,
+      "first_touch_ts": "2026-08-19T07:00:00+00:00",
+      "invalidation_ts": ""
+    },
+    {
+      "ob_label": "Aug19_BULL",
+      "direction": "bullish",
+      "upper": 64328.0,
+      "lower": 64137.5,
+      "creation_ts": "2026-08-19T06:00:00+00:00",
+      "checkpoint_label": "cutoff",
+      "checkpoint_ts": "2026-08-20T00:00:00+00:00",
+      "state": "touched",
+      "is_active": true,
+      "first_touch_ts": "2026-08-19T07:00:00+00:00",
+      "invalidation_ts": ""
+    }
+  ]
+}
