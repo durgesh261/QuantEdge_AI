@@ -177,14 +177,14 @@ class LiveAccountSyncService:
         self.state_store = state_store or LocalStateStore()
 
     async def synchronize(self, account_id: Optional[str] = None) -> SyncResult:
-        """Perform a complete, idempotent synchronization cycle from Delta Exchange India.
+        """Perform a complete, idempotent synchronization cycle from Delta Exchange India."""
+        return await self._do_sync(account_id)
 
-        Guarantees:
-        - Exchange is single authoritative source of truth.
-        - Failures are caught safely without corrupting local state.
-        - Repeated calls with unchanged exchange state produce 0 duplicates.
-        - Closed exchange positions and orders are transitioned cleanly.
-        """
+    async def sync(self, account_id: Optional[str] = None) -> SyncResult:
+        """Alias for synchronize."""
+        return await self._do_sync(account_id)
+
+    async def _do_sync(self, account_id: Optional[str] = None) -> SyncResult:
         sync_time = datetime.now(timezone.utc)
         target_account_id = account_id or self.state_store.account_id
         discrepancies: List[str] = []
@@ -273,6 +273,7 @@ class LiveAccountSyncService:
         account.available_balance = summary.available_balance
         account.margin_used = summary.margin_used
         account.total_equity = summary.total_equity
+        account.last_synced_at = sync_time
         account.updated_at = sync_time
 
     def _reconcile_positions(

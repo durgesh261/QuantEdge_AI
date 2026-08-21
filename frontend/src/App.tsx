@@ -15,7 +15,7 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore()
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+    return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading...</div>
   }
 
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />
@@ -25,7 +25,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuthStore()
 
   if (isLoading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+    return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading...</div>
   }
 
   return !isAuthenticated ? <>{children}</> : <Navigate to="/" replace />
@@ -57,3 +57,5 @@ export function App() {
     </Routes>
   )
 }
+
+export default App

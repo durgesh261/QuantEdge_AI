@@ -27,8 +27,7 @@ public class LiveAccountSyncService {
     public LiveAccountSyncService(
             DeltaIndiaRestClient deltaRestClient,
             DeltaCredentialService credentialService,
-            ObjectMapper objectMapper
-    ) {
+            ObjectMapper objectMapper) {
         this.deltaRestClient = deltaRestClient;
         this.credentialService = credentialService;
         this.objectMapper = objectMapper;
@@ -44,8 +43,8 @@ public class LiveAccountSyncService {
             int positionsCount,
             int ordersCount,
             List<String> discrepancies,
-            String error
-    ) {}
+            String error) {
+    }
 
     public SyncSummary syncLiveAccount(String accountId, String encryptedApiKey, String encryptedApiSecret) {
         Instant syncTime = Instant.now();
@@ -61,8 +60,7 @@ public class LiveAccountSyncService {
 
             // 1. Fetch wallet balances
             ResponseEntity<String> balanceResp = deltaRestClient.executeRequest(
-                    apiKey, apiSecret, HttpMethod.GET, "/v2/wallet/balances", null, null
-            );
+                    apiKey, apiSecret, HttpMethod.GET, "/v2/wallet/balances", null, null);
             JsonNode balanceRoot = objectMapper.readTree(balanceResp.getBody());
             JsonNode balances = balanceRoot.path("result");
 
@@ -85,8 +83,7 @@ public class LiveAccountSyncService {
 
             // 2. Fetch margined positions
             ResponseEntity<String> posResp = deltaRestClient.executeRequest(
-                    apiKey, apiSecret, HttpMethod.GET, "/v2/positions/margined", null, null
-            );
+                    apiKey, apiSecret, HttpMethod.GET, "/v2/positions/margined", null, null);
             JsonNode posRoot = objectMapper.readTree(posResp.getBody());
             JsonNode positions = posRoot.path("result");
             int openPositionsCount = 0;
@@ -101,8 +98,7 @@ public class LiveAccountSyncService {
 
             // 3. Fetch open orders
             ResponseEntity<String> ordersResp = deltaRestClient.executeRequest(
-                    apiKey, apiSecret, HttpMethod.GET, "/v2/orders", "state=open", null
-            );
+                    apiKey, apiSecret, HttpMethod.GET, "/v2/orders", "state=open", null);
             JsonNode ordersRoot = objectMapper.readTree(ordersResp.getBody());
             JsonNode orders = ordersRoot.path("result");
             int openOrdersCount = orders.isArray() ? orders.size() : 0;
@@ -120,8 +116,7 @@ public class LiveAccountSyncService {
                     openPositionsCount,
                     openOrdersCount,
                     discrepancies,
-                    null
-            );
+                    null);
 
         } catch (Exception e) {
             log.error("Failed to synchronize live account {}: {}", accountId, e.getMessage());
@@ -135,8 +130,7 @@ public class LiveAccountSyncService {
                     0,
                     0,
                     discrepancies,
-                    e.getMessage()
-            );
+                    e.getMessage());
         }
     }
 }

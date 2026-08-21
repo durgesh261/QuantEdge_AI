@@ -1,5 +1,5 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, FileText, TrendingUp, ListChecks, Briefcase, BookOpen, BarChart3, Settings, LogOut, Menu, X } from 'lucide-react'
+import { Outlet, NavLink } from 'react-router-dom'
+import { LayoutDashboard, TrendingUp, ListChecks, Briefcase, BookOpen, BarChart3, Settings, LogOut, Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 
@@ -13,9 +13,8 @@ const navigation = [
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
-export function Layout() {
+export function Layout({ children }: { children?: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const location = useLocation()
   const { logout } = useAuthStore()
 
   return (
@@ -27,7 +26,7 @@ export function Layout() {
       >
         <div className="flex flex-col h-full">
           <div className="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-            <h1 className="text-xl font-bold text-white">QuantEdge AI</h1>
+            <h1 className="text-xl font-bold text-white tracking-tight">QuantEdge AI</h1>
             <button
               className="lg:hidden p-2 text-slate-400 hover:text-white"
               onClick={() => setSidebarOpen(false)}
@@ -43,7 +42,7 @@ export function Layout() {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-slate-800 text-white'
+                      ? 'bg-slate-800 text-white font-semibold'
                       : 'text-slate-400 hover:text-white hover:bg-slate-800'
                   }`
                 }
@@ -76,14 +75,14 @@ export function Layout() {
               <Menu size={24} />
             </button>
             <div className="flex items-center gap-4">
-              <div className="hidden sm:block text-sm text-slate-400">
-                QuantEdge AI V2
+              <div className="hidden sm:block text-xs font-mono text-slate-400">
+                Delta Exchange India (Live Trading Ready)
               </div>
             </div>
           </div>
         </header>
         <main className="p-4 lg:p-6">
-          <Outlet />
+          {children || <Outlet />}
         </main>
       </div>
 
