@@ -93,10 +93,10 @@ Delta Exchange India (POST /v2/orders)
 ## 5. Verification Results
 
 ### 5.1 Phase 5.3 Test Suite (`engine/tests/test_phase5_3_order_validation.py`)
-- **31 passed in 2.71s** (100% pass rate)
+- **34 passed in 1.82s** (100% pass rate)
 
 ### 5.2 Full Engine Regression Suite
-- **603 passed, 1 skipped, 0 failed**
+- **606 passed, 1 skipped, 0 failed**
 
 ### 5.3 Frozen SMC Core Verification
 ```bash

@@ -570,3 +570,57 @@ def test_no_credentials_leaked_in_rejection_reasons(standard_context, valid_long
     assert result.is_valid is False
     assert "sensitive_key_secret_xyz" not in str(result.rejection_reason)
     assert "super_private_secret_abc" not in str(result.rejection_reason)
+
+
+# ── 10. Additional Order Types & Reduce Only Tests ────────────────────────────
+
+
+def test_market_order_validation_approved(standard_context, valid_long_request):
+    """Verify MARKET_ORDER type is supported and validated with TP/SL."""
+    valid_long_request.order_type = OrderType.MARKET_ORDER
+    gateway = OrderValidationGateway()
+    result = gateway.validate(valid_long_request, standard_context)
+
+    assert result.is_valid is True
+    assert result.order_request.order_type == OrderType.MARKET_ORDER
+
+
+def test_stop_limit_order_validation_approved(standard_context, valid_long_request):
+    """Verify STOP_LIMIT_ORDER type is supported and validated."""
+    valid_long_request.order_type = OrderType.STOP_LIMIT_ORDER
+    gateway = OrderValidationGateway()
+    result = gateway.validate(valid_long_request, standard_context)
+
+    assert result.is_valid is True
+    assert result.order_request.order_type == OrderType.STOP_LIMIT_ORDER
+    assert result.order_request.stop_price == Decimal("94000.0")
+
+
+def test_reduce_only_order_bypasses_new_position_checks(standard_context, valid_long_request):
+    """Verify reduce_only orders (e.g. exit orders) don't require TP/SL and allow max concurrent positions."""
+    standard_context.open_positions = [
+        PositionRecord(
+            symbol="BTCUSD",
+            side=PositionSide.LONG,
+            quantity=Decimal("2"),
+            entry_price=Decimal("95000"),
+            current_price=Decimal("96000"),
+            unrealized_pnl=Decimal("2000"),
+            realized_pnl=Decimal("0"),
+            leverage=Decimal("50"),
+            margin_used=Decimal("3800"),
+            status=PositionStatus.OPEN,
+        )
+    ]
+    valid_long_request.reduce_only = True
+    valid_long_request.direction = TradeDirection.SHORT  # closing a LONG position
+    valid_long_request.stop_loss = None
+    valid_long_request.take_profit = None
+
+    gateway = OrderValidationGateway()
+    result = gateway.validate(valid_long_request, standard_context)
+
+    assert result.is_valid is True
+    assert result.order_request.reduce_only is True
+    assert result.order_request.side == OrderSide.SELL
+

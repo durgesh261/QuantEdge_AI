@@ -1,7 +1,8 @@
 package com.quantedge.exchange.client;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -14,11 +15,11 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Collections;
-import java.util.Map;
 
-@Slf4j
 @Component
 public class DeltaIndiaRestClient {
+
+    private static final Logger log = LoggerFactory.getLogger(DeltaIndiaRestClient.class);
 
     private final String baseUrl;
     private final RestTemplate restTemplate;

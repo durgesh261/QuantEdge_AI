@@ -8,18 +8,20 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
-import lombok.RequiredArgsConstructor;
-import lombok.Data;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@RequiredArgsConstructor
 public class AuthController {
 
     private final UserService userService;
     private final JwtTokenProvider jwtTokenProvider;
+
+    public AuthController(UserService userService, JwtTokenProvider jwtTokenProvider) {
+        this.userService = userService;
+        this.jwtTokenProvider = jwtTokenProvider;
+    }
 
     @PostMapping("/signup")
     public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest request, HttpServletResponse response) {
@@ -61,9 +63,9 @@ public class AuthController {
     private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
         Cookie accessCookie = new Cookie("access_token", accessToken);
         accessCookie.setHttpOnly(true);
-        accessCookie.setSecure(false); // Set to true in production with HTTPS
+        accessCookie.setSecure(false);
         accessCookie.setPath("/");
-        accessCookie.setMaxAge(24 * 60 * 60); // 24 hours
+        accessCookie.setMaxAge(24 * 60 * 60);
         accessCookie.setAttribute("SameSite", "Lax");
         response.addCookie(accessCookie);
 
@@ -71,7 +73,7 @@ public class AuthController {
         refreshCookie.setHttpOnly(true);
         refreshCookie.setSecure(false);
         refreshCookie.setPath("/");
-        refreshCookie.setMaxAge(7 * 24 * 60 * 60); // 7 days
+        refreshCookie.setMaxAge(7 * 24 * 60 * 60);
         refreshCookie.setAttribute("SameSite", "Lax");
         response.addCookie(refreshCookie);
     }
@@ -92,35 +94,30 @@ public class AuthController {
         response.addCookie(refreshCookie);
     }
 
-    @Data
-    public static class SignupRequest {
-        @NotBlank @Size(min = 2, max = 100) private String name;
-        @NotBlank @Email private String email;
-        @NotBlank @Size(min = 8, max = 128) private String password;
-    }
+    public record SignupRequest(
+            @NotBlank @Size(min = 2, max = 100) String name,
+            @NotBlank @Email String email,
+            @NotBlank @Size(min = 8, max = 128) String password
+    ) {}
 
-    @Data
-    public static class LoginRequest {
-        @NotBlank @Email private String email;
-        @NotBlank private String password;
-    }
+    public record LoginRequest(
+            @NotBlank @Email String email,
+            @NotBlank String password
+    ) {}
 
-    @Data
-    public static class AuthResponse {
-        private final UserDto user;
-        private final String accessToken;
-
+    public record AuthResponse(
+            UserDto user,
+            String accessToken
+    ) {
         public AuthResponse(com.quantedge.auth.entity.User user, String accessToken) {
-            this.user = new UserDto(user.getId(), user.getName(), user.getEmail(), user.getIsActive());
-            this.accessToken = accessToken;
+            this(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getIsActive()), accessToken);
         }
     }
 
-    @Data
-    public static class UserDto {
-        private final String id;
-        private final String name;
-        private final String email;
-        private final Boolean isActive;
-    }
+    public record UserDto(
+            String id,
+            String name,
+            String email,
+            Boolean isActive
+    ) {}
 }

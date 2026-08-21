@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantedge.exchange.client.DeltaIndiaRestClient;
 import com.quantedge.exchange.service.DeltaCredentialService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -15,14 +15,24 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class LiveAccountSyncService {
+
+    private static final Logger log = LoggerFactory.getLogger(LiveAccountSyncService.class);
 
     private final DeltaIndiaRestClient deltaRestClient;
     private final DeltaCredentialService credentialService;
     private final ObjectMapper objectMapper;
+
+    public LiveAccountSyncService(
+            DeltaIndiaRestClient deltaRestClient,
+            DeltaCredentialService credentialService,
+            ObjectMapper objectMapper
+    ) {
+        this.deltaRestClient = deltaRestClient;
+        this.credentialService = credentialService;
+        this.objectMapper = objectMapper;
+    }
 
     public record SyncSummary(
             boolean success,

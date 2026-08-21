@@ -5,7 +5,6 @@ import com.quantedge.auth.repository.UserRepository;
 import com.quantedge.common.config.JwtTokenProvider;
 import com.quantedge.common.exception.BusinessRuleViolationException;
 import com.quantedge.common.exception.ResourceNotFoundException;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -16,12 +15,21 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 
 @Service
-@RequiredArgsConstructor
 public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+
+    public UserService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtTokenProvider jwtTokenProvider
+    ) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtTokenProvider = jwtTokenProvider;
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -53,7 +61,7 @@ public class UserService implements UserDetailsService {
                 .email(email)
                 .passwordHash(passwordEncoder.encode(password))
                 .isActive(true)
-                .emailVerified(true) // For development; add email verification in production
+                .emailVerified(true)
                 .build();
 
         user = userRepository.save(user);
