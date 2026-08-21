@@ -780,6 +780,18 @@ class IncrementalSMCEngine:
             if ob.state in (OBState.FRESH, OBState.TOUCHED)
         ]
 
+    def get_active_obs_at_price(self, price: Any) -> List[OrderBlock]:
+        """Return all active (FRESH/TOUCHED) OBs whose price zone contains `price`."""
+        p = price if isinstance(price, Decimal) else Decimal(str(price))
+        return [
+            ob for ob in self.get_active_obs()
+            if ob.contains_price(p)
+        ]
+
+    def is_price_in_active_ob(self, price: Any) -> bool:
+        """Return True if `price` is currently inside at least one active OB zone."""
+        return len(self.get_active_obs_at_price(price)) > 0
+
     def get_all_obs(self) -> List[OrderBlock]:
         return list(self._all_obs.values())
 

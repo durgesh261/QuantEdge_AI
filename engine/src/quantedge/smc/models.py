@@ -255,6 +255,19 @@ class OrderBlock:
         """Mark OB as used after trade execution."""
         self.state = OBState.USED
 
+    def contains_price(self, price: Any) -> bool:
+        """Return True iff price is within the OB price zone [bottom_price, top_price]."""
+        p = price if isinstance(price, Decimal) else Decimal(str(price))
+        return self.bottom_price <= p <= self.top_price
+
+
+def is_price_inside_ob(price: Any, order_block: OrderBlock) -> bool:
+    """Return True if price is inside the OrderBlock's price zone [bottom_price, top_price].
+
+    This is a read-only state/relevance check and does NOT generate trade signals.
+    """
+    return order_block.contains_price(price)
+
 
 @dataclass(frozen=True)
 class FairValueGap:
