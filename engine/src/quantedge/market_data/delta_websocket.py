@@ -1,13 +1,15 @@
 """Delta Exchange WebSocket client for BTCUSD 1H candlesticks.
 
-Connects to wss://api.india.delta.exchange/ws and subscribes to the
+Connects to wss://socket.india.delta.exchange and subscribes to the
 candlestick_1h channel for BTCUSD.
 
 Key guarantees:
 - Only CLOSED candles are passed to the SMC engine / callback.
 - Each closed timestamp is processed exactly once (deduplication).
-- On disconnect, REST backfill recovers any missed closed candles.
+- Closed candles are atomically persisted BEFORE the engine processes them.
+- On disconnect, REST backfill recovers and persists any missed closed candles.
 - Heartbeat detects stale connections and triggers reconnect.
+- Persistence failure blocks engine processing (Rule 10).
 """
 
 import asyncio
@@ -20,7 +22,15 @@ from typing import Optional, Callable, Any
 
 import websockets
 
-from quantedge.market_data.ingestion import detect_gaps, _fetch_window
+from quantedge.market_data.ingestion import (
+    detect_gaps,
+    _fetch_window,
+    fetch_closed_candles,
+    upsert_closed_candles,
+    validate_candle_ohlcv,
+    CANONICAL_CSV,
+    CANONICAL_META,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("delta_ws")
@@ -158,6 +168,9 @@ class DeltaWebSocketClient:
         timeframe: str = TIMEFRAME,
         on_candle_closed: Optional[Callable[[dict], None]] = None,
         engine: Any = None,
+        persist: bool = True,
+        csv_path: Optional[Any] = None,
+        meta_path: Optional[Any] = None,
     ) -> None:
         self._symbol = symbol
         self.symbol = symbol
@@ -166,6 +179,10 @@ class DeltaWebSocketClient:
         self._timeframe = timeframe
         self.on_candle_closed = on_candle_closed
         self.engine = engine
+        # Phase 3F.5: persistence
+        self.persist = persist
+        self.csv_path = csv_path if csv_path is not None else CANONICAL_CSV
+        self.meta_path = meta_path if meta_path is not None else CANONICAL_META
         self.ws = None
         self.running = False
         self.last_closed_ts: Optional[int] = None
@@ -273,34 +290,73 @@ class DeltaWebSocketClient:
 
         candle_ts = candle["timestamp"]
 
+        # Closed-candle boundary: candle_ts < current_hour_start
+        closed = _is_candle_closed(candle_ts)
+        candle["is_closed"] = closed
+
+        if not closed:
+            logger.debug(
+                "Forming candle: %s (excluded from SMC until closed)", candle_ts
+            )
+            self._log_event(EVENT_CANDLE_FORMING, candle_ts=candle_ts)
+            return
+
         # Deduplication: skip already-processed timestamps
         if candle_ts in self.processed_timestamps:
             logger.debug("Duplicate candle timestamp: %s, skipping", candle_ts)
             self._log_event(EVENT_CANDLE_DUPLICATE, candle_ts=candle_ts)
             return
 
-        # Closed-candle boundary: candle_ts < current_hour_start
-        closed = _is_candle_closed(candle_ts)
-        candle["is_closed"] = closed
+        # Phase 3F.5 Rule 10 — strict order: validate -> persist -> engine
+        # ----------------------------------------------------------------
+        # Step 1: OHLCV validation
+        try:
+            validate_candle_ohlcv(candle)
+        except ValueError as e:
+            logger.error("OHLCV validation failed for candle %s: %s", candle_ts, e)
+            return  # Reject malformed candle
 
-        if closed:
-            logger.info("Closed candle: %s", candle_ts)
-            self.processed_timestamps.add(candle_ts)
-            self.last_closed_ts = candle_ts
-            self._log_event(EVENT_CANDLE_CLOSED, candle_ts=candle_ts)
-            if self.on_candle_closed:
-                self.on_candle_closed(candle)
-            if self.engine is not None:
-                try:
-                    result = self.engine.process_new_candles([candle])
-                    self._log_event(EVENT_OB_CREATED, ob_count=result.get("new_obs", 0))
-                except Exception as e:
-                    logger.error("Engine process_new_candles error: %s", e)
-        else:
-            logger.debug(
-                "Forming candle: %s (excluded from SMC until closed)", candle_ts
-            )
-            self._log_event(EVENT_CANDLE_FORMING, candle_ts=candle_ts)
+        # Step 2: Persist (if enabled) — MUST succeed before engine is called
+        if self.persist:
+            try:
+                upsert_result = upsert_closed_candles(
+                    [candle], self.csv_path, self.meta_path
+                )
+                logger.info(
+                    "Persisted candle %s: inserts=%d updates=%d unchanged=%d sha256=%s",
+                    candle_ts, upsert_result.inserts, upsert_result.updates,
+                    upsert_result.unchanged, upsert_result.sha256[:12],
+                )
+                self._log_event(
+                    EVENT_STATE_SAVED,
+                    candle_ts=candle_ts,
+                    inserts=upsert_result.inserts,
+                    updates=upsert_result.updates,
+                )
+            except Exception as e:
+                # Persistence failed: DO NOT mark as processed, DO NOT call engine
+                logger.error(
+                    "Persistence FAILED for candle %s: %s | "
+                    "Candle remains eligible for retry.", candle_ts, e
+                )
+                return  # Rule 10: leave candle un-processed
+
+        # Step 3: Mark processed ONLY after successful persistence
+        self.processed_timestamps.add(candle_ts)
+        self.last_closed_ts = candle_ts
+        self._log_event(EVENT_CANDLE_CLOSED, candle_ts=candle_ts)
+
+        # Step 4: Callback
+        if self.on_candle_closed:
+            self.on_candle_closed(candle)
+
+        # Step 5: Engine — only after successful persistence
+        if self.engine is not None:
+            try:
+                result = self.engine.process_new_candles([candle])
+                self._log_event(EVENT_OB_CREATED, ob_count=result.get("new_obs", 0))
+            except Exception as e:
+                logger.error("Engine process_new_candles error: %s", e)
 
     async def _reconnect(self) -> None:
         attempt = self.reconnect_attempt + 1
@@ -329,7 +385,12 @@ class DeltaWebSocketClient:
             await self._reconnect()
 
     async def _backfill_gaps(self) -> None:
-        """Use Delta REST to recover any closed candles missed during disconnect."""
+        """Use Delta REST (paginated) to recover any closed candles missed during disconnect.
+
+        Phase 3F.5: uses fetch_closed_candles() (paginated) instead of a single
+        _fetch_window() call, then persists the entire batch via upsert_closed_candles()
+        before passing successfully-persisted candles to the engine.
+        """
         logger.info("Starting REST backfill gap recovery")
         self._log_event(EVENT_BACKFILL_STARTED)
 
@@ -342,29 +403,71 @@ class DeltaWebSocketClient:
         end_ts = int(datetime.now(timezone.utc).timestamp())
 
         try:
-            # Use the canonical _fetch_window(start_ts, end_ts) interface
-            raw_candles = _fetch_window(start_ts, end_ts)
+            # Paginated REST fetch (fetch_closed_candles handles chunking + dedup)
+            raw_candles = fetch_closed_candles(start_ts, end_ts)
             logger.info("Fetched %s candles via REST backfill", len(raw_candles))
 
-            # Filter to closed candles, sort chronologically, deduplicate
-            raw_candles.sort(key=lambda c: c["time"])
+            if not raw_candles:
+                self._log_event(EVENT_BACKFILL_COMPLETED, success=True)
+                return
+
+            # Normalize raw Delta REST dicts
+            candle_dicts = []
             for c in raw_candles:
-                candle_ts = int(c["time"])
-                if not _is_candle_closed(candle_ts):
-                    continue  # Skip forming candle
-                if candle_ts in self.processed_timestamps:
-                    continue  # Skip already processed
-                self.processed_timestamps.add(candle_ts)
-                self.last_closed_ts = candle_ts
-                candle_normalized = {
-                    "symbol": self._symbol,
-                    "timeframe": self._timeframe,
-                    "timestamp": candle_ts,
-                    "open": Decimal(str(c.get("open", c.get("o", "0")))),
-                    "high": Decimal(str(c.get("high", c.get("h", "0")))),
-                    "low": Decimal(str(c.get("low", c.get("l", "0")))),
-                    "close": Decimal(str(c.get("close", c.get("c", "0")))),
+                ts_int = int(c["time"])
+                if not _is_candle_closed(ts_int):
+                    continue  # skip any forming candle
+                if ts_int in self.processed_timestamps:
+                    continue  # skip already-processed
+                candle_dicts.append({
+                    "timestamp": ts_int,
+                    "open":   Decimal(str(c.get("open",   c.get("o", "0")))),
+                    "high":   Decimal(str(c.get("high",   c.get("h", "0")))),
+                    "low":    Decimal(str(c.get("low",    c.get("l", "0")))),
+                    "close":  Decimal(str(c.get("close",  c.get("c", "0")))),
                     "volume": Decimal(str(c.get("volume", c.get("v", "0")))),
+                })
+
+            if not candle_dicts:
+                logger.info("No new closed candles to backfill")
+                self._log_event(EVENT_BACKFILL_COMPLETED, success=True)
+                return
+
+            # Phase 3F.5: Persist entire batch BEFORE engine (Rule 8)
+            if self.persist:
+                try:
+                    upsert_result = upsert_closed_candles(
+                        candle_dicts, self.csv_path, self.meta_path
+                    )
+                    logger.info(
+                        "Backfill persisted: inserts=%d updates=%d unchanged=%d",
+                        upsert_result.inserts, upsert_result.updates, upsert_result.unchanged,
+                    )
+                    self._log_event(
+                        EVENT_STATE_SAVED,
+                        inserts=upsert_result.inserts,
+                        updates=upsert_result.updates,
+                    )
+                except Exception as e:
+                    logger.error("Backfill persistence FAILED: %s", e)
+                    self._log_event(EVENT_BACKFILL_ERROR, error=str(e))
+                    return  # Do not process candles if persistence failed
+
+            # Pass successfully-persisted candles to engine and mark processed
+            for c_dict in candle_dicts:
+                ts_int = int(c_dict["timestamp"]) if not isinstance(c_dict["timestamp"], datetime) else int(c_dict["timestamp"].timestamp())
+                self.processed_timestamps.add(ts_int)
+                self.last_closed_ts = ts_int
+
+                candle_normalized = {
+                    "symbol":    self._symbol,
+                    "timeframe": self._timeframe,
+                    "timestamp": ts_int,
+                    "open":      c_dict["open"],
+                    "high":      c_dict["high"],
+                    "low":       c_dict["low"],
+                    "close":     c_dict["close"],
+                    "volume":    c_dict["volume"],
                     "is_closed": True,
                 }
                 if self.on_candle_closed:
@@ -376,8 +479,8 @@ class DeltaWebSocketClient:
                         logger.error("Backfill process_new_candles error: %s", e)
 
             # Detect remaining gaps for logging
-            candle_dict = {c["time"]: c for c in raw_candles}
-            gaps = detect_gaps(candle_dict)
+            candle_map = {int(c["time"]): c for c in raw_candles}
+            gaps = detect_gaps(candle_map)
             if gaps:
                 logger.warning("Gaps detected after backfill: %s", gaps)
                 self._log_event(EVENT_GAP_DETECTED, gaps=gaps)

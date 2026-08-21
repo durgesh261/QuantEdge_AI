@@ -9,14 +9,16 @@ Single authoritative implementation — no duplicate definitions.
 import csv
 import json
 import hashlib
+import os
 import time
 import urllib.request
 import urllib.parse
 import urllib.error
+from dataclasses import dataclass, field as dc_field
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────────
@@ -155,6 +157,244 @@ def detect_gaps(candles: Dict[int, Any]) -> List[Dict[str, Any]]:
                 ),
             })
     return gaps
+
+
+# ── Phase 3F.5 Persistence Layer ─────────────────────────────────────────────────
+
+
+def validate_candle_ohlcv(candle: Dict[str, Any]) -> None:
+    """Validate a candle dict's OHLCV fields.
+
+    Raises ValueError with a descriptive message if any rule is violated:
+      - open > 0, high > 0, low > 0, close > 0
+      - volume >= 0
+      - high >= max(open, close, low)
+      - low <= min(open, close, high)
+    """
+    try:
+        o = Decimal(str(candle["open"]))
+        h = Decimal(str(candle["high"]))
+        l = Decimal(str(candle["low"]))
+        c = Decimal(str(candle["close"]))
+        v = Decimal(str(candle["volume"]))
+    except (KeyError, TypeError, Exception) as e:
+        raise ValueError(f"Cannot parse OHLCV fields: {e} | candle={candle}") from e
+
+    if o <= 0:
+        raise ValueError(f"open must be > 0, got {o}")
+    if h <= 0:
+        raise ValueError(f"high must be > 0, got {h}")
+    if l <= 0:
+        raise ValueError(f"low must be > 0, got {l}")
+    if c <= 0:
+        raise ValueError(f"close must be > 0, got {c}")
+    if v < 0:
+        raise ValueError(f"volume must be >= 0, got {v}")
+    expected_high = max(o, c, l)
+    if h < expected_high:
+        raise ValueError(
+            f"high ({h}) must be >= max(open, close, low) = {expected_high}"
+        )
+    expected_low = min(o, c, h)
+    if l > expected_low:
+        raise ValueError(
+            f"low ({l}) must be <= min(open, close, high) = {expected_low}"
+        )
+
+
+@dataclass
+class UpsertResult:
+    """Result of an upsert_closed_candles() call."""
+    inserts: int = 0
+    updates: int = 0
+    unchanged: int = 0
+    total: int = 0
+    gaps: List[Dict[str, Any]] = dc_field(default_factory=list)
+    sha256: str = ""
+
+
+def _normalize_candle_ts(candle: Dict[str, Any]) -> tuple:
+    """Return (ts_int, normalized_dict) from a candle dict.
+
+    Accepts timestamp as:
+      - int/float (Unix seconds)
+      - datetime object
+
+    Returns a normalized dict with:
+      - timestamp: datetime (UTC)
+      - open/high/low/close/volume: Decimal
+    """
+    ts = candle["timestamp"]
+    if isinstance(ts, datetime):
+        ts_int = int(ts.timestamp())
+    else:
+        ts_int = int(ts)
+    normalized = {
+        "timestamp": datetime.fromtimestamp(ts_int, tz=timezone.utc),
+        "open":   Decimal(str(candle["open"])),
+        "high":   Decimal(str(candle["high"])),
+        "low":    Decimal(str(candle["low"])),
+        "close":  Decimal(str(candle["close"])),
+        "volume": Decimal(str(candle["volume"])),
+    }
+    return ts_int, normalized
+
+
+def upsert_closed_candles(
+    candles: List[Dict[str, Any]],
+    csv_path: Path,
+    meta_path: Path,
+    check_closed: bool = True,
+) -> UpsertResult:
+    """Atomically upsert a list of closed candles into the canonical CSV.
+
+    This is the SINGLE AUTHORITATIVE persistence function for Phase 3F.5.
+    Both WebSocket live candles and REST backfill MUST use this function.
+
+    Rules enforced:
+      Rule 1 — Only closed candles (candle_ts < current_hour_start); forming silently skipped.
+      Rule 2 — Timestamp deduplication: same timestamp processed once.
+      Rule 3 — INSERT / UPDATE / UNCHANGED semantics based on OHLCV comparison.
+      Rule 4 — Output is strictly chronologically ordered.
+      Rule 5 — OHLCV validation via validate_candle_ohlcv() before any write.
+      Rule 6 — Atomic write: write to .tmp, then os.replace() to canonical.
+      Rule 7 — Metadata JSON updated after successful write.
+
+    Args:
+        candles:      List of candle dicts. timestamp may be int (Unix seconds) or datetime.
+                      Extra keys (symbol, timeframe, is_closed, etc.) are silently ignored.
+        csv_path:     Path to canonical CSV.
+        meta_path:    Path to metadata JSON.
+        check_closed: If True (default), silently skip forming candles.
+                      Set False only in tests that want to verify OHLCV rejection.
+
+    Returns:
+        UpsertResult with counts of inserts, updates, unchanged, total, gaps, sha256.
+        If no inserts or updates occurred, returns immediately without writing.
+
+    Raises:
+        ValueError:   If OHLCV validation fails for any incoming candle.
+        RuntimeError: If final dataset integrity check fails.
+        OSError:      If the atomic write or rename fails.
+    """
+    if not candles:
+        return UpsertResult()
+
+    # Step 1: Load existing canonical dataset
+    existing = load_candles(csv_path)
+    original_count = len(existing)
+
+    # Step 2: Process incoming candles
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    current_hour_start = now_ts - (now_ts % 3600)
+
+    result = UpsertResult()
+    seen_in_batch: set = set()
+
+    for raw_candle in candles:
+        # Normalize timestamp
+        ts_int, normalized = _normalize_candle_ts(raw_candle)
+
+        # Rule 1: Silently skip forming candles
+        if check_closed and ts_int >= current_hour_start:
+            continue
+
+        # Rule 5: Validate OHLCV (raises ValueError on violation)
+        validate_candle_ohlcv(normalized)
+
+        # Rule 2: Deduplicate within batch (keep first occurrence)
+        if ts_int in seen_in_batch:
+            continue
+        seen_in_batch.add(ts_int)
+
+        # Rule 3: INSERT / UPDATE / UNCHANGED
+        if ts_int in existing:
+            ex = existing[ts_int]
+            if (
+                ex["open"]   == normalized["open"] and
+                ex["high"]   == normalized["high"] and
+                ex["low"]    == normalized["low"]  and
+                ex["close"]  == normalized["close"] and
+                ex["volume"] == normalized["volume"]
+            ):
+                result.unchanged += 1
+            else:
+                existing[ts_int] = normalized
+                result.updates += 1
+        else:
+            existing[ts_int] = normalized
+            result.inserts += 1
+
+    result.total = len(existing)
+
+    # If nothing changed, return early without touching the filesystem
+    if result.inserts == 0 and result.updates == 0:
+        result.gaps = detect_gaps(existing)
+        result.sha256 = csv_hash(csv_path) if csv_path.exists() else ""
+        return result
+
+    # Step 3: Validate final dataset integrity before writing
+    sorted_ts = sorted(existing.keys())
+    if len(sorted_ts) != len(set(sorted_ts)):
+        raise RuntimeError(
+            "Phase 3F.5: Final dataset has duplicate timestamps — aborting write."
+        )
+    for i in range(1, len(sorted_ts)):
+        if sorted_ts[i] <= sorted_ts[i - 1]:
+            raise RuntimeError(
+                f"Phase 3F.5: Dataset not strictly increasing at index {i}: "
+                f"{sorted_ts[i - 1]} -> {sorted_ts[i]}"
+            )
+
+    # Step 4: Atomic write — write to .tmp then os.replace()
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = csv_path.parent / (csv_path.name + ".tmp")
+    try:
+        with open(tmp_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["timestamp", "open", "high", "low", "close", "volume"])
+            for ts_int in sorted_ts:
+                c = existing[ts_int]
+                writer.writerow([
+                    datetime.fromtimestamp(ts_int, tz=timezone.utc).isoformat(),
+                    str(c["open"]), str(c["high"]), str(c["low"]),
+                    str(c["close"]), str(c["volume"]),
+                ])
+            f.flush()
+            os.fsync(f.fileno())
+        # Atomic rename — original remains intact if this fails
+        tmp_path.replace(csv_path)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        raise
+
+    # Step 5: Compute SHA-256 (row-based, CRLF-independent)
+    sha = csv_hash(csv_path)
+    gaps = detect_gaps(existing)
+    result.gaps = gaps
+    result.sha256 = sha
+
+    # Step 6: Update metadata JSON (Rule 7)
+    meta = load_metadata(meta_path) if meta_path.exists() else {}
+    meta.update({
+        "candle_count":    len(existing),
+        "first_timestamp": datetime.fromtimestamp(sorted_ts[0], tz=timezone.utc).isoformat(),
+        "last_timestamp":  datetime.fromtimestamp(sorted_ts[-1], tz=timezone.utc).isoformat(),
+        "gap_count":       len(gaps),
+        "invalid_ohlc":    0,
+        "sha256":          sha,
+        "download_utc":    datetime.now(timezone.utc).isoformat(),
+    })
+    # Preserve required static fields if not yet present
+    meta.setdefault("symbol",     "BTCUSD.P")
+    meta.setdefault("delta_symbol", "BTCUSD")
+    meta.setdefault("exchange",   "Delta Exchange India (api.india.delta.exchange)")
+    meta.setdefault("timeframe",  "1h")
+    meta.setdefault("source_url", "https://api.india.delta.exchange/v2/history/candles")
+    save_metadata(meta_path, meta)
+
+    return result
 
 
 def _fetch_window(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
@@ -313,7 +553,11 @@ class DeltaExchangeIngestionService:
         }
 
     def run_incremental_ingestion(self) -> Dict[str, Any]:
-        """Fetch newly closed candles from Delta REST and append to the canonical CSV."""
+        """Fetch newly closed candles from Delta REST and persist via upsert_closed_candles().
+
+        Uses the single authoritative persistence path (Phase 3F.5).
+        REST backfill -> validate -> deduplicate -> atomic upsert -> metadata.
+        """
         existing_candles = self._load_candles()
 
         print("=" * 60)
@@ -331,50 +575,62 @@ class DeltaExchangeIngestionService:
         print(f"  From         : {datetime.fromtimestamp(start_ts, tz=timezone.utc).isoformat()}")
 
         try:
-            new_candles = fetch_closed_candles(
+            raw_candles = fetch_closed_candles(
                 start_ts, int(datetime.now(timezone.utc).timestamp())
             )
         except Exception as e:
             return {"success": False, "errors": [f"Fetch failed: {e}"]}
 
-        print(f"  Fetched      : {len(new_candles)} new closed candles")
+        print(f"  Fetched      : {len(raw_candles)} new closed candles")
 
-        # Merge into existing
-        existing = self._load_candles()
-        new_count = 0
-        for c in new_candles:
-            ts_int = c["time"]
-            if ts_int not in existing:
-                new_count += 1
-            existing[ts_int] = {
-                "timestamp": datetime.fromtimestamp(ts_int, tz=timezone.utc),
-                "open": Decimal(str(c.get("open", c.get("o", "0")))),
-                "high": Decimal(str(c.get("high", c.get("h", "0")))),
-                "low": Decimal(str(c.get("low", c.get("l", "0")))),
-                "close": Decimal(str(c.get("close", c.get("c", "0")))),
-                "volume": Decimal(str(c.get("volume", c.get("v", "0")))),
+        if not raw_candles:
+            return {
+                "success": True,
+                "candles_fetched": 0,
+                "candles_new": 0,
+                "candles_updated": 0,
+                "gaps_detected": 0,
+                "gaps": [],
+                "errors": [],
+                "csv_hash": self._csv_hash(),
             }
 
-        self._write_candles(existing)
-        gaps = self.detect_gaps(existing)
-        self._save_metadata(self._generate_metadata(existing, gaps))
+        # Normalize raw Delta REST dicts -> candle dicts for upsert
+        candle_dicts = []
+        for c in raw_candles:
+            ts_int = int(c["time"])
+            candle_dicts.append({
+                "timestamp": ts_int,
+                "open":   Decimal(str(c.get("open",   c.get("o", "0")))),
+                "high":   Decimal(str(c.get("high",   c.get("h", "0")))),
+                "low":    Decimal(str(c.get("low",    c.get("l", "0")))),
+                "close":  Decimal(str(c.get("close",  c.get("c", "0")))),
+                "volume": Decimal(str(c.get("volume", c.get("v", "0")))),
+            })
+
+        # Single authoritative persistence path (Rule 8)
+        upsert_result = upsert_closed_candles(
+            candle_dicts, self.csv_path, self.meta_path
+        )
 
         print()
         print("Ingestion Summary:")
-        print(f"  New candles       : {new_count}")
-        print(f"  Gaps detected     : {len(gaps)}")
-        print(f"  CSV SHA-256       : {self._csv_hash()}")
+        print(f"  Inserts           : {upsert_result.inserts}")
+        print(f"  Updates           : {upsert_result.updates}")
+        print(f"  Unchanged         : {upsert_result.unchanged}")
+        print(f"  Gaps detected     : {len(upsert_result.gaps)}")
+        print(f"  CSV SHA-256       : {upsert_result.sha256}")
 
         return {
-            "success": True,
-            "candles_fetched": len(new_candles),
-            "candles_new": new_count,
-            "candles_updated": len(new_candles) - new_count,
-            "gaps_detected": len(gaps),
-            "gaps": gaps,
-            "duration_seconds": 0,
-            "errors": [],
-            "csv_hash": self._csv_hash(),
+            "success":          True,
+            "candles_fetched":  len(raw_candles),
+            "candles_new":      upsert_result.inserts,
+            "candles_updated":  upsert_result.updates,
+            "candles_unchanged":upsert_result.unchanged,
+            "gaps_detected":    len(upsert_result.gaps),
+            "gaps":             upsert_result.gaps,
+            "errors":           [],
+            "csv_hash":         upsert_result.sha256,
         }
 
     def run(self) -> Dict[str, Any]:
