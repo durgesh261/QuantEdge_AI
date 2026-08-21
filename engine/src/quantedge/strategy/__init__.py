@@ -9,6 +9,7 @@ from quantedge.strategy.models import (
     StrategyDirection,
     SetupType,
     SetupState,
+    RiskRewardConfig,
     generate_setup_id,
     TradeSetup,
     TradeDirection,

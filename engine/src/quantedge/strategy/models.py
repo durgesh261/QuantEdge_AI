@@ -31,19 +31,38 @@ class SetupType(str, Enum):
 
 class SetupState(str, Enum):
     """
-    Trade setup lifecycle states per Phase 4.1 specification.
+    Trade setup lifecycle states per Phase 4.2 specification.
 
     - NO_SETUP: No valid OB or setup currently qualifies.
     - WATCHING_OB: Valid active OB exists but current price is outside its zone.
     - OB_ENGAGED: Current closed price is inside a valid active OB, but confirmation is incomplete.
     - QUALIFIED_LONG: Bullish OB + price inside OB + required bullish confirmation satisfied.
     - QUALIFIED_SHORT: Bearish OB + price inside OB + required bearish confirmation satisfied.
+    - TRADE_SETUP_READY: Qualified setup with valid geometry and risk_reward >= minimum_risk_reward.
     """
     NO_SETUP = "NO_SETUP"
     WATCHING_OB = "WATCHING_OB"
     OB_ENGAGED = "OB_ENGAGED"
     QUALIFIED_LONG = "QUALIFIED_LONG"
     QUALIFIED_SHORT = "QUALIFIED_SHORT"
+    TRADE_SETUP_READY = "TRADE_SETUP_READY"
+
+
+@dataclass(frozen=True)
+class RiskRewardConfig:
+    """Configurable risk/reward validation parameters."""
+    minimum_risk_reward: Decimal = Decimal("2.0")
+    reward_multiple: Decimal = Decimal("2.0")
+
+    def __post_init__(self):
+        min_rr = self.minimum_risk_reward if isinstance(self.minimum_risk_reward, Decimal) else Decimal(str(self.minimum_risk_reward))
+        rew_mult = self.reward_multiple if isinstance(self.reward_multiple, Decimal) else Decimal(str(self.reward_multiple))
+        if min_rr <= Decimal("0"):
+            raise ValueError("minimum_risk_reward must be > 0")
+        if rew_mult <= Decimal("0"):
+            raise ValueError("reward_multiple must be > 0")
+        object.__setattr__(self, "minimum_risk_reward", min_rr)
+        object.__setattr__(self, "reward_multiple", rew_mult)
 
 
 @dataclass
@@ -51,13 +70,14 @@ class StrategyDecision:
     """
     Deterministic Strategy Decision generated from SMC state and candle price action.
     
-    Adheres strictly to the Phase 4.1 specification:
-    - SetupState: NO_SETUP, WATCHING_OB, OB_ENGAGED, QUALIFIED_LONG, QUALIFIED_SHORT
+    Adheres strictly to the Phase 4.2 specification:
+    - SetupState: NO_SETUP, WATCHING_OB, OB_ENGAGED, QUALIFIED_LONG, QUALIFIED_SHORT, TRADE_SETUP_READY
     - Direction: NONE, LONG, or SHORT (default NONE)
     - Deterministic setup_id traceability
     - Retains authoritative UTC timestamp internally
     - Computes user-facing Asia/Kolkata display timestamp dynamically
     - Captures factual reasons derived directly from SMC state
+    - Validated entry, stop_loss, take_profit, risk_distance, reward_distance, risk_reward
     - UI-ready properties (ob_zone, ob_formation_ts, ob_age_days, etc.)
     - Contains strictly no order execution or private exchange logic
     """
@@ -71,7 +91,10 @@ class StrategyDecision:
     entry: Optional[Decimal] = None
     stop_loss: Optional[Decimal] = None
     take_profit: Optional[Decimal] = None
+    risk_distance: Optional[Decimal] = None
+    reward_distance: Optional[Decimal] = None
     risk_reward: Optional[Decimal] = None
+    minimum_risk_reward: Optional[Decimal] = None
     confidence: Optional[float] = None
     reasons: list[str] = field(default_factory=list)
     order_block: Optional[OrderBlock] = None
@@ -96,12 +119,20 @@ class StrategyDecision:
         return self.direction == StrategyDirection.SHORT
 
     @property
+    def is_trade_setup_ready(self) -> bool:
+        return self.setup_state == SetupState.TRADE_SETUP_READY
+
+    @property
+    def trade_setup_ready(self) -> bool:
+        return self.is_trade_setup_ready
+
+    @property
     def is_qualified(self) -> bool:
-        return self.setup_state in (SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT)
+        return self.setup_state in (SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT, SetupState.TRADE_SETUP_READY)
 
     @property
     def is_engaged(self) -> bool:
-        return self.setup_state in (SetupState.OB_ENGAGED, SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT)
+        return self.setup_state in (SetupState.OB_ENGAGED, SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT, SetupState.TRADE_SETUP_READY)
 
     @property
     def is_watching(self) -> bool:
@@ -135,10 +166,14 @@ class StrategyDecision:
             "setup_state": self.setup_state.value,
             "setup_id": self.setup_id,
             "setup_type": self.setup_type,
+            "trade_setup_ready": self.trade_setup_ready,
             "entry": str(self.entry) if self.entry is not None else None,
             "stop_loss": str(self.stop_loss) if self.stop_loss is not None else None,
             "take_profit": str(self.take_profit) if self.take_profit is not None else None,
+            "risk_distance": str(self.risk_distance) if self.risk_distance is not None else None,
+            "reward_distance": str(self.reward_distance) if self.reward_distance is not None else None,
             "risk_reward": str(self.risk_reward) if self.risk_reward is not None else None,
+            "minimum_risk_reward": str(self.minimum_risk_reward) if self.minimum_risk_reward is not None else None,
             "confidence": self.confidence,
             "reasons": list(self.reasons),
             "ob_id": self.order_block.index if self.order_block is not None else None,

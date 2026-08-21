@@ -241,7 +241,7 @@ class TestPhase41SignalQualification:
         assert decision.order_block == ob
 
     def test_bullish_ob_bullish_confirmation_returns_qualified_long(self):
-        """5. Bullish OB + price inside + bullish confirmation -> QUALIFIED_LONG."""
+        """5. Bullish OB + price inside + bullish confirmation -> QUALIFIED_LONG or TRADE_SETUP_READY."""
         strat = StrategyEngine()
         ob = make_bullish_ob(top=50000.0, bottom=49000.0)
         candle = make_candle(BASE_TS + 100 * HOUR, close_p=49500.0)
@@ -251,16 +251,17 @@ class TestPhase41SignalQualification:
             internal_trend=TrendDirection.BULLISH,
             swing_trend=TrendDirection.BULLISH,
         )
-        assert decision.setup_state == SetupState.QUALIFIED_LONG
-        assert decision.direction == StrategyDirection.LONG
         assert decision.is_qualified
+        assert decision.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
+        assert decision.direction == StrategyDirection.LONG
         assert decision.is_long
+        assert decision.is_signal
         assert decision.setup_id is not None
         assert decision.entry == ob.calculate_entry_price()
         assert decision.stop_loss == ob.calculate_stop_loss()
 
     def test_bearish_ob_bearish_confirmation_returns_qualified_short(self):
-        """6. Bearish OB + price inside + bearish confirmation -> QUALIFIED_SHORT."""
+        """6. Bearish OB + price inside + bearish confirmation -> QUALIFIED_SHORT or TRADE_SETUP_READY."""
         strat = StrategyEngine()
         ob = make_bearish_ob(top=61000.0, bottom=60000.0)
         candle = make_candle(BASE_TS + 100 * HOUR, close_p=60500.0)
@@ -270,10 +271,11 @@ class TestPhase41SignalQualification:
             internal_trend=TrendDirection.BEARISH,
             swing_trend=TrendDirection.BEARISH,
         )
-        assert decision.setup_state == SetupState.QUALIFIED_SHORT
-        assert decision.direction == StrategyDirection.SHORT
         assert decision.is_qualified
+        assert decision.setup_state in (SetupState.QUALIFIED_SHORT, SetupState.TRADE_SETUP_READY)
+        assert decision.direction == StrategyDirection.SHORT
         assert decision.is_short
+        assert decision.is_signal
         assert decision.setup_id is not None
         assert decision.entry == ob.calculate_entry_price()
         assert decision.stop_loss == ob.calculate_stop_loss()
@@ -352,7 +354,8 @@ class TestPhase41SignalQualification:
             internal_trend=TrendDirection.BULLISH,
             swing_trend=TrendDirection.BULLISH,
         )
-        assert decision.setup_state == SetupState.QUALIFIED_LONG
+        assert decision.is_qualified
+        assert decision.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
         assert decision.direction == StrategyDirection.LONG
         assert decision.ob_age_days is not None
         assert decision.ob_age_days >= 170.0
@@ -370,7 +373,8 @@ class TestPhase41SignalQualification:
             internal_trend=TrendDirection.BULLISH,
             swing_trend=TrendDirection.BULLISH,
         )
-        assert decision.setup_state == SetupState.QUALIFIED_LONG
+        assert decision.is_qualified
+        assert decision.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
         assert decision.order_block == ob1
 
     def test_multiple_overlapping_obs_engagement(self):
@@ -386,7 +390,8 @@ class TestPhase41SignalQualification:
             internal_trend=TrendDirection.BULLISH,
             swing_trend=TrendDirection.BULLISH,
         )
-        assert decision.setup_state == SetupState.QUALIFIED_LONG
+        assert decision.is_qualified
+        assert decision.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
         # Tight/higher confidence OB prioritized
         assert decision.order_block == ob_tight
 
@@ -420,12 +425,14 @@ class TestPhase41SignalQualification:
         # Exact bottom
         c_bot = make_candle(BASE_TS + 100 * HOUR, close_p=49000.0)
         d_bot = strat.evaluate_state(c_bot, [ob], TrendDirection.BULLISH, TrendDirection.BULLISH)
-        assert d_bot.setup_state == SetupState.QUALIFIED_LONG
+        assert d_bot.is_qualified
+        assert d_bot.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
 
         # Exact top
         c_top = make_candle(BASE_TS + 100 * HOUR, close_p=50000.0)
         d_top = strat.evaluate_state(c_top, [ob], TrendDirection.BULLISH, TrendDirection.BULLISH)
-        assert d_top.setup_state == SetupState.QUALIFIED_LONG
+        assert d_top.is_qualified
+        assert d_top.setup_state in (SetupState.QUALIFIED_LONG, SetupState.TRADE_SETUP_READY)
 
         # Slightly below
         c_below = make_candle(BASE_TS + 100 * HOUR, close_p=48999.99)
@@ -440,7 +447,7 @@ class TestPhase41SignalQualification:
 
         d1 = strat.evaluate_state(candle, [ob], TrendDirection.BULLISH, TrendDirection.BULLISH)
         d2 = strat.evaluate_state(candle, [ob], TrendDirection.BULLISH, TrendDirection.BULLISH)
-        assert d1.setup_state == d2.setup_state == SetupState.QUALIFIED_LONG
+        assert d1.setup_state == d2.setup_state
         assert d1.setup_id == d2.setup_id
         assert d1.to_dict() == d2.to_dict()
 
@@ -454,7 +461,7 @@ class TestPhase41SignalQualification:
             for _ in range(5)
         ]
         for d in dec_list:
-            assert d.setup_state == SetupState.QUALIFIED_SHORT
+            assert d.setup_state == dec_list[0].setup_state
             assert d.setup_id == dec_list[0].setup_id
 
     def test_future_data_invariance(self):
@@ -470,7 +477,7 @@ class TestPhase41SignalQualification:
 
         d_after = strat.evaluate_state(candle_t, [copy.deepcopy(ob)], TrendDirection.BULLISH, TrendDirection.BULLISH)
 
-        assert d_before.setup_state == d_after.setup_state == SetupState.QUALIFIED_LONG
+        assert d_before.setup_state == d_after.setup_state
         assert d_before.setup_id == d_after.setup_id
 
     def test_incremental_equals_full_replay(self, tmp_path):

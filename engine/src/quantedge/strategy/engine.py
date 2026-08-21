@@ -20,7 +20,7 @@ from quantedge.strategy.models import (
     TradeSetup, StrategyConfig, StrategySignal, TradeDirection,
     ConfidenceFactors, AccountState, RiskValidationResult,
     StrategyDecision, StrategyDirection, SetupType, SetupState,
-    generate_setup_id
+    RiskRewardConfig, generate_setup_id
 )
 from quantedge.strategy.confidence import ConfidenceScorer
 from quantedge.strategy.risk import RiskCalculator
@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 class StrategyEngineConfig:
     strategy: StrategyConfig = field(default_factory=StrategyConfig)
     smc: SMCAnalyzerConfig = field(default_factory=SMCAnalyzerConfig)
+    risk_reward: RiskRewardConfig = field(default_factory=RiskRewardConfig)
 
 
 class StrategyEngine:
@@ -39,17 +40,25 @@ class StrategyEngine:
     Main Strategy Engine.
 
     Supports:
-    1. Phase 4.1 Deterministic Signal Qualification (evaluate_candle / evaluate_state)
+    1. Phase 4.2 Deterministic Risk/Reward & Trade Setup Validation (evaluate_candle / evaluate_state)
     2. Multi-symbol candidate scanning and ranking
     """
 
-    def __init__(self, config: Optional[Union[StrategyEngineConfig, StrategyConfig]] = None):
+    def __init__(
+        self,
+        config: Optional[Union[StrategyEngineConfig, StrategyConfig, RiskRewardConfig]] = None,
+        risk_reward_config: Optional[RiskRewardConfig] = None,
+    ):
         if config is None:
-            self.config = StrategyEngineConfig()
+            self.config = StrategyEngineConfig(risk_reward=risk_reward_config or RiskRewardConfig())
         elif isinstance(config, StrategyConfig):
-            self.config = StrategyEngineConfig(strategy=config)
+            self.config = StrategyEngineConfig(strategy=config, risk_reward=risk_reward_config or RiskRewardConfig())
+        elif isinstance(config, RiskRewardConfig):
+            self.config = StrategyEngineConfig(risk_reward=config)
         else:
             self.config = config
+            if risk_reward_config is not None:
+                self.config.risk_reward = risk_reward_config
         self.smc_analyzer = SMCAnalyzer(self.config.smc)
         self.confidence_scorer = ConfidenceScorer(self.config.strategy)
         self.risk_calculator = RiskCalculator(self.config.strategy)
@@ -58,6 +67,7 @@ class StrategyEngine:
         self,
         candle: Candle,
         smc_engine: Any,
+        risk_reward_config: Optional[RiskRewardConfig] = None,
     ) -> StrategyDecision:
         """
         Evaluate a single closed candle against the current IncrementalSMCEngine state.
@@ -65,7 +75,7 @@ class StrategyEngine:
         Reads existing SMC state in a strictly read-only, non-mutating manner:
         1. Queries all active order blocks and order blocks engaged at current closed candle price.
         2. Retrieves trend and structure break context.
-        3. Evaluates deterministic Phase 4.1 signal qualification rules.
+        3. Evaluates deterministic Phase 4.2 risk/reward & trade setup ready rules.
         """
         all_active_obs = smc_engine.get_active_obs()
         engaged_obs = smc_engine.get_active_obs_at_price(candle.close)
@@ -80,6 +90,7 @@ class StrategyEngine:
             swing_trend=swing_trend,
             recent_breaks=recent_breaks,
             all_active_obs=all_active_obs,
+            risk_reward_config=risk_reward_config,
         )
 
     def evaluate_state(
@@ -90,6 +101,7 @@ class StrategyEngine:
         swing_trend: TrendDirection,
         recent_breaks: Optional[list[StructureBreak]] = None,
         all_active_obs: Optional[list[OrderBlock]] = None,
+        risk_reward_config: Optional[RiskRewardConfig] = None,
     ) -> StrategyDecision:
         """
         Evaluate a closed candle against explicit SMC structure state.
@@ -98,12 +110,14 @@ class StrategyEngine:
         - NO_SETUP: No valid active OB in pool.
         - WATCHING_OB: Valid active OB exists but price is outside.
         - OB_ENGAGED: Price inside valid active OB, but confirmation is incomplete.
-        - QUALIFIED_LONG: Bullish OB + price inside OB + bullish confirmation.
-        - QUALIFIED_SHORT: Bearish OB + price inside OB + bearish confirmation.
+        - QUALIFIED_LONG: Bullish OB + price inside OB + bullish confirmation (RR < min).
+        - QUALIFIED_SHORT: Bearish OB + price inside OB + bearish confirmation (RR < min).
+        - TRADE_SETUP_READY: Qualified setup with positive risk/reward >= minimum_risk_reward.
         """
         symbol = candle.symbol
         timeframe = candle.timeframe.value if hasattr(candle.timeframe, "value") else str(candle.timeframe)
         timestamp = candle.timestamp
+        rr_cfg = risk_reward_config or getattr(self.config, "risk_reward", RiskRewardConfig())
 
         # Pool of all active OBs available in the engine
         pool = all_active_obs if all_active_obs is not None else active_obs
@@ -159,25 +173,101 @@ class StrategyEngine:
                 if has_bullish_trend or has_bullish_break:
                     entry = ob.calculate_entry_price()
                     stop_loss = ob.calculate_stop_loss()
+
+                    if entry is None or stop_loss is None:
+                        return StrategyDecision(
+                            timestamp=timestamp,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            direction=StrategyDirection.LONG,
+                            setup_state=SetupState.QUALIFIED_LONG,
+                            setup_id=setup_id,
+                            setup_type=SetupType.BULLISH_OB_RETEST.value,
+                            entry=entry,
+                            stop_loss=stop_loss,
+                            confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                            reasons=[
+                                "valid bullish order block",
+                                "active bullish order block",
+                                f"price {candle.close} entered bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                                "bullish structure confirmation present",
+                                "entry or stop loss could not be calculated",
+                            ],
+                            order_block=ob,
+                            candle=candle,
+                        )
+
+                    # Price geometry validation for LONG: entry > stop_loss
+                    if entry <= stop_loss:
+                        return StrategyDecision(
+                            timestamp=timestamp,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            direction=StrategyDirection.LONG,
+                            setup_state=SetupState.QUALIFIED_LONG,
+                            setup_id=setup_id,
+                            setup_type=SetupType.BULLISH_OB_RETEST.value,
+                            entry=entry,
+                            stop_loss=stop_loss,
+                            confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                            reasons=[
+                                "valid bullish order block",
+                                "active bullish order block",
+                                f"price {candle.close} entered bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                                "bullish structure confirmation present",
+                                "invalid risk geometry: entry must be > stop_loss for LONG",
+                            ],
+                            order_block=ob,
+                            candle=candle,
+                        )
+
+                    risk_distance = entry - stop_loss
+                    take_profit = entry + (risk_distance * rr_cfg.reward_multiple)
+                    reward_distance = take_profit - entry
+                    risk_reward = reward_distance / risk_distance
+
+                    if risk_reward >= rr_cfg.minimum_risk_reward:
+                        setup_state = SetupState.TRADE_SETUP_READY
+                        reasons = [
+                            "valid bullish order block",
+                            "active bullish order block",
+                            f"price {candle.close} entered bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bullish structure confirmation present",
+                            "entry calculated",
+                            "stop loss calculated",
+                            "risk/reward validated",
+                            f"risk_reward={risk_reward:.2f}",
+                            "trade setup ready",
+                        ]
+                    else:
+                        setup_state = SetupState.QUALIFIED_LONG
+                        reasons = [
+                            "valid bullish order block",
+                            "active bullish order block",
+                            f"price {candle.close} entered bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bullish structure confirmation present",
+                            "entry calculated",
+                            "stop loss calculated",
+                            "risk_reward below minimum threshold",
+                        ]
+
                     return StrategyDecision(
                         timestamp=timestamp,
                         symbol=symbol,
                         timeframe=timeframe,
                         direction=StrategyDirection.LONG,
-                        setup_state=SetupState.QUALIFIED_LONG,
+                        setup_state=setup_state,
                         setup_id=setup_id,
                         setup_type=SetupType.BULLISH_OB_RETEST.value,
                         entry=entry,
                         stop_loss=stop_loss,
-                        take_profit=None,
-                        risk_reward=None,
+                        take_profit=take_profit,
+                        risk_distance=risk_distance,
+                        reward_distance=reward_distance,
+                        risk_reward=risk_reward,
+                        minimum_risk_reward=rr_cfg.minimum_risk_reward,
                         confidence=float(ob.confidence_score) if ob.confidence_score else None,
-                        reasons=[
-                            "valid bullish order block",
-                            "active bullish order block",
-                            f"price {candle.close} entered bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
-                            "bullish structure confirmation present",
-                        ],
+                        reasons=reasons,
                         order_block=ob,
                         candle=candle,
                     )
@@ -211,25 +301,101 @@ class StrategyEngine:
                 if has_bearish_trend or has_bearish_break:
                     entry = ob.calculate_entry_price()
                     stop_loss = ob.calculate_stop_loss()
+
+                    if entry is None or stop_loss is None:
+                        return StrategyDecision(
+                            timestamp=timestamp,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            direction=StrategyDirection.SHORT,
+                            setup_state=SetupState.QUALIFIED_SHORT,
+                            setup_id=setup_id,
+                            setup_type=SetupType.BEARISH_OB_RETEST.value,
+                            entry=entry,
+                            stop_loss=stop_loss,
+                            confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                            reasons=[
+                                "valid bearish order block",
+                                "active bearish order block",
+                                f"price {candle.close} entered bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                                "bearish structure confirmation present",
+                                "entry or stop loss could not be calculated",
+                            ],
+                            order_block=ob,
+                            candle=candle,
+                        )
+
+                    # Price geometry validation for SHORT: stop_loss > entry
+                    if stop_loss <= entry:
+                        return StrategyDecision(
+                            timestamp=timestamp,
+                            symbol=symbol,
+                            timeframe=timeframe,
+                            direction=StrategyDirection.SHORT,
+                            setup_state=SetupState.QUALIFIED_SHORT,
+                            setup_id=setup_id,
+                            setup_type=SetupType.BEARISH_OB_RETEST.value,
+                            entry=entry,
+                            stop_loss=stop_loss,
+                            confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                            reasons=[
+                                "valid bearish order block",
+                                "active bearish order block",
+                                f"price {candle.close} entered bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                                "bearish structure confirmation present",
+                                "invalid risk geometry: stop_loss must be > entry for SHORT",
+                            ],
+                            order_block=ob,
+                            candle=candle,
+                        )
+
+                    risk_distance = stop_loss - entry
+                    take_profit = entry - (risk_distance * rr_cfg.reward_multiple)
+                    reward_distance = entry - take_profit
+                    risk_reward = reward_distance / risk_distance
+
+                    if risk_reward >= rr_cfg.minimum_risk_reward:
+                        setup_state = SetupState.TRADE_SETUP_READY
+                        reasons = [
+                            "valid bearish order block",
+                            "active bearish order block",
+                            f"price {candle.close} entered bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bearish structure confirmation present",
+                            "entry calculated",
+                            "stop loss calculated",
+                            "risk/reward validated",
+                            f"risk_reward={risk_reward:.2f}",
+                            "trade setup ready",
+                        ]
+                    else:
+                        setup_state = SetupState.QUALIFIED_SHORT
+                        reasons = [
+                            "valid bearish order block",
+                            "active bearish order block",
+                            f"price {candle.close} entered bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bearish structure confirmation present",
+                            "entry calculated",
+                            "stop loss calculated",
+                            "risk_reward below minimum threshold",
+                        ]
+
                     return StrategyDecision(
                         timestamp=timestamp,
                         symbol=symbol,
                         timeframe=timeframe,
                         direction=StrategyDirection.SHORT,
-                        setup_state=SetupState.QUALIFIED_SHORT,
+                        setup_state=setup_state,
                         setup_id=setup_id,
                         setup_type=SetupType.BEARISH_OB_RETEST.value,
                         entry=entry,
                         stop_loss=stop_loss,
-                        take_profit=None,
-                        risk_reward=None,
+                        take_profit=take_profit,
+                        risk_distance=risk_distance,
+                        reward_distance=reward_distance,
+                        risk_reward=risk_reward,
+                        minimum_risk_reward=rr_cfg.minimum_risk_reward,
                         confidence=float(ob.confidence_score) if ob.confidence_score else None,
-                        reasons=[
-                            "valid bearish order block",
-                            "active bearish order block",
-                            f"price {candle.close} entered bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
-                            "bearish structure confirmation present",
-                        ],
+                        reasons=reasons,
                         order_block=ob,
                         candle=candle,
                     )
