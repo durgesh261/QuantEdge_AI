@@ -58,6 +58,7 @@ from quantedge.execution.execution_engine import (
     OrderExecutionRequest,
     OrderExecutionResult,
     LiveOrderExecutionService,
+    StrategyDecisionStore,
 )
 
 __all__ = [

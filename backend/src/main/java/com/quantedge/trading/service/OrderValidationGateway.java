@@ -21,6 +21,9 @@ public class OrderValidationGateway {
         KILL_SWITCH_ACTIVE,
         EXCHANGE_DISCONNECTED,
         INVALID_CREDENTIALS,
+        DELTA_CREDENTIALS_MISSING,
+        UNAUTHORIZED_ACCOUNT,
+        ACCOUNT_STATE_STALE,
         UNSUPPORTED_SYMBOL,
         INVALID_DIRECTION,
         UNSUPPORTED_ORDER_TYPE,
@@ -30,6 +33,7 @@ public class OrderValidationGateway {
         INVALID_PRICE_NON_POSITIVE,
         INVALID_TICK_SIZE,
         INSUFFICIENT_BALANCE,
+        INSUFFICIENT_AVAILABLE_MARGIN,
         EXCESSIVE_LEVERAGE,
         EXCESSIVE_RISK,
         MISSING_STOP_LOSS,
@@ -40,7 +44,9 @@ public class OrderValidationGateway {
         DUPLICATE_CLIENT_ORDER_ID,
         DUPLICATE_SETUP_ID,
         CONCURRENT_TRADE_LIMIT_EXCEEDED,
-        DECISION_NOT_READY
+        DECISION_NOT_READY,
+        SETUP_NOT_FOUND,
+        SETUP_EXPIRED
     }
 
     public record ProductSpecification(

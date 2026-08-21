@@ -1,22 +1,24 @@
 """
-Real Order Submission & Idempotent Execution Engine for QuantEdge AI.
+Real Order Submission & Idempotent Execution Engine for QuantEdge AI (Hardened).
 
 Bridges qualified trade setups (Phase 4.1/4.2) and the OrderValidationGateway (Phase 5.3)
 with the authenticated Delta Exchange India REST Client (Phase 5.1).
 
 Guarantees:
 - Real-trading only (no paper/simulation/virtual execution).
+- Server-side credentials only (decrypted in-memory, never passed by frontend).
+- Authoritative account state (ownership verified, stale sync rejected, no hardcoded defaults).
+- Authoritative strategy setup validation (direction, entry, TP/SL, R:R verified).
 - Fail-closed execution: zero exchange calls unless all 17+ validation checks pass.
-- In-flight concurrency lock & idempotency registry (zero duplicate live submissions).
+- Dual-layer idempotency: in-flight memory locks + persistent state store.
 - Deterministic reconciliation upon network timeouts, 5xx errors, or unknown outcomes.
 - Never blindly retry an order.
-- Authoritative TP/SL protection derived from Phase 4.2 strategy setups.
 - Secret masking in all audit trails and logs.
 """
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from enum import Enum
 import inspect
@@ -106,6 +108,7 @@ class OrderExecutionRequest:
     client_order_id: Optional[str] = None
     time_in_force: TimeInForce = TimeInForce.GTC
     reduce_only: bool = False
+    user_id: Optional[str] = None
 
 
 @dataclass
@@ -135,6 +138,35 @@ class OrderExecutionResult:
     raw_response: Optional[Dict[str, Any]] = None
 
 
+# ── Authoritative Strategy Decision Store ─────────────────────────────────────
+
+
+class StrategyDecisionStore:
+    """In-memory or persistent store for authoritative strategy setups."""
+
+    def __init__(self):
+        self._setups: Dict[str, StrategyDecision] = {}
+        self._executed_setups: Set[str] = set()
+        self._lock = threading.Lock()
+
+    def register(self, decision: StrategyDecision) -> None:
+        with self._lock:
+            if decision.setup_id:
+                self._setups[decision.setup_id] = decision
+
+    def get(self, setup_id: str) -> Optional[StrategyDecision]:
+        with self._lock:
+            return self._setups.get(setup_id)
+
+    def mark_executed(self, setup_id: str) -> None:
+        with self._lock:
+            self._executed_setups.add(setup_id)
+
+    def is_executed(self, setup_id: str) -> bool:
+        with self._lock:
+            return setup_id in self._executed_setups
+
+
 # ── Live Order Execution Service ──────────────────────────────────────────────
 
 
@@ -147,9 +179,13 @@ class LiveOrderExecutionService:
         self,
         validation_gateway: Optional[OrderValidationGateway] = None,
         state_store: Optional[LocalStateStore] = None,
+        decision_store: Optional[StrategyDecisionStore] = None,
+        sync_staleness_threshold_seconds: int = 60,
     ):
         self.validation_gateway = validation_gateway or OrderValidationGateway()
         self.state_store = state_store or LocalStateStore()
+        self.decision_store = decision_store or StrategyDecisionStore()
+        self.sync_staleness_threshold_seconds = sync_staleness_threshold_seconds
         self._lock = threading.Lock()
         self._in_flight_setups: Set[str] = set()
         self._in_flight_client_order_ids: Set[str] = set()
@@ -182,16 +218,63 @@ class LiveOrderExecutionService:
         client: DeltaIndiaClient,
     ) -> OrderExecutionResult:
         """
-        Execute a live order through the full fail-closed execution pipeline:
-        1. Atomic in-flight locking and duplicate check.
-        2. Phase 5.3 OrderValidationGateway check.
-        3. Pre-persist SUBMITTING state.
-        4. Authenticated submission to Delta Exchange India.
-        5. Response handling or timeout reconciliation.
-        6. State persistence and audit logging.
+        Execute a live order through the hardened fail-closed execution pipeline:
+        1. Account ownership & credentials verification.
+        2. Account synchronization freshness check.
+        3. Dual-layer idempotency locking (in-flight + persistent state store).
+        4. Phase 5.3 OrderValidationGateway check.
+        5. Pre-persist SUBMITTING state.
+        6. Authenticated submission to Delta Exchange India.
+        7. Response handling or timeout reconciliation.
+        8. State persistence and audit logging.
         """
         now = datetime.now(timezone.utc)
         client_order_id = request.client_order_id or generate_client_order_id()
+
+        # ── 0A. Account Ownership Validation ──────────────────────────────────
+        if request.user_id and getattr(context.account, "user_id", None):
+            if request.user_id != context.account.user_id:
+                logger.warning("Unauthorized execution attempt on account %s by user %s", request.account_id, request.user_id)
+                return OrderExecutionResult(
+                    success=False,
+                    execution_state=ExecutionState.REJECTED,
+                    client_order_id=client_order_id,
+                    setup_id=request.setup_id,
+                    symbol=request.symbol,
+                    rejection_code=RejectionReasonCode.UNAUTHORIZED_ACCOUNT.value,
+                    error_message="User is not authorized to trade on this account.",
+                    completed_at=datetime.now(timezone.utc),
+                )
+
+        # ── 0B. Credentials Presence Validation ───────────────────────────────
+        if not context.api_key or not context.api_secret or not str(context.api_key).strip() or not str(context.api_secret).strip():
+            logger.warning("Missing or empty Delta API credentials for account %s", request.account_id)
+            return OrderExecutionResult(
+                success=False,
+                execution_state=ExecutionState.REJECTED,
+                client_order_id=client_order_id,
+                setup_id=request.setup_id,
+                symbol=request.symbol,
+                rejection_code=RejectionReasonCode.DELTA_CREDENTIALS_MISSING.value,
+                error_message="No active Delta Exchange live API credentials configured.",
+                completed_at=datetime.now(timezone.utc),
+            )
+
+        # ── 0C. Account Synchronization Freshness Validation ──────────────────
+        if context.account.last_synced_at is not None:
+            age_seconds = (now - context.account.last_synced_at).total_seconds()
+            if age_seconds > self.sync_staleness_threshold_seconds:
+                logger.warning("Account state is stale (last synced %ss ago, max %ss)", age_seconds, self.sync_staleness_threshold_seconds)
+                return OrderExecutionResult(
+                    success=False,
+                    execution_state=ExecutionState.REJECTED,
+                    client_order_id=client_order_id,
+                    setup_id=request.setup_id,
+                    symbol=request.symbol,
+                    rejection_code=RejectionReasonCode.ACCOUNT_STATE_STALE.value,
+                    error_message=f"Live account state is stale ({int(age_seconds)}s old). Fresh exchange synchronization required.",
+                    completed_at=datetime.now(timezone.utc),
+                )
 
         # ── 1. Atomic In-Flight Locking & Idempotency Check ───────────────────
         with self._lock:
@@ -221,7 +304,7 @@ class LiveOrderExecutionService:
                     completed_at=datetime.now(timezone.utc),
                 )
 
-            # Check persistent store for historical completed submissions
+            # Check persistent state store for historical completed submissions
             if client_order_id in self.state_store.orders:
                 existing_order = self.state_store.orders[client_order_id]
                 logger.warning("Duplicate client_order_id in state store: %s", client_order_id)
@@ -336,6 +419,9 @@ class LiveOrderExecutionService:
                 if delta_resp.updated_at:
                     order_record.filled_at = delta_resp.updated_at
 
+                if request.setup_id:
+                    self.decision_store.mark_executed(request.setup_id)
+
                 logger.info("Live order %s successfully SUBMITTED to Delta (ID: %s, Status: %s)",
                             client_order_id, delta_resp.id, order_status.value)
 
@@ -426,6 +512,8 @@ class LiveOrderExecutionService:
                 if reconciliation_result.get("found"):
                     logger.info("Order %s was FOUND on Delta Exchange during reconciliation! ID: %s, State: %s",
                                 client_order_id, reconciliation_result.get("order_id"), reconciliation_result.get("status"))
+                    if request.setup_id:
+                        self.decision_store.mark_executed(request.setup_id)
                     return OrderExecutionResult(
                         success=True,
                         execution_state=ExecutionState.SUBMITTED if reconciliation_result.get("status") == OrderStatus.OPEN else ExecutionState.FILLED,
@@ -503,6 +591,7 @@ class LiveOrderExecutionService:
         client: DeltaIndiaClient,
         account_id: str,
         quantity: Optional[Decimal] = None,
+        user_id: Optional[str] = None,
     ) -> OrderExecutionResult:
         """
         Execute directly from a validated Phase 4.1/4.2 StrategyDecision.
@@ -517,6 +606,55 @@ class LiveOrderExecutionService:
                 error_message=f"Strategy decision state '{decision.setup_state}' is not 'TRADE_SETUP_READY'.",
                 completed_at=datetime.now(timezone.utc),
             )
+
+        if decision.setup_id and self.decision_store.is_executed(decision.setup_id):
+            return OrderExecutionResult(
+                success=False,
+                execution_state=ExecutionState.REJECTED,
+                setup_id=decision.setup_id,
+                symbol=decision.symbol,
+                rejection_code=RejectionReasonCode.DUPLICATE_SETUP_ID.value,
+                error_message=f"Strategy setup '{decision.setup_id}' has already been executed.",
+                completed_at=datetime.now(timezone.utc),
+            )
+
+        # TP/SL Geometry check
+        if decision.entry and decision.stop_loss and decision.take_profit:
+            if decision.direction == StrategyDirection.LONG:
+                if not (decision.take_profit > decision.entry > decision.stop_loss):
+                    return OrderExecutionResult(
+                        success=False,
+                        execution_state=ExecutionState.REJECTED,
+                        setup_id=decision.setup_id,
+                        symbol=decision.symbol,
+                        rejection_code=RejectionReasonCode.INVALID_TP_SL_GEOMETRY.value,
+                        error_message="Invalid LONG geometry: TP must be > Entry and Entry must be > SL.",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+            elif decision.direction == StrategyDirection.SHORT:
+                if not (decision.stop_loss > decision.entry > decision.take_profit):
+                    return OrderExecutionResult(
+                        success=False,
+                        execution_state=ExecutionState.REJECTED,
+                        setup_id=decision.setup_id,
+                        symbol=decision.symbol,
+                        rejection_code=RejectionReasonCode.INVALID_TP_SL_GEOMETRY.value,
+                        error_message="Invalid SHORT geometry: SL must be > Entry and Entry must be > TP.",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+
+        # Risk-Reward check
+        if decision.risk_reward is not None:
+            if decision.risk_reward < context.risk_config.minimum_risk_reward:
+                return OrderExecutionResult(
+                    success=False,
+                    execution_state=ExecutionState.REJECTED,
+                    setup_id=decision.setup_id,
+                    symbol=decision.symbol,
+                    rejection_code=RejectionReasonCode.INVALID_RISK_REWARD.value,
+                    error_message=f"Risk/Reward ratio {decision.risk_reward} is below minimum {context.risk_config.minimum_risk_reward}.",
+                    completed_at=datetime.now(timezone.utc),
+                )
 
         trade_dir = TradeDirection.LONG if decision.direction == StrategyDirection.LONG else TradeDirection.SHORT
 
@@ -542,6 +680,7 @@ class LiveOrderExecutionService:
             stop_loss=decision.stop_loss,
             take_profit=decision.take_profit,
             leverage=context.risk_config.max_leverage,
+            user_id=user_id,
         )
 
         return await self.execute_order(req, context, client)

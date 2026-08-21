@@ -104,6 +104,8 @@ class AccountRecord:
     margin_used: Decimal = Decimal("0")
     total_equity: Decimal = Decimal("0")
     is_active: bool = True
+    user_id: Optional[str] = None
+    last_synced_at: Optional[datetime] = None
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

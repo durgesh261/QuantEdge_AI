@@ -2,15 +2,11 @@ package com.quantedge.trading.controller;
 
 import com.quantedge.auth.entity.User;
 import com.quantedge.trading.service.OrderExecutionService;
-import com.quantedge.trading.service.OrderValidationGateway;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
-
-import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/v1/trade")
@@ -22,68 +18,36 @@ public class TradeExecutionController {
         this.executionService = executionService;
     }
 
+    /**
+     * Frontend request to execute a live trade setup.
+     * Note: Frontend never supplies API credentials, fake balances, or fabricated TP/SL.
+     * All authoritative state and credentials are resolved server-side.
+     */
     public record ExecuteTradeRequest(
             @NotBlank String accountId,
             @NotBlank String setupId,
-            @NotBlank String symbol,
-            @NotBlank String direction,
-            @NotBlank String orderType,
-            @NotNull @Positive BigDecimal quantity,
-            BigDecimal entryPrice,
-            @NotNull BigDecimal stopLoss,
-            @NotNull BigDecimal takeProfit,
-            Integer leverage,
             String clientOrderId,
-            boolean reduceOnly,
-            @NotBlank String encryptedApiKey,
-            @NotBlank String encryptedApiSecret
+            Boolean reduceOnly
     ) {}
 
     @PostMapping("/execute")
     public ResponseEntity<OrderExecutionService.ExecutionResult> executeTrade(
-            @RequestAttribute("currentUser") User user,
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
             @Valid @RequestBody ExecuteTradeRequest request
     ) {
-        // Build validation context from current user & account state
-        OrderValidationGateway.ValidationContext context = new OrderValidationGateway.ValidationContext(
-                user.getIsActive(),
-                true, // algo_enabled
-                false, // kill_switch_active
-                "CONNECTED",
-                true, // credentials valid
-                new BigDecimal("10000.00"), // total equity (loaded from account repository in full flow)
-                new BigDecimal("10000.00"), // available balance
-                0, // active positions count
-                1, // max concurrent trades
-                100, // max leverage
-                new BigDecimal("35.00"), // risk per trade %
-                new BigDecimal("1.50"), // min risk reward
-                null,
-                null,
-                null
-        );
+        User effectiveUser = user != null ? user : requestUser;
+        String userId = effectiveUser != null ? effectiveUser.getId() : null;
 
-        OrderExecutionService.ExecutionRequest execReq = new OrderExecutionService.ExecutionRequest(
+        OrderExecutionService.ExecutionCommand command = new OrderExecutionService.ExecutionCommand(
+                userId,
                 request.accountId(),
                 request.setupId(),
-                request.symbol(),
-                request.direction(),
-                request.orderType(),
-                request.quantity(),
-                request.entryPrice(),
-                request.stopLoss(),
-                request.takeProfit(),
-                request.leverage() != null ? request.leverage() : 100,
                 request.clientOrderId(),
                 request.reduceOnly()
         );
 
-        OrderExecutionService.ExecutionResult result = executionService.executeOrder(
-                execReq,
-                context,
-                request.encryptedApiKey(),
-                request.encryptedApiSecret()
-        );
+        OrderExecutionService.ExecutionResult result = executionService.executeAuthoritativeOrder(command);
 
         if (result.success()) {
             return ResponseEntity.ok(result);
