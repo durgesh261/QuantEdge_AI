@@ -17,6 +17,81 @@ class TradeDirection(str, Enum):
     SHORT = "SHORT"
 
 
+class StrategyDirection(str, Enum):
+    NONE = "NONE"
+    LONG = "LONG"
+    SHORT = "SHORT"
+
+
+class SetupType(str, Enum):
+    BULLISH_OB_RETEST = "BULLISH_OB_RETEST"
+    BEARISH_OB_RETEST = "BEARISH_OB_RETEST"
+    NONE = "NONE"
+
+
+@dataclass
+class StrategyDecision:
+    """
+    Deterministic Strategy Decision generated from SMC state and candle price action.
+    
+    Adheres strictly to the Phase 4.0 specification:
+    - Direction: NONE, LONG, or SHORT (default NONE)
+    - Retains authoritative UTC timestamp internally
+    - Computes user-facing Asia/Kolkata display timestamp dynamically
+    - Captures factual reasons derived directly from SMC state
+    - Entry and stop loss derived deterministically from SMC Order Block boundaries
+    - Contains strictly no order execution or private exchange logic
+    """
+    timestamp: datetime
+    symbol: str
+    timeframe: str
+    direction: StrategyDirection = StrategyDirection.NONE
+    setup_type: Optional[str] = None
+    entry: Optional[Decimal] = None
+    stop_loss: Optional[Decimal] = None
+    take_profit: Optional[Decimal] = None
+    risk_reward: Optional[Decimal] = None
+    confidence: Optional[float] = None
+    reasons: list[str] = field(default_factory=list)
+    order_block: Optional[OrderBlock] = None
+    candle: Optional[object] = None
+
+    @property
+    def timestamp_ist(self) -> str:
+        """User-facing timestamp formatted in Asia/Kolkata (UTC+05:30)."""
+        from quantedge.utils.timezone import format_ist
+        return format_ist(self.timestamp)
+
+    @property
+    def is_signal(self) -> bool:
+        return self.direction in (StrategyDirection.LONG, StrategyDirection.SHORT)
+
+    @property
+    def is_long(self) -> bool:
+        return self.direction == StrategyDirection.LONG
+
+    @property
+    def is_short(self) -> bool:
+        return self.direction == StrategyDirection.SHORT
+
+    def to_dict(self) -> dict:
+        return {
+            "timestamp": self.timestamp.isoformat(),
+            "timestamp_ist": self.timestamp_ist,
+            "symbol": self.symbol,
+            "timeframe": self.timeframe,
+            "direction": self.direction.value,
+            "setup_type": self.setup_type,
+            "entry": str(self.entry) if self.entry is not None else None,
+            "stop_loss": str(self.stop_loss) if self.stop_loss is not None else None,
+            "take_profit": str(self.take_profit) if self.take_profit is not None else None,
+            "risk_reward": str(self.risk_reward) if self.risk_reward is not None else None,
+            "confidence": self.confidence,
+            "reasons": list(self.reasons),
+            "ob_id": self.order_block.index if self.order_block is not None else None,
+        }
+
+
 class StrategySignal(str, Enum):
     VALID = "VALID"
     INVALID_OB = "INVALID_OB"

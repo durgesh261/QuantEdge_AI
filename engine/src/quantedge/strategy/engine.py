@@ -5,18 +5,21 @@ Orchestrates SMC analysis, confidence scoring, and trade setup generation.
 Implements the complete strategy logic per specification.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing: Optional
+from typing import Optional, Union, List, Any
 import logging
 
 from quantedge.market_data.models import Candle, Timeframe
 from quantedge.smc.analyzer import SMCAnalyzer, SMCAnalyzerConfig
-from quantedge.smc.models import MarketStructureState, OrderBlock, TrendDirection, OBState
+from quantedge.smc.models import (
+    MarketStructureState, OrderBlock, TrendDirection, OBState, StructureBreak
+)
 from quantedge.strategy.models import (
     TradeSetup, StrategyConfig, StrategySignal, TradeDirection,
-    ConfidenceFactors, AccountState, RiskValidationResult
+    ConfidenceFactors, AccountState, RiskValidationResult,
+    StrategyDecision, StrategyDirection, SetupType
 )
 from quantedge.strategy.confidence import ConfidenceScorer
 from quantedge.strategy.risk import RiskCalculator
@@ -26,27 +29,170 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class StrategyEngineConfig:
-    strategy: StrategyConfig
-    smc: SMCAnalyzerConfig
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    smc: SMCAnalyzerConfig = field(default_factory=SMCAnalyzerConfig)
 
 
 class StrategyEngine:
     """
     Main Strategy Engine.
 
-    Pipeline:
-    1. SMC Analysis -> MarketStructureState
-    2. Filter Order Blocks -> Eligible OBs (FRESH or TOUCHED)
-    3. Score Confidence -> ConfidenceFactors (8-factor model)
-    4. Validate Risk -> TradeSetup
-    5. Rank Candidates -> Select Best
+    Supports:
+    1. Phase 4.0 Deterministic Strategy Evaluation (evaluate_candle / evaluate_state)
+    2. Multi-symbol candidate scanning and ranking
     """
 
-    def __init__(self, config: StrategyEngineConfig):
-        self.config = config
-        self.smc_analyzer = SMCAnalyzer(config.smc)
-        self.confidence_scorer = ConfidenceScorer(config.strategy)
-        self.risk_calculator = RiskCalculator(config.strategy)
+    def __init__(self, config: Optional[Union[StrategyEngineConfig, StrategyConfig]] = None):
+        if config is None:
+            self.config = StrategyEngineConfig()
+        elif isinstance(config, StrategyConfig):
+            self.config = StrategyEngineConfig(strategy=config)
+        else:
+            self.config = config
+        self.smc_analyzer = SMCAnalyzer(self.config.smc)
+        self.confidence_scorer = ConfidenceScorer(self.config.strategy)
+        self.risk_calculator = RiskCalculator(self.config.strategy)
+
+    def evaluate_candle(
+        self,
+        candle: Candle,
+        smc_engine: Any,
+    ) -> StrategyDecision:
+        """
+        Evaluate a single closed candle against the current IncrementalSMCEngine state.
+
+        Reads existing SMC state in a strictly read-only, non-mutating manner:
+        1. Queries active order blocks at current closed candle price.
+        2. Retrieves trend and structure break context.
+        3. Evaluates deterministic LONG / SHORT / NONE rules.
+        """
+        active_obs = smc_engine.get_active_obs_at_price(candle.close)
+        internal_trend = smc_engine._internal_detector.get_current_trend()
+        swing_trend = smc_engine._swing_detector.get_current_trend()
+        recent_breaks = smc_engine.get_recent_breaks(lookback=10)
+
+        return self.evaluate_state(
+            candle=candle,
+            active_obs=active_obs,
+            internal_trend=internal_trend,
+            swing_trend=swing_trend,
+            recent_breaks=recent_breaks,
+        )
+
+    def evaluate_state(
+        self,
+        candle: Candle,
+        active_obs: list[OrderBlock],
+        internal_trend: TrendDirection,
+        swing_trend: TrendDirection,
+        recent_breaks: Optional[list[StructureBreak]] = None,
+    ) -> StrategyDecision:
+        """
+        Evaluate a closed candle against explicit SMC structure state.
+
+        Rules:
+        - LONG: Valid bullish OB exists in active pool, price is inside OB, and bullish
+          structure confirmation is present (internal/swing trend or recent break).
+        - SHORT: Valid bearish OB exists in active pool, price is inside OB, and bearish
+          structure confirmation is present (internal/swing trend or recent break).
+        - NONE: When no valid setup exists or conditions are not met.
+        """
+        symbol = candle.symbol
+        timeframe = candle.timeframe.value if hasattr(candle.timeframe, "value") else str(candle.timeframe)
+        timestamp = candle.timestamp
+
+        if not active_obs:
+            return StrategyDecision(
+                timestamp=timestamp,
+                symbol=symbol,
+                timeframe=timeframe,
+                direction=StrategyDirection.NONE,
+                setup_type=None,
+                reasons=["Price outside any active order block"],
+                candle=candle,
+            )
+
+        breaks = recent_breaks or []
+        reasons_accumulated = []
+
+        for ob in active_obs:
+            # OB must be eligible (FRESH or TOUCHED, not invalidated, not used)
+            if not ob.is_eligible_for_entry() or ob.is_invalidated() or ob.is_used():
+                reasons_accumulated.append(f"OB #{ob.index} is not eligible for entry (state={ob.state})")
+                continue
+
+            # Price containment check
+            if not ob.contains_price(candle.close):
+                reasons_accumulated.append(f"Price {candle.close} outside OB #{ob.index} zone [{ob.bottom_price}, {ob.top_price}]")
+                continue
+
+            if ob.is_bullish():
+                has_bullish_trend = (internal_trend == TrendDirection.BULLISH or swing_trend == TrendDirection.BULLISH)
+                has_bullish_break = any(b.direction == TrendDirection.BULLISH for b in breaks[-3:]) if breaks else False
+
+                if has_bullish_trend or has_bullish_break:
+                    entry = ob.calculate_entry_price()
+                    stop_loss = ob.calculate_stop_loss()
+                    return StrategyDecision(
+                        timestamp=timestamp,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        direction=StrategyDirection.LONG,
+                        setup_type=SetupType.BULLISH_OB_RETEST.value,
+                        entry=entry,
+                        stop_loss=stop_loss,
+                        take_profit=None,
+                        risk_reward=None,
+                        confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                        reasons=[
+                            "valid bullish order block",
+                            f"price {candle.close} inside bullish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bullish structure confirmation",
+                        ],
+                        order_block=ob,
+                        candle=candle,
+                    )
+                else:
+                    reasons_accumulated.append("Price inside bullish OB but no bullish structure confirmation")
+
+            elif ob.is_bearish():
+                has_bearish_trend = (internal_trend == TrendDirection.BEARISH or swing_trend == TrendDirection.BEARISH)
+                has_bearish_break = any(b.direction == TrendDirection.BEARISH for b in breaks[-3:]) if breaks else False
+
+                if has_bearish_trend or has_bearish_break:
+                    entry = ob.calculate_entry_price()
+                    stop_loss = ob.calculate_stop_loss()
+                    return StrategyDecision(
+                        timestamp=timestamp,
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        direction=StrategyDirection.SHORT,
+                        setup_type=SetupType.BEARISH_OB_RETEST.value,
+                        entry=entry,
+                        stop_loss=stop_loss,
+                        take_profit=None,
+                        risk_reward=None,
+                        confidence=float(ob.confidence_score) if ob.confidence_score else None,
+                        reasons=[
+                            "valid bearish order block",
+                            f"price {candle.close} inside bearish order block zone [{ob.bottom_price}, {ob.top_price}]",
+                            "bearish structure confirmation",
+                        ],
+                        order_block=ob,
+                        candle=candle,
+                    )
+                else:
+                    reasons_accumulated.append("Price inside bearish OB but no bearish structure confirmation")
+
+        return StrategyDecision(
+            timestamp=timestamp,
+            symbol=symbol,
+            timeframe=timeframe,
+            direction=StrategyDirection.NONE,
+            setup_type=None,
+            reasons=reasons_accumulated or ["No valid setup"],
+            candle=candle,
+        )
 
     def scan_symbol(
         self,

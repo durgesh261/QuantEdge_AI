@@ -14,7 +14,7 @@ It coordinates:
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing: Optional
+from typing import Optional
 import numpy as np
 
 from quantedge.market_data.models import Candle, Timeframe
