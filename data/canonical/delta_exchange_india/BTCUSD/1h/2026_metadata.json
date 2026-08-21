@@ -1,19 +1,33 @@
 {
   "symbol": "BTCUSD.P",
   "delta_symbol": "BTCUSD",
+  "tradingview_symbol": "BTCUSD.P",
   "exchange": "Delta Exchange India (api.india.delta.exchange)",
   "description": "Bitcoin Perpetual futures, quoted, settled & margined in US Dollar",
   "timeframe": "1h",
   "source_url": "https://api.india.delta.exchange/v2/history/candles",
-  "download_utc": "2026-08-21T14:05:53.544941+00:00",
-  "candle_count": 14352,
-  "first_timestamp": "2024-12-23T16:00:00+00:00",
+  "download_utc": "2026-08-21T14:59:13.212246+00:00",
+  "candle_count": 5582,
+  "first_timestamp": "2026-01-01T00:00:00+00:00",
   "last_timestamp": "2026-08-21T13:00:00+00:00",
-  "gap_count": 1,
+  "gap_count": 0,
   "max_gap_hours": 0.0,
   "gaps": [],
   "invalid_ohlc": 0,
-  "sha256": "3b24f45ffdc046493fd95d75f06affae486d119d9d363c05cc81d886dbf929c4",
-  "phase": "3D",
-  "note": "Phase 3D: Exact Delta Exchange India BTCUSD data. This is the EXACT same feed as TradingView BTCUSD.P / Delta Exchange India."
+  "sha256": "c16d4896db74f702a555a8d697bcba13a45742f2fdb4343591658aef525ffbb1",
+  "historical_baseline": {
+    "start_timestamp": "2026-01-01T00:00:00+00:00",
+    "cutoff_timestamp": "2026-08-20T00:00:00+00:00",
+    "candle_count": 5545,
+    "sha256": "2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b"
+  },
+  "policy": "Delta Exchange India BTCUSD is the ONLY canonical market-data source for QuantEdge AI V2.",
+  "quality_report": {
+    "gap_count": 0,
+    "max_gap_hours": 0.0,
+    "invalid_ohlc_count": 0,
+    "duplicate_count": 0,
+    "is_sorted_ascending": true,
+    "status": "VALIDATED_CLEAN"
+  }
 }

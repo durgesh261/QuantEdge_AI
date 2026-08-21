@@ -54,11 +54,11 @@ SNAP_TS = {
     "S5": "2026-08-19T14:00:00+00:00",
 }
 
-# Expected snapshot counts (updated for 14,351-row CSV after Phase 3F.5 live persistence)
+# Expected snapshot counts (verified on 2026 canonical dataset with corrected lifecycle)
 EXPECTED = {
-    "S1": {"candles": 9731,  "active": 32, "all": 560,  "inv": 528},
-    "S4": {"candles": 13849, "active": 57, "all": 824,  "inv": 767},
-    "S5": {"candles": 14305, "active": 58, "all": 851,  "inv": 793},
+    "S1": {"candles": 961,  "active": 18, "all": 50,  "inv": 32},
+    "S4": {"candles": 5079, "active": 43, "all": 314, "inv": 271},
+    "S5": {"candles": 5535, "active": 44, "all": 341, "inv": 297},
 }
 
 
@@ -93,8 +93,8 @@ def snap_s5(engine) -> object:
 def test_delta_india_btcusd_data_quality(meta):
     """
     Verify the Delta India BTCUSD dataset meets all quality requirements:
-    - exact candle count
-    - zero gaps
+    - exact candle count >= 5545 (2026 baseline + live closed candles)
+    - zero gaps (strictly 0 across 2026)
     - zero invalid OHLC bars
     - correct exchange
     - SHA-256 matches recorded value
@@ -104,33 +104,61 @@ def test_delta_india_btcusd_data_quality(meta):
     assert meta["candle_count"] >= 5545, (
         f"Expected >= 5545 candles (CSV grows with live data), got {meta['candle_count']}"
     )
-    # The 2024 Delta exchange history has a verified 191h gap between 2024-12-23
-    # and 2024-12-31 (exchange listing / downtime period). The 2026-only original
-    # dataset had 0 gaps; the live-expanded dataset has <= 1 known gap.
-    assert meta["gap_count"] <= 1, (
-        f"Expected <= 1 gap (1 known real 2024 exchange gap), got {meta['gap_count']} gaps"
+    assert meta["gap_count"] == 0, (
+        f"Expected 0 gaps in 2026 dataset, got {meta['gap_count']} gaps"
     )
     assert meta["invalid_ohlc"] == 0, (
         f"Expected 0 invalid OHLC bars, got {meta['invalid_ohlc']}"
     )
     assert "Delta Exchange India" in meta["exchange"]
     # SHA reflects current CSV state — verified for integrity (meta sha == computed sha)
-    # Hardcoding a specific SHA is not valid for a live-data system where candles
-    # are appended every hour. We validate the integrity contract instead.
     with open(DATA_CSV, newline="", encoding="utf-8") as f:
         rows_check = list(csv.DictReader(f))
     h_check = hashlib.sha256()
     for row in rows_check:
-        ts_c = int(datetime.fromisoformat(row["timestamp"]).replace(tzinfo=timezone.utc).timestamp())
+        ts_c = int(datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp())
         line_c = f"{ts_c},{row['open']},{row['high']},{row['low']},{row['close']},{row['volume']}\n"
         h_check.update(line_c.encode())
     assert meta["sha256"] == h_check.hexdigest(), (
         f"meta.sha256 does not match the actual CSV content — data integrity violation!"
     )
-    # First timestamp may extend before 2026 due to live REST backfill history
-    assert meta["first_timestamp"] is not None
-    # Last timestamp advances as live closed candles are received
+    assert "2026-01-01" in meta["first_timestamp"]
     assert meta["last_timestamp"] is not None
+
+
+def test_historical_baseline_slice_sha():
+    """
+    Permanent integrity verification for the original 2026 historical baseline slice:
+    The range [2026-01-01T00:00:00, 2026-08-20T00:00:00] must contain exactly 5,545
+    candles and have the immutable row-based SHA-256:
+    2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b
+    """
+    EXPECTED_HIST_SHA = "2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b"
+    start_ts = int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+    cutoff_ts = int(datetime(2026, 8, 20, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+
+    with open(DATA_CSV, newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    slice_rows = [
+        r for r in rows
+        if start_ts <= int(datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp()) <= cutoff_ts
+    ]
+
+    assert len(slice_rows) == 5545, f"Expected 5545 historical candles, got {len(slice_rows)}"
+
+    h = hashlib.sha256()
+    for r in slice_rows:
+        ts = int(datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp())
+        line = f"{ts},{r['open']},{r['high']},{r['low']},{r['close']},{r['volume']}\n"
+        h.update(line.encode())
+
+    computed = h.hexdigest()
+    assert computed == EXPECTED_HIST_SHA, (
+        f"Historical baseline slice SHA changed!\n"
+        f"Computed: {computed}\n"
+        f"Expected: {EXPECTED_HIST_SHA}"
+    )
 
 
 # ── Test 2: OB Snapshot at Timestamp ────────────────────────────────────────────

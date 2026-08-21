@@ -28,6 +28,7 @@ from quantedge.market_data.ingestion import (
     fetch_closed_candles,
     upsert_closed_candles,
     validate_candle_ohlcv,
+    validate_candle_year,
     CANONICAL_CSV,
     CANONICAL_META,
 )
@@ -307,14 +308,15 @@ class DeltaWebSocketClient:
             self._log_event(EVENT_CANDLE_DUPLICATE, candle_ts=candle_ts)
             return
 
-        # Phase 3F.5 Rule 10 — strict order: validate -> persist -> engine
-        # ----------------------------------------------------------------
-        # Step 1: OHLCV validation
+        # Phase 3F.5/3F.6.1 Rule 10 — strict order: validate -> year guard -> persist -> engine
+        # ----------------------------------------------------------------------------------
+        # Step 1: OHLCV validation & Year partition guard
         try:
             validate_candle_ohlcv(candle)
+            validate_candle_year(candle, csv_path=self.csv_path)
         except ValueError as e:
-            logger.error("OHLCV validation failed for candle %s: %s", candle_ts, e)
-            return  # Reject malformed candle
+            logger.error("Validation failed for candle %s: %s", candle_ts, e)
+            return  # Reject malformed or wrong-year candle
 
         # Step 2: Persist (if enabled) — MUST succeed before engine is called
         if self.persist:
@@ -419,14 +421,20 @@ class DeltaWebSocketClient:
                     continue  # skip any forming candle
                 if ts_int in self.processed_timestamps:
                     continue  # skip already-processed
-                candle_dicts.append({
+                candle_dict = {
                     "timestamp": ts_int,
                     "open":   Decimal(str(c.get("open",   c.get("o", "0")))),
                     "high":   Decimal(str(c.get("high",   c.get("h", "0")))),
                     "low":    Decimal(str(c.get("low",    c.get("l", "0")))),
                     "close":  Decimal(str(c.get("close",  c.get("c", "0")))),
                     "volume": Decimal(str(c.get("volume", c.get("v", "0")))),
-                })
+                }
+                try:
+                    validate_candle_year(candle_dict, csv_path=self.csv_path)
+                except ValueError as e:
+                    logger.warning("Backfill candle rejected by year partition: %s", e)
+                    continue
+                candle_dicts.append(candle_dict)
 
             if not candle_dicts:
                 logger.info("No new closed candles to backfill")

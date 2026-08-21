@@ -127,7 +127,7 @@ class TestPhase3F3Import:
         assert delta_websocket is not None
 
     def test_client_instantiation(self):
-        client = DeltaWebSocketClient()
+        client = DeltaWebSocketClient(persist=False)
         assert client.symbol == "BTCUSD.P"
         assert client.timeframe == "1h"
         assert client.on_candle_closed is None
@@ -180,7 +180,7 @@ class TestCandleClosedForming:
 
     def test_client_skips_formation(self):
         """Client _handle_message should skip formation candles."""
-        client = DeltaWebSocketClient()
+        client = DeltaWebSocketClient(persist=False)
 
         # Build a formation-candle message
         msg = make_ws_message(make_candle_ts(0), formation=True)
@@ -202,7 +202,7 @@ class TestDeduplication:
 
     def test_processed_timestamps_set(self):
         """The processed_timestamps set tracks seen candle timestamps."""
-        client = DeltaWebSocketClient()
+        client = DeltaWebSocketClient(persist=False)
         ts = make_candle_ts(0)
         client.processed_timestamps.add(ts)
         assert ts in client.processed_timestamps
@@ -212,7 +212,7 @@ class TestDeduplication:
 
     def test_deduplication_prevents_duplicate_processing(self):
         """When the same candle_ts arrives twice, it should only be processed once."""
-        client = DeltaWebSocketClient()
+        client = DeltaWebSocketClient(persist=False)
         candle_ts = make_candle_ts(0)
 
         # First arrival: add to processed set

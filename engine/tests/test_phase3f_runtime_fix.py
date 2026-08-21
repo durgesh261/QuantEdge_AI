@@ -67,8 +67,8 @@ from quantedge.market_data.models import Candle, Timeframe, MarketDataSource
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-# Fixed deterministic base timestamp: 2025-01-01 00:00 UTC
-FIXED_BASE_TS = int(datetime(2025, 1, 1, tzinfo=timezone.utc).timestamp())
+# Fixed deterministic base timestamp: 2026-06-01 00:00 UTC (within 2026 canonical year)
+FIXED_BASE_TS = int(datetime(2026, 6, 1, 0, 0, tzinfo=timezone.utc).timestamp())
 HOUR = 3600
 
 # Candle at 12:00 UTC on FIXED_BASE_TS day
@@ -376,7 +376,7 @@ class TestDeduplication:
 
     def test_processed_timestamps_set_dedups(self):
         """Adding same timestamp twice keeps set size = 1."""
-        client = DeltaWebSocketClient()
+        client = DeltaWebSocketClient(persist=False)
         ts = FIXED_BASE_TS
         client.processed_timestamps.add(ts)
         client.processed_timestamps.add(ts)
@@ -406,7 +406,7 @@ class TestDeduplication:
     def test_client_skips_forming_candle(self):
         """Client must not emit on_candle_closed for a forming candle."""
         received: List[dict] = []
-        client = DeltaWebSocketClient(on_candle_closed=received.append)
+        client = DeltaWebSocketClient(on_candle_closed=received.append, persist=False)
 
         # Simulate a forming candle (far future timestamp)
         far_future_ts = FIXED_BASE_TS + 50000 * HOUR
@@ -419,7 +419,7 @@ class TestDeduplication:
     def test_client_processes_closed_candle_once(self):
         """A closed candle triggers on_candle_closed exactly once."""
         received: List[dict] = []
-        client = DeltaWebSocketClient(on_candle_closed=received.append)
+        client = DeltaWebSocketClient(on_candle_closed=received.append, persist=False)
 
         # Past candle (definitely closed)
         closed_ts = FIXED_BASE_TS - 200 * HOUR
@@ -651,7 +651,7 @@ class TestReconnectBackfill:
         import asyncio
 
         received: List[dict] = []
-        client = DeltaWebSocketClient(on_candle_closed=received.append)
+        client = DeltaWebSocketClient(on_candle_closed=received.append, persist=False)
 
         # Mark some timestamps as already processed
         closed_ts1 = FIXED_BASE_TS - 10 * HOUR  # already processed
@@ -665,7 +665,7 @@ class TestReconnectBackfill:
             {"time": closed_ts2, "o": "50000", "h": "50100", "l": "49900", "c": "50050", "v": "1.0"},
         ]
         import quantedge.market_data.delta_websocket as ws_module
-        with patch.object(ws_module, "_fetch_window", return_value=mock_result):
+        with patch.object(ws_module, "fetch_closed_candles", return_value=mock_result):
             asyncio.run(client._backfill_gaps())
 
         # Only the new candle (closed_ts2) should trigger on_candle_closed
@@ -679,7 +679,7 @@ class TestReconnectBackfill:
         import quantedge.market_data.delta_websocket as ws_module
 
         received: List[dict] = []
-        client = DeltaWebSocketClient(on_candle_closed=received.append)
+        client = DeltaWebSocketClient(on_candle_closed=received.append, persist=False)
         # last_closed_ts is None
 
         with patch.object(ws_module, "_fetch_window") as mock_fw:

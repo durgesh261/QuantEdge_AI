@@ -458,39 +458,45 @@ def test_state_mismatch_classified(eng):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def test_phase3d_snapshot_counts_unchanged(eng):
-    """Phase 3D baseline counts - updated for 14,351-row CSV (Phase 3F.5 live persistence)."""
+    """Phase 3D baseline counts on 2026 canonical dataset (formation unchanged, lifecycle corrected)."""
     snap = eng.snapshot_at(DATASET_CUTOFF)
-    assert snap.all_count == 851, f"Expected 851 total OBs (14,351-row CSV) but got {snap.all_count}"
-    # Active count updated for corrected lifecycle + extended dataset
-    assert snap.active_count == 55, f"Expected 55 active OBs (corrected lifecycle, full CSV) but got {snap.active_count}"
+    assert snap.all_count == 341, f"Expected 341 total OBs (2026 baseline) but got {snap.all_count}"
+    # Active count for corrected lifecycle (break candle excluded from touch detection)
+    assert snap.active_count == 41, f"Expected 41 active OBs (corrected lifecycle) but got {snap.active_count}"
 
 
 def test_phase3d_sha256_unchanged():
     """
-    Dataset integrity check: SHA-256 stored in metadata must match the actual CSV.
-    This validates the atomic-upsert contract. Hardcoding a specific SHA is not valid
-    for a live-data system where candles are appended hourly.
+    Dataset historical baseline integrity check:
+    The 2026-01-01 to 2026-08-20 historical slice must have the immutable row-based SHA-256:
+    2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b
     """
-    import hashlib, csv as _csv, json as _json
+    import hashlib, csv as _csv
     from datetime import datetime, timezone
 
-    meta_path = DATA_CSV.parent / "2026_metadata.json"
-    if not meta_path.exists():
-        pytest.skip("metadata not found")
-    recorded_sha = _json.load(open(meta_path)).get("sha256", "")
+    EXPECTED_HIST_SHA = "2000fe264d7a0c8e69265969c4d9d508aaf86ac2c9f1cbdd1b16a7d3e573831b"
+    start_ts = int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+    cutoff_ts = int(datetime(2026, 8, 20, 0, 0, 0, tzinfo=timezone.utc).timestamp())
 
     with open(DATA_CSV, newline="", encoding="utf-8") as f:
         rows = list(_csv.DictReader(f))
+
+    slice_rows = [
+        r for r in rows
+        if start_ts <= int(datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp()) <= cutoff_ts
+    ]
+    assert len(slice_rows) == 5545, f"Expected 5545 historical candles, got {len(slice_rows)}"
+
     h = hashlib.sha256()
-    for row in rows:
-        ts = int(datetime.fromisoformat(row["timestamp"])
-                 .replace(tzinfo=timezone.utc).timestamp())
-        line = f"{ts},{row['open']},{row['high']},{row['low']},{row['close']},{row['volume']}\n"
+    for r in slice_rows:
+        ts = int(datetime.fromisoformat(r["timestamp"].replace("Z", "+00:00")).replace(tzinfo=timezone.utc).timestamp())
+        line = f"{ts},{r['open']},{r['high']},{r['low']},{r['close']},{r['volume']}\n"
         h.update(line.encode())
     computed = h.hexdigest()
-    assert computed == recorded_sha, (
-        f"CSV integrity violation: computed SHA {computed} != metadata SHA {recorded_sha}\n"
-        f"This means the actual OHLCV data was modified without updating metadata."
+    assert computed == EXPECTED_HIST_SHA, (
+        f"Historical baseline SHA mismatch!\n"
+        f"Computed: {computed}\n"
+        f"Expected: {EXPECTED_HIST_SHA}"
     )
 
 
@@ -528,9 +534,9 @@ def diff_summary(_in_memory_diag):
     return _in_memory_diag[2]
 
 
-def test_diag_has_851_records(diag_rows):
-    """Diagnostic calculation must process all 851 OBs (14,351-row CSV baseline)."""
-    assert len(diag_rows) == 851, f"Expected 851 rows but got {len(diag_rows)}"
+def test_diag_has_341_records(diag_rows):
+    """Diagnostic calculation must process all 341 OBs (2026 canonical baseline)."""
+    assert len(diag_rows) == 341, f"Expected 341 rows but got {len(diag_rows)}"
 
 
 def test_trace_records_nonempty(trace_rows):
@@ -573,7 +579,7 @@ def test_diff_json_dataset_sha256(diff_summary):
 
 
 def test_diff_json_total_obs(diff_summary):
-    assert diff_summary["discrepancy_statistics"]["total_obs"] == 851
+    assert diff_summary["discrepancy_statistics"]["total_obs"] == 341
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

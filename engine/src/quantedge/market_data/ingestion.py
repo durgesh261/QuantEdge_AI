@@ -202,6 +202,41 @@ def validate_candle_ohlcv(candle: Dict[str, Any]) -> None:
         )
 
 
+def validate_candle_year(
+    candle: Dict[str, Any],
+    csv_path: Optional[Path] = None,
+    target_year: Optional[int] = None,
+) -> None:
+    """Validate that a candle's UTC timestamp matches the target calendar year partition.
+
+    Raises ValueError if candle timestamp does not belong to the target year.
+    If target_year is not explicitly provided, attempts to infer it from csv_path
+    (e.g., '2026.csv' -> 2026). Defaults to 2026 if csv_path contains '2026'.
+    """
+    ts = candle.get("timestamp")
+    if ts is None:
+        raise ValueError(f"Missing 'timestamp' in candle: {candle}")
+    if isinstance(ts, datetime):
+        c_dt = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+    else:
+        c_dt = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+
+    expected_year = target_year
+    if expected_year is None and csv_path is not None:
+        stem = csv_path.stem
+        if stem.isdigit() and len(stem) == 4:
+            expected_year = int(stem)
+        elif "2026" in csv_path.name:
+            expected_year = 2026
+
+    if expected_year is not None and c_dt.year != expected_year:
+        raise ValueError(
+            f"Year partition guard: timestamp {c_dt.isoformat()} (year {c_dt.year}) "
+            f"does not belong to {csv_path.name if csv_path else f'{expected_year}.csv'} "
+            f"(expected year {expected_year})"
+        )
+
+
 @dataclass
 class UpsertResult:
     """Result of an upsert_closed_candles() call."""
@@ -245,10 +280,11 @@ def upsert_closed_candles(
     csv_path: Path,
     meta_path: Path,
     check_closed: bool = True,
+    target_year: Optional[int] = None,
 ) -> UpsertResult:
     """Atomically upsert a list of closed candles into the canonical CSV.
 
-    This is the SINGLE AUTHORITATIVE persistence function for Phase 3F.5.
+    This is the SINGLE AUTHORITATIVE persistence function for Phase 3F.5/3F.6.1.
     Both WebSocket live candles and REST backfill MUST use this function.
 
     Rules enforced:
@@ -257,6 +293,7 @@ def upsert_closed_candles(
       Rule 3 — INSERT / UPDATE / UNCHANGED semantics based on OHLCV comparison.
       Rule 4 — Output is strictly chronologically ordered.
       Rule 5 — OHLCV validation via validate_candle_ohlcv() before any write.
+      Rule 5b — Year partition guard: timestamps must match target calendar year (e.g. 2026).
       Rule 6 — Atomic write: write to .tmp, then os.replace() to canonical.
       Rule 7 — Metadata JSON updated after successful write.
 
@@ -267,13 +304,14 @@ def upsert_closed_candles(
         meta_path:    Path to metadata JSON.
         check_closed: If True (default), silently skip forming candles.
                       Set False only in tests that want to verify OHLCV rejection.
+        target_year:  Optional expected calendar year (e.g. 2026). Inferred from csv_path if None.
 
     Returns:
         UpsertResult with counts of inserts, updates, unchanged, total, gaps, sha256.
         If no inserts or updates occurred, returns immediately without writing.
 
     Raises:
-        ValueError:   If OHLCV validation fails for any incoming candle.
+        ValueError:   If OHLCV validation or Year partition validation fails for any incoming candle.
         RuntimeError: If final dataset integrity check fails.
         OSError:      If the atomic write or rename fails.
     """
@@ -301,6 +339,9 @@ def upsert_closed_candles(
 
         # Rule 5: Validate OHLCV (raises ValueError on violation)
         validate_candle_ohlcv(normalized)
+
+        # Rule 5b: Year Partition Guard (raises ValueError on violation)
+        validate_candle_year(normalized, csv_path=csv_path, target_year=target_year)
 
         # Rule 2: Deduplicate within batch (keep first occurrence)
         if ts_int in seen_in_batch:
@@ -434,10 +475,14 @@ def _fetch_window(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
     raise RuntimeError("Max retries exceeded")
 
 
+MIN_CANONICAL_YEAR_START_TS = int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp())
+
+
 def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
     """Fetch all CLOSED candles in [start_ts, end_ts) from Delta REST API.
 
     Excludes the currently forming candle by capping at current_hour_start.
+    Enforces minimum start_ts >= 2026-01-01 00:00:00 UTC (canonical year boundary).
     Returns raw Delta dicts sorted chronologically, deduplicated by "time".
     """
     now_ts = int(datetime.now(timezone.utc).timestamp())
@@ -445,28 +490,32 @@ def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
     current_hour_start = now_ts - (now_ts % 3600)
     # Only fetch candles whose timestamp < current_hour_start (fully closed)
     cursor_end = min(end_ts, current_hour_start)
+    # Bound start_ts to canonical minimum (never request pre-2026 for 2026 series)
+    effective_start = max(start_ts, MIN_CANONICAL_YEAR_START_TS)
 
     print(
-        f"  Fetching closed candles up to "
-        f"{datetime.fromtimestamp(cursor_end, tz=timezone.utc).isoformat()}"
+        f"  Fetching closed candles [{datetime.fromtimestamp(effective_start, tz=timezone.utc).isoformat()} -> "
+        f"{datetime.fromtimestamp(cursor_end, tz=timezone.utc).isoformat()}]"
     )
 
     all_candles: List[Dict[str, Any]] = []
-    while cursor_end > start_ts:
-        cursor_start = max(start_ts, cursor_end - MAX_PER_REQ * 3600)
+    while cursor_end > effective_start:
+        cursor_start = max(effective_start, cursor_end - MAX_PER_REQ * 3600)
         try:
             candles = _fetch_window(cursor_start, cursor_end)
         except Exception as e:
             print(f"    [ERROR] Failed to fetch window: {e}")
             break
         if not candles:
-            cursor_end = max(start_ts, cursor_end - MAX_PER_REQ * 3600)
+            cursor_end = max(effective_start, cursor_end - MAX_PER_REQ * 3600)
             continue
         # Refresh current_hour_start each iteration so it remains accurate
         _now = int(datetime.now(timezone.utc).timestamp())
         _chs = _now - (_now % 3600)
         for c in candles:
-            if c["time"] < _chs:
+            # Enforce closed candle and year partition (2026)
+            c_time = int(c["time"])
+            if c_time < _chs and datetime.fromtimestamp(c_time, tz=timezone.utc).year == 2026:
                 all_candles.append(c)
         oldest_ts = min(c["time"] for c in candles)
         print(
@@ -492,29 +541,29 @@ def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
 class DeltaExchangeIngestionService:
     """Delta Exchange India BTCUSD 1H Market Data Ingestion Service."""
 
-    def __init__(self) -> None:
-        # Paths resolved via the canonical module-level constants
-        self.csv_path = CANONICAL_CSV
-        self.meta_path = CANONICAL_META
+    def __init__(self, csv_path: Optional[Path] = None, meta_path: Optional[Path] = None) -> None:
+        # Paths resolved via parameters or fallback to canonical constants
+        self.csv_path = csv_path if csv_path is not None else CANONICAL_CSV
+        self.meta_path = meta_path if meta_path is not None else CANONICAL_META
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _load_candles(self) -> Dict[int, Dict[str, Any]]:
-        return load_candles(CANONICAL_CSV)
+        return load_candles(self.csv_path)
 
     def _write_candles(self, candles: Dict[int, Dict[str, Any]]) -> None:
-        write_candles(CANONICAL_CSV, candles)
+        write_candles(self.csv_path, candles)
 
     def _csv_hash(self) -> str:
-        return csv_hash(CANONICAL_CSV)
+        return csv_hash(self.csv_path)
 
     def detect_gaps(self, candles: Dict[int, Any]) -> List[Dict[str, Any]]:
         return detect_gaps(candles)
 
     def _load_metadata(self) -> Dict[str, Any]:
-        return load_metadata(CANONICAL_META)
+        return load_metadata(self.meta_path)
 
     def _save_metadata(self, metadata: Dict[str, Any]) -> None:
-        save_metadata(CANONICAL_META, metadata)
+        save_metadata(self.meta_path, metadata)
 
     def _generate_metadata(
         self, candles: Dict[int, Any], gaps: List[Dict]
@@ -568,7 +617,7 @@ class DeltaExchangeIngestionService:
         print(f"  Existing     : {len(existing_candles)} candles")
 
         if existing_candles:
-            start_ts = max(existing_candles.keys())
+            start_ts = max(existing_candles.keys()) + 3600
         else:
             start_ts = int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp())
 
