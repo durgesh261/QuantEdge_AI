@@ -33,6 +33,16 @@ from quantedge.execution.delta_client import (
     DELTA_INDIA_PRODUCTION_URL,
     DELTA_INDIA_TESTNET_URL,
 )
+from quantedge.execution.synchronizer import (
+    PositionStatus,
+    PositionRecord,
+    OrderRecord,
+    AccountRecord,
+    ConnectionRecord,
+    LocalStateStore,
+    SyncResult,
+    LiveAccountSyncService,
+)
 
 __all__ = [
     "OrderSide",
@@ -60,4 +70,12 @@ __all__ = [
     "generate_client_order_id",
     "DELTA_INDIA_PRODUCTION_URL",
     "DELTA_INDIA_TESTNET_URL",
+    "PositionStatus",
+    "PositionRecord",
+    "OrderRecord",
+    "AccountRecord",
+    "ConnectionRecord",
+    "LocalStateStore",
+    "SyncResult",
+    "LiveAccountSyncService",
 ]
