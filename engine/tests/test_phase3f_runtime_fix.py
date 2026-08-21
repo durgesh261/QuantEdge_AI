@@ -127,16 +127,28 @@ def write_candles_from_list(candles: List[Candle], csv_path: Path) -> None:
 
 
 def make_delta_ws_message(candle_ts: int, **override) -> dict:
-    """Build a Delta Exchange flat WS message in the real format."""
+    """Build a Delta Exchange India WS candle message in the REAL live format.
+
+    Real format confirmed 2026-08-21:
+    - candle_start_time: microseconds (candle open time)
+    - timestamp/last_updated: microseconds (last tick time)
+    - OHLCV: floats, full field names (open/high/low/close/volume)
+    - symbol: 'BTCUSD'
+    """
     msg = {
         "type": "candlestick_1h",
-        "ts": candle_ts,
-        "o": "50000",
-        "h": "50100",
-        "l": "49900",
-        "c": "50050",
-        "v": "1.5",
-        "sy": "BTCUSD",
+        "symbol": "BTCUSD",
+        "resolution": "1h",
+        "open": 50000.0,
+        "high": 50100.0,
+        "low": 49900.0,
+        "close": 50050.0,
+        "volume": 1.5,
+        # candle_start_time is in MICROSECONDS
+        "candle_start_time": candle_ts * 1_000_000,
+        "timestamp": (candle_ts + 1800) * 1_000_000,  # mid-candle tick
+        "last_updated": (candle_ts + 1800) * 1_000_000,
+        "sUID": "BTCUSD_#_BTCUSD_#_60",
     }
     msg.update(override)
     return msg
@@ -224,16 +236,19 @@ class TestDeltaWebSocketMessageParsing:
     """Test 3: Real Delta WS message field parsing."""
 
     def test_parse_real_delta_flat_message(self):
-        """Parse actual Delta WS flat format: type/ts/o/h/l/c/v/sy."""
+        """Parse actual Delta India WS format: candle_start_time(us)/open/high/low/close/volume/symbol."""
         msg = make_delta_ws_message(CANDLE_12H)
         result = _parse_candle_from_ws(msg)
 
         assert result is not None, "Real Delta WS message must parse successfully"
-        assert result["timestamp"] == CANDLE_12H
-        assert result["open"] == Decimal("50000")
-        assert result["high"] == Decimal("50100")
-        assert result["low"] == Decimal("49900")
-        assert result["close"] == Decimal("50050")
+        # candle_start_time microseconds -> seconds == CANDLE_12H
+        assert result["timestamp"] == CANDLE_12H, (
+            f"Expected timestamp={CANDLE_12H}, got {result['timestamp']}"
+        )
+        assert result["open"] == Decimal("50000.0")
+        assert result["high"] == Decimal("50100.0")
+        assert result["low"] == Decimal("49900.0")
+        assert result["close"] == Decimal("50050.0")
         assert result["volume"] == Decimal("1.5")
         assert result["symbol"] == "BTCUSD.P"
 
@@ -250,11 +265,22 @@ class TestDeltaWebSocketMessageParsing:
         assert result is None
 
     def test_parse_missing_required_field_returns_none(self):
-        """Missing required field (e.g. 'c') returns None."""
+        """Missing required field (e.g. 'close') returns None."""
         msg = make_delta_ws_message(CANDLE_12H)
-        del msg["c"]
+        del msg["close"]
         result = _parse_candle_from_ws(msg)
         assert result is None
+
+    def test_parse_microsecond_timestamp_converted(self):
+        """candle_start_time in microseconds is divided by 1_000_000 to get seconds."""
+        # CANDLE_12H is already in seconds; message stores it as microseconds
+        msg = make_delta_ws_message(CANDLE_12H)
+        assert msg["candle_start_time"] == CANDLE_12H * 1_000_000
+        result = _parse_candle_from_ws(msg)
+        assert result is not None
+        assert result["timestamp"] == CANDLE_12H, (
+            f"Microseconds must be converted: expected {CANDLE_12H}, got {result['timestamp']}"
+        )
 
     def test_parse_all_ohlcv_fields_are_decimal(self):
         """All OHLCV values must be Decimal after parsing."""
@@ -999,17 +1025,19 @@ class TestNoBinanceReferences:
         assert "binance" not in content, "incremental_engine.py must not reference Binance"
 
     def test_no_old_websocket_endpoint(self):
-        """WebSocket endpoint must point to Delta Exchange India."""
+        """WebSocket endpoint must point to Delta Exchange India socket subdomain."""
         ws_file = ENGINE_DIR / "src" / "quantedge" / "market_data" / "delta_websocket.py"
         content = ws_file.read_text(encoding="utf-8")
-        assert "api.india.delta.exchange/ws" in content, \
-            "WS endpoint must be wss://api.india.delta.exchange/ws"
+        assert "socket.india.delta.exchange" in content, \
+            "WS endpoint must be wss://socket.india.delta.exchange (verified live 2026-08-21)"
         assert "binance" not in content.lower()
 
     def test_ws_endpoint_constant_is_delta(self):
-        """WS_ENDPOINT constant in delta_websocket must be Delta Exchange India."""
+        """WS_ENDPOINT constant must be the verified Delta India socket endpoint."""
         from quantedge.market_data.delta_websocket import WS_ENDPOINT
-        assert "delta.exchange" in WS_ENDPOINT
+        assert "socket.india.delta.exchange" in WS_ENDPOINT, (
+            f"Expected socket.india.delta.exchange in WS_ENDPOINT, got: {WS_ENDPOINT}"
+        )
         assert "binance" not in WS_ENDPOINT.lower()
 
 

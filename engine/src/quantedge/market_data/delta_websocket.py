@@ -27,7 +27,7 @@ logger = logging.getLogger("delta_ws")
 
 SYMBOL_LOCAL = "BTCUSD.P"        # Display / TradingView symbol
 SYMBOL_EXCHANGE = "BTCUSD"       # Symbol sent to Delta Exchange API
-WS_ENDPOINT = "wss://api.india.delta.exchange/ws"
+WS_ENDPOINT = "wss://socket.india.delta.exchange"
 SUBSCRIPTION_CHANNEL = "candlestick_1h"
 SUBSCRIPTION_SYMBOL = "BTCUSD"
 TIMEFRAME = "1h"
@@ -85,34 +85,47 @@ def _is_candle_closed(candle_ts: int) -> bool:
 
 
 def _parse_candle_from_ws(data: dict) -> Optional[dict]:
-    """Parse a raw Delta WebSocket message into a normalised candle dict.
+    """Parse a raw Delta Exchange India WebSocket message into a normalised candle dict.
 
-    Delta Exchange candlestick_1h message format:
+    Real Delta India candlestick_1h message format (verified live 2026-08-21):
     {
-        "type": "candlestick_1h",
-        "ts":   <unix_seconds>,
-        "o":    "50000",
-        "h":    "50100",
-        "l":    "49900",
-        "c":    "50050",
-        "v":    "1.5",
-        "sy":   "BTCUSD"
+        "type":             "candlestick_1h",
+        "symbol":           "BTCUSD",
+        "resolution":       "1h",
+        "open":             77809.5,        # float
+        "high":             77865.5,        # float
+        "low":              77338.5,        # float
+        "close":            77428.5,        # float
+        "volume":           372963.0,       # float
+        "candle_start_time": 1787310000000000,  # microseconds — candle open time
+        "timestamp":        1787310788489993,   # microseconds — last tick time
+        "last_updated":     1787310788489993,
+        "sUID":             "BTCUSD_#_BTCUSD_#_60"
     }
+
+    candle_start_time is the candle's open timestamp in MICROSECONDS.
+    Divide by 1_000_000 to get UNIX seconds.
 
     Returns None for non-candle messages or parse errors.
     """
     msg_type = data.get("type", "")
-    # Accept both the direct flat format and the legacy nested format
+    # Accept the real Delta India flat format
     if msg_type == SUBSCRIPTION_CHANNEL:
-        # Flat Delta format
         try:
-            candle_ts = int(data["ts"])
-            candle_open = Decimal(str(data["o"]))
-            candle_high = Decimal(str(data["h"]))
-            candle_low = Decimal(str(data["l"]))
-            candle_close = Decimal(str(data["c"]))
-            candle_volume = Decimal(str(data["v"]))
-            symbol = data.get("sy", SYMBOL_EXCHANGE)
+            # candle_start_time is in microseconds — convert to seconds
+            raw_ts = data.get("candle_start_time")
+            if raw_ts is None:
+                # Fallback: use timestamp field (also microseconds)
+                raw_ts = data.get("timestamp")
+            candle_ts = int(raw_ts) // 1_000_000
+
+            # OHLCV are floats in the real feed
+            candle_open = Decimal(str(data["open"]))
+            candle_high = Decimal(str(data["high"]))
+            candle_low = Decimal(str(data["low"]))
+            candle_close = Decimal(str(data["close"]))
+            candle_volume = Decimal(str(data["volume"]))
+            symbol = data.get("symbol", SYMBOL_EXCHANGE)
         except (KeyError, ValueError, TypeError) as e:
             logger.warning("Failed to parse Delta WS candle fields: %s | msg=%s", e, data)
             return None
