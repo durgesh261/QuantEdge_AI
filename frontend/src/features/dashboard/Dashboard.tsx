@@ -83,8 +83,8 @@ export function Dashboard() {
           <div className="grid grid-cols-2 gap-3">
             <button className="p-4 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 hover:bg-slate-700 transition-colors text-left">
               <TrendingUp className="text-blue-400 mb-2" size={24} />
-              <p className="font-medium text-white">Start Paper Trading</p>
-              <p className="text-sm text-slate-400">Simulate strategies risk-free</p>
+              <p className="font-medium text-white">Live Trading</p>
+              <p className="text-sm text-slate-400">Real-time market execution</p>
             </button>
             <button className="p-4 bg-slate-800 border border-slate-700 rounded-lg hover:border-green-500 hover:bg-slate-700 transition-colors text-left">
               <Target className="text-green-400 mb-2" size={24} />

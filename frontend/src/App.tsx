@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { Dashboard } from '@/features/dashboard/Dashboard'
-import { PaperTrading } from '@/features/trading/PaperTrading'
 import { LiveTrading } from '@/features/trading/LiveTrading'
 import { Orders } from '@/features/orders/Orders'
 import { Positions } from '@/features/positions/Positions'
@@ -44,7 +43,6 @@ export function App() {
             <Layout>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="paper-trading" element={<PaperTrading />} />
                 <Route path="live-trading" element={<LiveTrading />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="positions" element={<Positions />} />

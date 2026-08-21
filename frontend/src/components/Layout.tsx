@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/authStore'
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Paper Trading', href: '/paper-trading', icon: TrendingUp },
   { name: 'Live Trading', href: '/live-trading', icon: TrendingUp },
   { name: 'Orders', href: '/orders', icon: ListChecks },
   { name: 'Positions', href: '/positions', icon: Briefcase },
