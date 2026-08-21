@@ -8,6 +8,8 @@ from quantedge.strategy.models import (
     StrategyDecision,
     StrategyDirection,
     SetupType,
+    SetupState,
+    generate_setup_id,
     TradeSetup,
     TradeDirection,
     StrategySignal,

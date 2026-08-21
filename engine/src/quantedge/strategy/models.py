@@ -29,23 +29,44 @@ class SetupType(str, Enum):
     NONE = "NONE"
 
 
+class SetupState(str, Enum):
+    """
+    Trade setup lifecycle states per Phase 4.1 specification.
+
+    - NO_SETUP: No valid OB or setup currently qualifies.
+    - WATCHING_OB: Valid active OB exists but current price is outside its zone.
+    - OB_ENGAGED: Current closed price is inside a valid active OB, but confirmation is incomplete.
+    - QUALIFIED_LONG: Bullish OB + price inside OB + required bullish confirmation satisfied.
+    - QUALIFIED_SHORT: Bearish OB + price inside OB + required bearish confirmation satisfied.
+    """
+    NO_SETUP = "NO_SETUP"
+    WATCHING_OB = "WATCHING_OB"
+    OB_ENGAGED = "OB_ENGAGED"
+    QUALIFIED_LONG = "QUALIFIED_LONG"
+    QUALIFIED_SHORT = "QUALIFIED_SHORT"
+
+
 @dataclass
 class StrategyDecision:
     """
     Deterministic Strategy Decision generated from SMC state and candle price action.
     
-    Adheres strictly to the Phase 4.0 specification:
+    Adheres strictly to the Phase 4.1 specification:
+    - SetupState: NO_SETUP, WATCHING_OB, OB_ENGAGED, QUALIFIED_LONG, QUALIFIED_SHORT
     - Direction: NONE, LONG, or SHORT (default NONE)
+    - Deterministic setup_id traceability
     - Retains authoritative UTC timestamp internally
     - Computes user-facing Asia/Kolkata display timestamp dynamically
     - Captures factual reasons derived directly from SMC state
-    - Entry and stop loss derived deterministically from SMC Order Block boundaries
+    - UI-ready properties (ob_zone, ob_formation_ts, ob_age_days, etc.)
     - Contains strictly no order execution or private exchange logic
     """
     timestamp: datetime
     symbol: str
     timeframe: str
     direction: StrategyDirection = StrategyDirection.NONE
+    setup_state: SetupState = SetupState.NO_SETUP
+    setup_id: Optional[str] = None
     setup_type: Optional[str] = None
     entry: Optional[Decimal] = None
     stop_loss: Optional[Decimal] = None
@@ -74,6 +95,36 @@ class StrategyDecision:
     def is_short(self) -> bool:
         return self.direction == StrategyDirection.SHORT
 
+    @property
+    def is_qualified(self) -> bool:
+        return self.setup_state in (SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT)
+
+    @property
+    def is_engaged(self) -> bool:
+        return self.setup_state in (SetupState.OB_ENGAGED, SetupState.QUALIFIED_LONG, SetupState.QUALIFIED_SHORT)
+
+    @property
+    def is_watching(self) -> bool:
+        return self.setup_state == SetupState.WATCHING_OB
+
+    @property
+    def ob_zone(self) -> Optional[tuple[Decimal, Decimal]]:
+        if self.order_block is not None:
+            return (self.order_block.bottom_price, self.order_block.top_price)
+        return None
+
+    @property
+    def ob_formation_ts(self) -> Optional[datetime]:
+        if self.order_block is not None and self.order_block.formation_candle is not None:
+            return self.order_block.formation_candle.timestamp
+        return None
+
+    @property
+    def ob_age_days(self) -> Optional[float]:
+        if self.ob_formation_ts is not None:
+            return (self.timestamp - self.ob_formation_ts).total_seconds() / 86400.0
+        return None
+
     def to_dict(self) -> dict:
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -81,6 +132,8 @@ class StrategyDecision:
             "symbol": self.symbol,
             "timeframe": self.timeframe,
             "direction": self.direction.value,
+            "setup_state": self.setup_state.value,
+            "setup_id": self.setup_id,
             "setup_type": self.setup_type,
             "entry": str(self.entry) if self.entry is not None else None,
             "stop_loss": str(self.stop_loss) if self.stop_loss is not None else None,
@@ -89,7 +142,15 @@ class StrategyDecision:
             "confidence": self.confidence,
             "reasons": list(self.reasons),
             "ob_id": self.order_block.index if self.order_block is not None else None,
+            "ob_zone": [str(p) for p in self.ob_zone] if self.ob_zone is not None else None,
+            "ob_age_days": round(self.ob_age_days, 2) if self.ob_age_days is not None else None,
         }
+
+
+def generate_setup_id(symbol: str, timeframe: str, ob: OrderBlock, direction: StrategyDirection) -> str:
+    """Generate a deterministic setup identifier traceable to symbol, timeframe, OB, and direction."""
+    ts_str = ob.formation_candle.timestamp.strftime("%Y%m%d%H%M%S") if (ob.formation_candle and hasattr(ob.formation_candle, 'timestamp')) else f"idx{ob.index}"
+    return f"{symbol}_{timeframe}_OB{ob.index}_{ts_str}_{direction.value}"
 
 
 class StrategySignal(str, Enum):
