@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql://quantedge:quantedge_dev@localhost:5432/quantedge"
 
-    # Delta Exchange
+    # Delta Exchange India
     delta_api_key: Optional[str] = None
     delta_api_secret: Optional[str] = None
     delta_testnet_api_key: Optional[str] = None
     delta_testnet_api_secret: Optional[str] = None
-    delta_base_url: str = "https://api.delta.exchange"
+    delta_base_url: str = "https://api.india.delta.exchange"
     delta_testnet_base_url: str = "https://api-testnet.delta.exchange"
 
     # Spring Boot Backend

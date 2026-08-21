@@ -72,7 +72,7 @@ quantedge:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   delta:
-    api-base-url: ${DELTA_API_URL:https://api.delta.exchange}
+    api-base-url: ${DELTA_API_URL:https://api.india.delta.exchange}
     testnet-api-base-url: ${DELTA_TESTNET_API_URL:https://api-testnet.delta.exchange}
   python-engine:
     base-url: ${PYTHON_ENGINE_URL:http://localhost:8000}

@@ -13,3 +13,4 @@ from . import smc
 from . import market_data
 from . import historical
 from . import strategy
+from . import execution
