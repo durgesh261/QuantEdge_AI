@@ -53,6 +53,12 @@ from quantedge.execution.validation import (
     OrderValidationResult,
     OrderValidationGateway,
 )
+from quantedge.execution.execution_engine import (
+    ExecutionState,
+    OrderExecutionRequest,
+    OrderExecutionResult,
+    LiveOrderExecutionService,
+)
 
 __all__ = [
     "OrderSide",
@@ -96,4 +102,8 @@ __all__ = [
     "OrderValidationRequest",
     "OrderValidationResult",
     "OrderValidationGateway",
+    "ExecutionState",
+    "OrderExecutionRequest",
+    "OrderExecutionResult",
+    "LiveOrderExecutionService",
 ]

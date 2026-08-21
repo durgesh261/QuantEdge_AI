@@ -252,6 +252,10 @@ class DeltaOrderResponse:
     def filled_size(self) -> Decimal:
         return self.size - self.unfilled_size
 
+    @property
+    def status(self) -> OrderStatus:
+        return self.state
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DeltaOrderResponse":
         created_raw = data.get("created_at")

@@ -374,6 +374,9 @@ class DeltaIndiaClient:
             raise DeltaResponseError(f"Failed to parse order placement response: {data}")
         return DeltaOrderResponse.from_dict(result)
 
+    # Alias for create_order
+    place_order = create_order
+
     async def cancel_order(self, order_id: int, product_id: int) -> bool:
         """Cancel an open order by exchange order ID."""
         payload = {"product_id": product_id}
