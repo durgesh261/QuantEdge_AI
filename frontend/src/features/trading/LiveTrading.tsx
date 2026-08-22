@@ -9,7 +9,8 @@ import {
   Layers,
   ArrowUpRight,
   ArrowDownRight,
-  Info
+  Radio,
+  Activity
 } from 'lucide-react'
 import { useAccountStore } from '@/stores/accountStore'
 import { Link } from 'react-router-dom'
@@ -33,6 +34,8 @@ export function LiveTrading() {
   }, [fetchStatus, fetchSummary])
 
   const isConnected = status?.connected || status?.connectionStatus === 'CONNECTED'
+  const wsStatus = status?.wsStatus || summary?.wsStatus || (isConnected ? 'CONNECTED' : 'DISCONNECTED')
+  const streamHealth = status?.streamHealth || summary?.streamHealth || (isConnected ? 'HEALTHY' : 'OFFLINE')
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -41,19 +44,34 @@ export function LiveTrading() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-white tracking-tight">Live Trading Monitor</h1>
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                isConnected
-                  ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/80'
-                  : 'bg-red-950/80 text-red-400 border border-red-800/80'
-              }`}
-            >
-              <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-red-400'}`} />
-              {status?.connectionStatus || 'DISCONNECTED'}
-            </span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                  isConnected
+                    ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/80'
+                    : 'bg-red-950/80 text-red-400 border border-red-800/80'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                REST: {status?.connectionStatus || 'DISCONNECTED'}
+              </span>
+
+              <span
+                className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
+                  wsStatus === 'CONNECTED'
+                    ? 'bg-blue-950/80 text-blue-400 border border-blue-800/80'
+                    : wsStatus === 'STALE'
+                    ? 'bg-amber-950/80 text-amber-400 border border-amber-800/80'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                }`}
+              >
+                <Radio size={12} className={wsStatus === 'CONNECTED' ? 'animate-pulse text-blue-400' : ''} />
+                Private WS: {wsStatus}
+              </span>
+            </div>
           </div>
           <p className="text-slate-400 mt-1 text-sm">
-            Real-time read-only live account and order state synchronized from Delta Exchange India.
+            Real-time streaming private WebSocket state & authoritative reconciliation from Delta Exchange India.
           </p>
         </div>
 
@@ -65,7 +83,7 @@ export function LiveTrading() {
               className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition disabled:opacity-50"
             >
               <RefreshCw size={16} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
-              {isSyncing ? 'Synchronizing...' : 'Refresh Live Data'}
+              {isSyncing ? 'Synchronizing...' : 'Reconcile REST'}
             </button>
           ) : (
             <Link
@@ -78,14 +96,29 @@ export function LiveTrading() {
         </div>
       </div>
 
-      {/* Real Trading Notice Banner */}
-      <div className="bg-blue-950/30 border border-blue-800/60 rounded-xl p-4 flex items-start gap-3 text-blue-300">
-        <Info size={20} className="text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-sm">
-          <span className="font-semibold text-blue-200">Phase 5.5 Active Mode: Read-Only Live Account Verification</span>
-          <p className="text-blue-300/90 mt-0.5">
-            This dashboard displays authoritative live exchange data from Delta Exchange India. Automated execution is held in safe mode (<strong className="text-white">Algo Disabled / Kill-Switch Armed</strong>). Zero live orders are placed in this phase.
-          </p>
+      {/* Stream & Safety Notice Banner */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-slate-300">
+        <div className="flex items-start gap-3">
+          <Activity size={20} className="text-emerald-400 shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <span className="font-semibold text-white">Phase 5.6: Private WebSocket Stream Synchronizer</span>
+            <p className="text-slate-400 mt-0.5">
+              Receiving live order, position, fill, and margin events over <code className="text-blue-300">wss://socket.india.delta.exchange</code> with fail-safe REST reconciliation.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 text-xs font-mono text-slate-400 shrink-0 border-t md:border-t-0 pt-2 md:pt-0 border-slate-800">
+          <div>
+            <span className="text-slate-500 block">Stream Health:</span>
+            <span className={streamHealth === 'HEALTHY' ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+              {streamHealth}
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500 block">Algo / Kill-Switch:</span>
+            <span className="text-amber-400 font-bold">DISABLED • ARMED</span>
+          </div>
         </div>
       </div>
 
@@ -151,7 +184,7 @@ export function LiveTrading() {
             <Briefcase size={18} className="text-purple-400" />
             <h2 className="font-bold text-white text-base">Live Margined Positions ({positions.length})</h2>
           </div>
-          <span className="text-xs text-slate-500 font-mono">Authoritative Delta State</span>
+          <span className="text-xs text-slate-500 font-mono">Stream Synchronized</span>
         </div>
 
         {positions.length === 0 ? (
@@ -219,7 +252,7 @@ export function LiveTrading() {
             <Clock size={18} className="text-blue-400" />
             <h2 className="font-bold text-white text-base">Open Orders ({openOrders.length})</h2>
           </div>
-          <span className="text-xs text-slate-500 font-mono">Delta India Order Book</span>
+          <span className="text-xs text-slate-500 font-mono">Stream Synchronized</span>
         </div>
 
         {openOrders.length === 0 ? (

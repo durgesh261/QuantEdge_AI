@@ -48,6 +48,8 @@ export interface ConnectAccountResponse {
   name: string
   maskedApiKey: string
   connectionStatus: string
+  wsStatus?: string
+  streamHealth?: string
   totalEquity: number
   availableBalance: number
   marginUsed: number
@@ -64,10 +66,14 @@ export interface AccountStatusResponse {
   name: string
   connected: boolean
   connectionStatus: string
+  wsStatus?: string
+  streamHealth?: string
   maskedApiKey: string
   environment: string
   lastConnectedAt?: string
   lastSyncedAt?: string
+  lastEventAt?: string
+  reconnectCount?: number
   algoEnabled: boolean
   killSwitchActive: boolean
   lastError?: string
@@ -78,6 +84,8 @@ export interface AccountSummaryResponse {
   accountId: string
   name: string
   connectionStatus: string
+  wsStatus?: string
+  streamHealth?: string
   maskedApiKey: string
   totalEquity: number
   availableBalance: number
@@ -86,6 +94,7 @@ export interface AccountSummaryResponse {
   algoEnabled: boolean
   killSwitchActive: boolean
   lastSyncedAt?: string
+  lastEventAt?: string
   balances: BalanceDetail[]
   positions: PositionDetail[]
   openOrders: OrderDetail[]

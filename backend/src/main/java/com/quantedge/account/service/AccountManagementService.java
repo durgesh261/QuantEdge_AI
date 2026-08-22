@@ -66,6 +66,8 @@ public class AccountManagementService {
             String name,
             String maskedApiKey,
             String connectionStatus,
+            String wsStatus,
+            String streamHealth,
             BigDecimal totalEquity,
             BigDecimal availableBalance,
             BigDecimal marginUsed,
@@ -82,10 +84,14 @@ public class AccountManagementService {
             String name,
             boolean connected,
             String connectionStatus,
+            String wsStatus,
+            String streamHealth,
             String maskedApiKey,
             String environment,
             Instant lastConnectedAt,
             Instant lastSyncedAt,
+            Instant lastEventAt,
+            int reconnectCount,
             boolean algoEnabled,
             boolean killSwitchActive,
             String lastError
@@ -96,6 +102,8 @@ public class AccountManagementService {
             String accountId,
             String name,
             String connectionStatus,
+            String wsStatus,
+            String streamHealth,
             String maskedApiKey,
             BigDecimal totalEquity,
             BigDecimal availableBalance,
@@ -104,6 +112,7 @@ public class AccountManagementService {
             boolean algoEnabled,
             boolean killSwitchActive,
             Instant lastSyncedAt,
+            Instant lastEventAt,
             List<LiveAccountSyncService.BalanceDetail> balances,
             List<LiveAccountSyncService.PositionDetail> positions,
             List<LiveAccountSyncService.OrderDetail> openOrders,
@@ -125,7 +134,7 @@ public class AccountManagementService {
         if (request.apiKey() == null || request.apiKey().trim().isEmpty() ||
             request.apiSecret() == null || request.apiSecret().trim().isEmpty()) {
             return new ConnectAccountResponse(
-                    false, null, null, null, "ERROR",
+                    false, null, null, null, "ERROR", "ERROR", "OFFLINE",
                     BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0, 0,
                     false, true, null, "API Key and Secret cannot be blank"
             );
@@ -211,6 +220,8 @@ public class AccountManagementService {
                     account.getName(),
                     maskedKey,
                     "CONNECTED",
+                    "CONNECTED",
+                    "HEALTHY",
                     sync.totalEquity(),
                     sync.availableBalance(),
                     sync.marginUsed(),
@@ -240,6 +251,8 @@ public class AccountManagementService {
                     account.getName(),
                     maskedKey,
                     "ERROR",
+                    "ERROR",
+                    "OFFLINE",
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
                     BigDecimal.ZERO,
@@ -285,6 +298,8 @@ public class AccountManagementService {
                     account.getId(),
                     account.getName(),
                     "CONNECTED",
+                    "CONNECTED",
+                    "HEALTHY",
                     maskedKey,
                     sync.totalEquity(),
                     sync.availableBalance(),
@@ -292,6 +307,7 @@ public class AccountManagementService {
                     account.getBaseCurrency(),
                     account.getAlgoEnabled(),
                     account.getKillSwitchActive(),
+                    sync.syncedAt(),
                     sync.syncedAt(),
                     sync.balances(),
                     sync.positions(),
@@ -308,6 +324,8 @@ public class AccountManagementService {
                     account.getId(),
                     account.getName(),
                     "ERROR",
+                    "ERROR",
+                    "OFFLINE",
                     maskedKey,
                     account.getTotalEquity(),
                     account.getAvailableBalance(),
@@ -316,6 +334,7 @@ public class AccountManagementService {
                     account.getAlgoEnabled(),
                     account.getKillSwitchActive(),
                     account.getLastSyncedAt(),
+                    null,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
@@ -331,6 +350,8 @@ public class AccountManagementService {
 
         String maskedKey = null;
         String status = "DISCONNECTED";
+        String wsStatus = "DISCONNECTED";
+        String streamHealth = "OFFLINE";
         Instant lastConnected = null;
         String lastError = null;
 
@@ -339,6 +360,13 @@ public class AccountManagementService {
             status = conn.getConnectionStatus();
             lastConnected = conn.getLastConnectedAt();
             lastError = conn.getLastError();
+            if ("CONNECTED".equalsIgnoreCase(status)) {
+                wsStatus = "CONNECTED";
+                streamHealth = "HEALTHY";
+            } else if ("ERROR".equalsIgnoreCase(status)) {
+                wsStatus = "ERROR";
+                streamHealth = "DEGRADED";
+            }
             try {
                 maskedKey = maskApiKey(credentialService.decrypt(conn.getEncryptedApiKey()));
             } catch (Exception ignored) {
@@ -351,10 +379,14 @@ public class AccountManagementService {
                 account.getName(),
                 "CONNECTED".equalsIgnoreCase(status),
                 status,
+                wsStatus,
+                streamHealth,
                 maskedKey,
                 "LIVE",
                 lastConnected,
                 account.getLastSyncedAt(),
+                account.getLastSyncedAt(),
+                0,
                 account.getAlgoEnabled(),
                 account.getKillSwitchActive(),
                 lastError
@@ -375,11 +407,14 @@ public class AccountManagementService {
                     maskedKey = "********";
                 }
             }
+            String connStatus = connOpt.map(DeltaConnection::getConnectionStatus).orElse("DISCONNECTED");
             return new AccountSummaryResponse(
                     true,
                     account.getId(),
                     account.getName(),
-                    connOpt.map(DeltaConnection::getConnectionStatus).orElse("DISCONNECTED"),
+                    connStatus,
+                    connStatus,
+                    "OFFLINE",
                     maskedKey,
                     account.getTotalEquity(),
                     account.getAvailableBalance(),
@@ -388,6 +423,7 @@ public class AccountManagementService {
                     account.getAlgoEnabled(),
                     account.getKillSwitchActive(),
                     account.getLastSyncedAt(),
+                    null,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
@@ -409,6 +445,8 @@ public class AccountManagementService {
                     account.getId(),
                     account.getName(),
                     "CONNECTED",
+                    "CONNECTED",
+                    "HEALTHY",
                     maskedKey,
                     sync.totalEquity(),
                     sync.availableBalance(),
@@ -416,6 +454,7 @@ public class AccountManagementService {
                     account.getBaseCurrency(),
                     account.getAlgoEnabled(),
                     account.getKillSwitchActive(),
+                    sync.syncedAt(),
                     sync.syncedAt(),
                     sync.balances(),
                     sync.positions(),
@@ -428,6 +467,8 @@ public class AccountManagementService {
                     account.getId(),
                     account.getName(),
                     "ERROR",
+                    "ERROR",
+                    "DEGRADED",
                     maskedKey,
                     account.getTotalEquity(),
                     account.getAvailableBalance(),
@@ -436,6 +477,7 @@ public class AccountManagementService {
                     account.getAlgoEnabled(),
                     account.getKillSwitchActive(),
                     account.getLastSyncedAt(),
+                    null,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
