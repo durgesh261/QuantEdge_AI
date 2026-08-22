@@ -96,7 +96,12 @@ class OrderRecord:
 
 @dataclass
 class AccountRecord:
-    """Local trading account record matching PostgreSQL trading_accounts table."""
+    """Local trading account record matching PostgreSQL trading_accounts table.
+
+    FAIL-SAFE DEFAULTS (must never be changed here):
+      algo_enabled      = False  — algorithmic trading is OFF by default
+      kill_switch_active = True  — emergency kill switch is ON by default
+    """
     account_id: str
     base_currency: str = "USDT"
     current_balance: Decimal = Decimal("0")
@@ -107,6 +112,23 @@ class AccountRecord:
     user_id: Optional[str] = None
     last_synced_at: Optional[datetime] = None
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    # CRITICAL FAIL-SAFE DEFAULTS — must always be False/True respectively
+    algo_enabled: bool = False
+    kill_switch_active: bool = True
+
+    def __post_init__(self) -> None:
+        """Enforce fail-safe invariants. Raises if defaults are violated."""
+        if self.algo_enabled is True:
+            raise ValueError(
+                "SAFETY VIOLATION: AccountRecord.algo_enabled must default to False. "
+                "Algorithmic trading must be explicitly enabled by an authorized action."
+            )
+        if self.kill_switch_active is False:
+            raise ValueError(
+                "SAFETY VIOLATION: AccountRecord.kill_switch_active must default to True. "
+                "The kill switch must be explicitly disabled by an authorized action."
+            )
+
 
 
 @dataclass

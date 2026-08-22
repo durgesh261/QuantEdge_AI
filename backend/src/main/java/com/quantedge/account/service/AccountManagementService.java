@@ -149,8 +149,13 @@ public class AccountManagementService {
                 account = existingAccounts.get(0);
             } else {
                 account = new TradingAccount(user, request.name() != null ? request.name() : "Delta Live Account", "LIVE", "USDT");
-                account.setAlgoEnabled(false); // Default-safe
-                account.setKillSwitchActive(true); // Default-safe
+                // Fail-safe defaults are enforced by constructor; these are explicit safety assertions:
+                if (Boolean.TRUE.equals(account.getAlgoEnabled())) {
+                    throw new IllegalStateException("SAFETY VIOLATION: New account algoEnabled must default to false");
+                }
+                if (!Boolean.TRUE.equals(account.getKillSwitchActive())) {
+                    throw new IllegalStateException("SAFETY VIOLATION: New account killSwitchActive must default to true");
+                }
                 account = accountRepository.save(account);
             }
         }
@@ -481,8 +486,13 @@ public class AccountManagementService {
         List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
         if (accounts.isEmpty()) {
             TradingAccount newAccount = new TradingAccount(user, "Delta Live Account", "LIVE", "USDT");
-            newAccount.setAlgoEnabled(false);
-            newAccount.setKillSwitchActive(true);
+            // Fail-safe defaults are enforced by constructor; these are explicit safety assertions:
+            if (Boolean.TRUE.equals(newAccount.getAlgoEnabled())) {
+                throw new IllegalStateException("SAFETY VIOLATION: New account algoEnabled must default to false");
+            }
+            if (!Boolean.TRUE.equals(newAccount.getKillSwitchActive())) {
+                throw new IllegalStateException("SAFETY VIOLATION: New account killSwitchActive must default to true");
+            }
             return accountRepository.save(newAccount);
         }
         return accounts.get(0);

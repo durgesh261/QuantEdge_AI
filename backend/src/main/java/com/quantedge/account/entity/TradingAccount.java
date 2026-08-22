@@ -45,22 +45,42 @@ public class TradingAccount extends BaseEntity {
     @Column(name = "margin_used", precision = 20, scale = 8)
     private BigDecimal marginUsed = BigDecimal.ZERO;
 
+    /**
+     * FAIL-SAFE DEFAULT: algo_enabled is always false on account creation.
+     * Must be explicitly enabled by an authorized administrator action.
+     */
     @Column(name = "algo_enabled", nullable = false)
-    private Boolean algoEnabled = true;
+    private Boolean algoEnabled = false;
 
+    /**
+     * FAIL-SAFE DEFAULT: kill_switch_active is always true on account creation.
+     * Must be explicitly disabled by an authorized administrator action.
+     */
     @Column(name = "kill_switch_active", nullable = false)
-    private Boolean killSwitchActive = false;
+    private Boolean killSwitchActive = true;
 
     @Column(name = "last_synced_at")
     private Instant lastSyncedAt;
 
-    public TradingAccount() {}
+    public TradingAccount() {
+        // Fail-safe defaults enforced by field initializers:
+        // algoEnabled = false, killSwitchActive = true
+    }
 
-    public TradingAccount(User user, String name, String accountType, Boolean isActive) {
+    /**
+     * Primary constructor. Always enforces fail-safe defaults:
+     * algoEnabled = false, killSwitchActive = true.
+     * baseCurrency is expected as the 4th argument for type safety.
+     */
+    public TradingAccount(User user, String name, String accountType, String baseCurrency) {
         this.user = user;
         this.name = name;
         this.accountType = accountType;
-        this.isActive = isActive;
+        this.baseCurrency = baseCurrency;
+        // CRITICAL: fail-safe defaults — never change these in a constructor
+        this.algoEnabled = false;
+        this.killSwitchActive = true;
+        this.isActive = true;
     }
 
     public User getUser() { return user; }
