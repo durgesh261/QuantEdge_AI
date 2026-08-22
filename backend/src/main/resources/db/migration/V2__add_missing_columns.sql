@@ -28,10 +28,33 @@ ALTER TABLE trading_accounts
 ALTER TABLE risk_configurations
     ADD COLUMN IF NOT EXISTS version            INTEGER         NOT NULL DEFAULT 1,
     ADD COLUMN IF NOT EXISTS take_profit_percent DECIMAL(5, 2)  NOT NULL DEFAULT 60.00,
+    ADD COLUMN IF NOT EXISTS stop_loss_percent  DECIMAL(5, 2)  NOT NULL DEFAULT 1.00,
     ADD COLUMN IF NOT EXISTS minimum_risk_reward DECIMAL(5, 2)  NOT NULL DEFAULT 1.50,
     -- CRITICAL FAIL-SAFE DEFAULTS
     ADD COLUMN IF NOT EXISTS algo_enabled       BOOLEAN         NOT NULL DEFAULT FALSE,
     ADD COLUMN IF NOT EXISTS kill_switch_active BOOLEAN         NOT NULL DEFAULT TRUE;
+
+-- ---------------------------------------------------------------------------
+-- 2b. orders — add setup_id missing from V1
+-- ---------------------------------------------------------------------------
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS setup_id VARCHAR(100);
+
+CREATE INDEX IF NOT EXISTS idx_orders_setup_id ON orders(setup_id);
+
+-- ---------------------------------------------------------------------------
+-- 2c. audit_logs — align BaseEntity auditing and details columns with JPA entity
+-- ---------------------------------------------------------------------------
+ALTER TABLE audit_logs
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS details    TEXT;
+
+ALTER TABLE audit_logs
+    ALTER COLUMN resource_id TYPE VARCHAR(100) USING resource_id::text;
+
+CREATE TRIGGER update_audit_logs_updated_at
+    BEFORE UPDATE ON audit_logs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ---------------------------------------------------------------------------
 -- 3. strategy_setups — immutable per-trade configuration snapshots

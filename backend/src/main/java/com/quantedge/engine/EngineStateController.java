@@ -42,12 +42,22 @@ public class EngineStateController {
     private final TradePersistenceService persistenceService;
     private final TradingAccountRepository accountRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${quantedge.python-engine.api-key:}")
+    private String configuredApiKey;
+
     public EngineStateController(
             TradePersistenceService persistenceService,
             TradingAccountRepository accountRepository
     ) {
         this.persistenceService = persistenceService;
         this.accountRepository = accountRepository;
+    }
+
+    private boolean isAuthorized(String apiKey) {
+        if (configuredApiKey == null || configuredApiKey.trim().isEmpty()) {
+            return true;
+        }
+        return configuredApiKey.equals(apiKey);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -114,7 +124,13 @@ public class EngineStateController {
      * Replaces the in-memory export_state/load_state pattern.
      */
     @GetMapping("/state/{accountId}")
-    public ResponseEntity<StateResponse> getAccountState(@PathVariable String accountId) {
+    public ResponseEntity<?> getAccountState(
+            @PathVariable String accountId,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
+    ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         try {
             AccountStateSnapshot snap = persistenceService.getAccountStateSnapshot(accountId);
             BigDecimal nextCapital = persistenceService.getNextTradeCapital(accountId);
@@ -154,8 +170,12 @@ public class EngineStateController {
     @PostMapping("/trade/open/{accountId}")
     public ResponseEntity<ApiResult> openTrade(
             @PathVariable String accountId,
-            @RequestBody TradeOpenApiRequest req
+            @RequestBody TradeOpenApiRequest req,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
     ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         try {
             TradeOpenRequest openReq = new TradeOpenRequest(
                     accountId, req.setupId(), req.symbol(), req.direction(),
@@ -192,8 +212,12 @@ public class EngineStateController {
     @PostMapping("/trade/close/{accountId}")
     public ResponseEntity<ApiResult> closeTrade(
             @PathVariable String accountId,
-            @RequestBody TradeCloseApiRequest req
+            @RequestBody TradeCloseApiRequest req,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
     ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         try {
             TradeCloseRequest closeReq = new TradeCloseRequest(
                     accountId, req.setupId(), req.grossPnl(), req.tradingFees(),
@@ -222,8 +246,12 @@ public class EngineStateController {
     @PostMapping("/trade/lock-state/{accountId}")
     public ResponseEntity<ApiResult> updateLockState(
             @PathVariable String accountId,
-            @RequestParam String state
+            @RequestParam String state,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
     ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         try {
             persistenceService.updateLockState(accountId, state);
             return ResponseEntity.ok(new ApiResult(true, null, null));
@@ -244,8 +272,12 @@ public class EngineStateController {
     @PostMapping("/trade/force-release/{accountId}")
     public ResponseEntity<ApiResult> forceReleaseLock(
             @PathVariable String accountId,
-            @RequestParam String reason
+            @RequestParam String reason,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
     ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         log.warn("FORCE RELEASE requested: account={} reason={}", accountId, reason);
         try {
             persistenceService.forceReleaseLock(accountId, reason);
@@ -264,7 +296,13 @@ public class EngineStateController {
      * Priority: post_trade_balance of latest closed trade → account.current_balance.
      */
     @GetMapping("/capital/{accountId}")
-    public ResponseEntity<ApiResult> getNextTradeCapital(@PathVariable String accountId) {
+    public ResponseEntity<ApiResult> getNextTradeCapital(
+            @PathVariable String accountId,
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
+    ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
         try {
             BigDecimal capital = persistenceService.getNextTradeCapital(accountId);
             return ResponseEntity.ok(new ApiResult(true, null, capital));

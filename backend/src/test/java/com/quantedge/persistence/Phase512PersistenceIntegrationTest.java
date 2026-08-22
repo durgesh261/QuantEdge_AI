@@ -45,7 +45,7 @@ import static org.assertj.core.api.Assertions.*;
  * Testcontainers if Docker is unavailable.</p>
  */
 @SpringBootTest
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class Phase512PersistenceIntegrationTest {
 

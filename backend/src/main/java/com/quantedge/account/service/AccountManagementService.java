@@ -217,9 +217,8 @@ public class AccountManagementService {
             syncPositionsToDatabase(account, sync.positions());
 
             auditLogRepository.save(new AuditLog(
-                    account.getId(), user.getId(), "DELTA_ACCOUNT_CONNECTED",
-                    "SUCCESS", "Successfully connected and verified Delta Exchange India account. MaskedKey=" + maskedKey,
-                    null
+                    user, account, "DELTA_ACCOUNT_CONNECTED",
+                    "SUCCESS", account.getId(), "Successfully connected and verified Delta Exchange India account. MaskedKey=" + maskedKey
             ));
 
             log.info("Delta account connected successfully for user {}: equity={}", user.getId(), sync.totalEquity());
@@ -248,9 +247,8 @@ public class AccountManagementService {
             connectionRepository.save(connection);
 
             auditLogRepository.save(new AuditLog(
-                    account.getId(), user.getId(), "DELTA_ACCOUNT_CONNECT_FAILED",
-                    "FAILED", "Failed read-only verification with Delta Exchange India: " + sync.error(),
-                    null
+                    user, account, "DELTA_ACCOUNT_CONNECT_FAILED",
+                    "FAILED", account.getId(), "Failed read-only verification with Delta Exchange India: " + sync.error()
             ));
 
             log.warn("Delta account connection failed read-only verification for user {}: {}", user.getId(), sync.error());
@@ -512,14 +510,26 @@ public class AccountManagementService {
         accountRepository.save(account);
 
         auditLogRepository.save(new AuditLog(
-                account.getId(), user.getId(), "DELTA_ACCOUNT_DISCONNECTED",
-                "SUCCESS", "Delta Exchange India account disconnected.",
-                null
+                user, account, "DELTA_ACCOUNT_DISCONNECTED",
+                "SUCCESS", account.getId(), "Delta Exchange India account disconnected."
         ));
 
         log.info("Delta account disconnected for user {}", user.getId());
 
         return getAccountStatus(user, account.getId());
+    }
+
+    private TradingAccount resolveAccount(User user, String accountId) {
+        return getAuthorizedAccount(user, accountId);
+    }
+
+    private void recordAuditLog(TradingAccount account, String action, String resourceType, String resourceId, String details) {
+        try {
+            AuditLog log = new AuditLog(account.getUser(), account, action, resourceType, resourceId, details);
+            auditLogRepository.save(log);
+        } catch (Exception e) {
+            log.error("Failed to record audit log: action={} details={}", action, details, e);
+        }
     }
 
     private TradingAccount getAuthorizedAccount(User user, String accountId) {

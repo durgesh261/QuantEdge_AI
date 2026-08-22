@@ -33,6 +33,37 @@ public class LiveAccountSyncService {
         this.objectMapper = objectMapper;
     }
 
+    public record BalanceDetail(
+            String asset,
+            BigDecimal balance,
+            BigDecimal availableBalance
+    ) {}
+
+    public record PositionDetail(
+            String symbol,
+            String side,
+            BigDecimal size,
+            BigDecimal entryPrice,
+            BigDecimal markPrice,
+            BigDecimal unrealizedPnl,
+            BigDecimal realizedPnl,
+            Integer leverage,
+            BigDecimal margin,
+            BigDecimal liquidationPrice
+    ) {}
+
+    public record OrderDetail(
+            String orderId,
+            String clientOrderId,
+            String symbol,
+            String side,
+            String orderType,
+            String state,
+            BigDecimal price,
+            BigDecimal size,
+            BigDecimal unfilledSize
+    ) {}
+
     public record SyncSummary(
             boolean success,
             Instant syncedAt,
@@ -42,6 +73,9 @@ public class LiveAccountSyncService {
             BigDecimal marginUsed,
             int positionsCount,
             int ordersCount,
+            List<BalanceDetail> balances,
+            List<PositionDetail> positions,
+            List<OrderDetail> openOrders,
             List<String> discrepancies,
             String error) {
     }
@@ -49,6 +83,9 @@ public class LiveAccountSyncService {
     public SyncSummary syncLiveAccount(String accountId, String encryptedApiKey, String encryptedApiSecret) {
         Instant syncTime = Instant.now();
         List<String> discrepancies = new ArrayList<>();
+        List<BalanceDetail> balanceList = new ArrayList<>();
+        List<PositionDetail> positionList = new ArrayList<>();
+        List<OrderDetail> orderList = new ArrayList<>();
 
         try {
             String apiKey = credentialService.decrypt(encryptedApiKey);
@@ -71,9 +108,13 @@ public class LiveAccountSyncService {
             if (balances.isArray()) {
                 for (JsonNode b : balances) {
                     String symbol = b.path("asset_symbol").asText("");
+                    BigDecimal bal = new BigDecimal(b.path("balance").asText("0"));
+                    BigDecimal avail = new BigDecimal(b.path("available_balance").asText("0"));
+                    balanceList.add(new BalanceDetail(symbol, bal, avail));
+
                     if ("USDT".equalsIgnoreCase(symbol)) {
-                        totalEquity = new BigDecimal(b.path("balance").asText("0"));
-                        availableBalance = new BigDecimal(b.path("available_balance").asText("0"));
+                        totalEquity = bal;
+                        availableBalance = avail;
                         BigDecimal posMargin = new BigDecimal(b.path("position_margin").asText("0"));
                         BigDecimal ordMargin = new BigDecimal(b.path("order_margin").asText("0"));
                         marginUsed = posMargin.add(ordMargin);
@@ -92,6 +133,19 @@ public class LiveAccountSyncService {
                     BigDecimal size = new BigDecimal(p.path("size").asText("0"));
                     if (size.compareTo(BigDecimal.ZERO) != 0) {
                         openPositionsCount++;
+                        String sym = p.path("product_symbol").asText(p.path("symbol").asText(""));
+                        String side = size.compareTo(BigDecimal.ZERO) > 0 ? "LONG" : "SHORT";
+                        BigDecimal entryPrice = new BigDecimal(p.path("entry_price").asText("0"));
+                        BigDecimal markPrice = new BigDecimal(p.path("mark_price").asText("0"));
+                        BigDecimal upnl = new BigDecimal(p.path("unrealized_pnl").asText("0"));
+                        BigDecimal rpnl = new BigDecimal(p.path("realized_pnl").asText("0"));
+                        int lev = p.path("leverage").asInt(1);
+                        BigDecimal margin = new BigDecimal(p.path("margin").asText("0"));
+                        BigDecimal liqPrice = p.hasNonNull("liquidation_price") ? new BigDecimal(p.path("liquidation_price").asText()) : null;
+
+                        positionList.add(new PositionDetail(
+                                sym, side, size.abs(), entryPrice, markPrice, upnl, rpnl, lev, margin, liqPrice
+                        ));
                     }
                 }
             }
@@ -101,7 +155,23 @@ public class LiveAccountSyncService {
                     apiKey, apiSecret, HttpMethod.GET, "/v2/orders", "state=open", null);
             JsonNode ordersRoot = objectMapper.readTree(ordersResp.getBody());
             JsonNode orders = ordersRoot.path("result");
-            int openOrdersCount = orders.isArray() ? orders.size() : 0;
+            int openOrdersCount = 0;
+            if (orders.isArray()) {
+                openOrdersCount = orders.size();
+                for (JsonNode o : orders) {
+                    orderList.add(new OrderDetail(
+                            o.path("id").asText(""),
+                            o.path("client_order_id").asText(""),
+                            o.path("product_symbol").asText(o.path("symbol").asText("")),
+                            o.path("side").asText(""),
+                            o.path("order_type").asText(""),
+                            o.path("state").asText(""),
+                            new BigDecimal(o.path("limit_price").asText("0")),
+                            new BigDecimal(o.path("size").asText("0")),
+                            new BigDecimal(o.path("unfilled_size").asText("0"))
+                    ));
+                }
+            }
 
             log.info("Successfully synchronized live account {}: equity={}, positions={}, orders={}",
                     accountId, totalEquity, openPositionsCount, openOrdersCount);
@@ -115,6 +185,9 @@ public class LiveAccountSyncService {
                     marginUsed,
                     openPositionsCount,
                     openOrdersCount,
+                    balanceList,
+                    positionList,
+                    orderList,
                     discrepancies,
                     null);
 
@@ -129,6 +202,9 @@ public class LiveAccountSyncService {
                     BigDecimal.ZERO,
                     0,
                     0,
+                    balanceList,
+                    positionList,
+                    orderList,
                     discrepancies,
                     e.getMessage());
         }

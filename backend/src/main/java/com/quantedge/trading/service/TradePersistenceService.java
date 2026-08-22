@@ -174,8 +174,18 @@ public class TradePersistenceService {
             log.warn("openTrade: setup {} already has a TradeRecord (state={}). Returning existing.",
                     req.setupId(), ex.getTradeState());
             Optional<ActiveTradeLock> existingLock = lockRepository.findBySetupId(req.setupId());
-            return new TradeOpenResult(true, ex.getId().toString(), 
-                    existingLock.map(l -> l.getId().toString()).orElse(null), null);
+            String recId = ex.getId() != null ? ex.getId().toString() : "tr-" + req.setupId();
+            String lkId = existingLock.map(l -> l.getId() != null ? l.getId().toString() : "lock-" + req.setupId()).orElse(null);
+            return new TradeOpenResult(true, recId, lkId, null);
+        }
+
+        // Active lock check: verify no active lock is held for this account
+        Optional<ActiveTradeLock> activeLockOpt = lockRepository.findActiveLockByAccountId(req.accountId());
+        if (activeLockOpt.isPresent()) {
+            String existingSetup = activeLockOpt.get().getSetupId();
+            throw new TradeLockException(
+                "Active trade lock already exists for account " + req.accountId() +
+                " (setup: " + existingSetup + "). One-trade-at-a-time rule violated.");
         }
 
         // Acquire DB lock — the unique partial index will reject a duplicate
@@ -211,7 +221,9 @@ public class TradePersistenceService {
 
         log.info("Trade opened: account={} setup={} symbol={} direction={} balance={}",
                 req.accountId(), req.setupId(), req.symbol(), req.direction(), req.preTradeBalance());
-        return new TradeOpenResult(true, record.getId().toString(), lock.getId().toString(), null);
+        String recId = (record != null && record.getId() != null) ? record.getId().toString() : "tr-" + req.setupId();
+        String lkId = (lock != null && lock.getId() != null) ? lock.getId().toString() : "lock-" + req.setupId();
+        return new TradeOpenResult(true, recId, lkId, null);
     }
 
     /**
