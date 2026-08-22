@@ -23,12 +23,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Phase 5.17: Dedicated service for explicit, user-confirmed real Delta Exchange India order tests.
- * Enforces two-step confirmation (prepare -> confirm), cryptographic single-use tokens,
+ * Phase 5.17.1: Hardened service for explicit, user-confirmed real Delta Exchange India order tests.
+ * Enforces two-step confirmation (prepare -> confirm), atomic single-use tokens,
  * pre-submission live revalidation, dynamic minimum-size calculation, reduce-only SL/TP brackets,
- * emergency closure on partial failure, and verified position closure.
+ * emergency closure on partial failure, strict position reconciliation, and zero secret leakage.
  */
 @Service
 public class LiveOrderTestService {
@@ -62,7 +63,7 @@ public class LiveOrderTestService {
             BigDecimal estimatedMargin,
             BigDecimal availableBalance,
             Instant expiresAt,
-            boolean[] consumed
+            AtomicBoolean consumed
     ) {}
 
     public record ActiveTestPosition(
@@ -211,7 +212,7 @@ public class LiveOrderTestService {
             LiveTestPreparation prep = new LiveTestPreparation(
                     token, user.getId(), account.getId(), symbol, productSpec.productId(),
                     "BUY", minQuantity, productSpec.contractValue(), productSpec.tickSize(),
-                    markPrice, estimatedMargin, availableBalance, expiresAt, new boolean[]{false}
+                    markPrice, estimatedMargin, availableBalance, expiresAt, new AtomicBoolean(false)
             );
             preparations.put(token, prep);
 
@@ -234,19 +235,26 @@ public class LiveOrderTestService {
                     null
             );
 
-        } catch (Exception e) {
-            log.error("Failed to prepare live test for user {}: {}", user.getId(), e.getMessage());
+        } catch (SecurityException se) {
+            log.warn("Authentication failed during live test preparation for user {}", user.getId());
             return new LiveTestPrepareResponse(
                     false, "Delta Exchange India", account.getId(), symbol, "BUY",
                     BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                    "FAIL", null, null, false, null, "Failed to inspect exchange state: " + e.getMessage()
+                    "FAIL", null, null, false, null, "Authentication failed with Delta Exchange. Please verify your credentials."
+            );
+        } catch (Exception e) {
+            log.error("Failed to prepare live test for user {}: {}", user.getId(), e.getClass().getSimpleName());
+            return new LiveTestPrepareResponse(
+                    false, "Delta Exchange India", account.getId(), symbol, "BUY",
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    "FAIL", null, null, false, null, "Unable to inspect exchange state. Please verify network connection and try again."
             );
         }
     }
 
     /**
      * Step 2: CONFIRM & REAL ORDER
-     * Consumes single-use token, revalidates live state, submits real order, and places reduce-only SL/TP.
+     * Atomically consumes single-use token, revalidates live state, submits real order, and places reduce-only SL/TP.
      */
     public LiveTestConfirmResponse confirmLiveTest(User user, String accountId, String confirmationToken) {
         if (user == null || confirmationToken == null || confirmationToken.trim().isEmpty()) {
@@ -275,15 +283,13 @@ public class LiveOrderTestService {
             );
         }
 
-        synchronized (prep.consumed()) {
-            if (prep.consumed()[0]) {
-                return new LiveTestConfirmResponse(
-                        false, "TOKEN_ALREADY_USED", accountId, prep.symbol(), prep.side(), null,
-                        BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, null, BigDecimal.ZERO,
-                        "NONE", false, null, "Confirmation token has already been consumed."
-                );
-            }
-            prep.consumed()[0] = true;
+        // Atomic single-use consumption: prevents race condition double execution
+        if (!prep.consumed().compareAndSet(false, true)) {
+            return new LiveTestConfirmResponse(
+                    false, "TOKEN_ALREADY_USED", accountId, prep.symbol(), prep.side(), null,
+                    BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, null, BigDecimal.ZERO,
+                    "NONE", false, null, "Confirmation token has already been consumed."
+            );
         }
 
         if (!prep.userId().equals(user.getId()) || (accountId != null && !prep.accountId().equals(accountId))) {
@@ -308,6 +314,13 @@ public class LiveOrderTestService {
         try {
             // 1. Re-query live balance
             BigDecimal liveBalance = fetchAvailableBalance(apiKey, apiSecret);
+            if (liveBalance.compareTo(prep.estimatedMargin()) < 0) {
+                return new LiveTestConfirmResponse(
+                        false, "INSUFFICIENT_BALANCE", account.getId(), prep.symbol(), prep.side(), null,
+                        BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, null, BigDecimal.ZERO,
+                        "NONE", false, null, "Available collateral insufficient for execution: $" + liveBalance
+                );
+            }
 
             // 2. Re-query positions to ensure 0 open positions
             boolean hasPosition = checkExistingPosition(apiKey, apiSecret, prep.symbol());
@@ -321,7 +334,6 @@ public class LiveOrderTestService {
 
             // 3. Re-query ticker for fresh mark price
             BigDecimal freshMarkPrice = fetchMarkPrice(apiKey, apiSecret, prep.symbol());
-            // Marketable limit price: 0.5% above mark price for buy, rounded to tick size
             BigDecimal limitPrice = roundToTickSize(freshMarkPrice.multiply(new BigDecimal("1.005")), prep.tickSize());
 
             // 4. Submit REAL Delta order
@@ -346,6 +358,12 @@ public class LiveOrderTestService {
             BigDecimal filledQty = orderNode.hasNonNull("size")
                     ? new BigDecimal(orderNode.path("size").asText())
                     : prep.quantity();
+
+            // Reconcile filled position
+            PositionInfo currentPos = fetchPositionInfo(apiKey, apiSecret, prep.symbol());
+            if (currentPos != null && currentPos.size().compareTo(BigDecimal.ZERO) > 0) {
+                filledQty = currentPos.size();
+            }
 
             // 5. Establish Protective SL & TP Brackets
             BigDecimal slPrice = roundToTickSize(fillPrice.multiply(new BigDecimal("0.985")), prep.tickSize()); // 1.5% SL
@@ -386,7 +404,7 @@ public class LiveOrderTestService {
                 tpOrderId = objectMapper.readTree(tpResp.getBody()).path("result").path("id").asText();
 
             } catch (Exception ex) {
-                log.error("CRITICAL: Protective bracket placement failed for order {}: {}", orderId, ex.getMessage());
+                log.error("Protective bracket placement failed for test order: {}", ex.getClass().getSimpleName());
                 bracketFailure = true;
             }
 
@@ -415,7 +433,7 @@ public class LiveOrderTestService {
 
             auditLogRepository.save(new AuditLog(
                     user, account, "LIVE_TEST_ORDER_EXECUTED",
-                    "SUCCESS", orderId, "Live test order filled: " + prep.symbol() + " qty=" + filledQty + " price=" + fillPrice + " SL=" + slPrice + " TP=" + tpPrice
+                    "SUCCESS", orderId, "Live test order filled: " + prep.symbol() + " qty=" + filledQty + " price=" + fillPrice
             ));
 
             return new LiveTestConfirmResponse(
@@ -425,11 +443,11 @@ public class LiveOrderTestService {
             );
 
         } catch (Exception e) {
-            log.error("Failed to execute live test order for user {}: {}", user.getId(), e.getMessage());
+            log.error("Failed to execute live test order for user {}: {}", user.getId(), e.getClass().getSimpleName());
             return new LiveTestConfirmResponse(
                     false, "EXECUTION_ERROR", account.getId(), prep.symbol(), prep.side(), null,
                     BigDecimal.ZERO, BigDecimal.ZERO, null, BigDecimal.ZERO, null, BigDecimal.ZERO,
-                    "NONE", false, null, "Delta Exchange order rejected: " + e.getMessage()
+                    "NONE", false, null, "Delta Exchange order rejected. Please try again."
             );
         }
     }
@@ -508,10 +526,10 @@ public class LiveOrderTestService {
             );
 
         } catch (Exception e) {
-            log.error("Failed to close live test position for user {}: {}", user.getId(), e.getMessage());
+            log.error("Failed to close live test position for user {}: {}", user.getId(), e.getClass().getSimpleName());
             return new LiveTestCloseResponse(
                     false, "CLOSE_ERROR", account.getId(), symbol,
-                    null, null, null, "Failed to close test position: " + e.getMessage()
+                    null, null, null, "Failed to close test position. Please verify on exchange."
             );
         }
     }
@@ -607,7 +625,7 @@ public class LiveOrderTestService {
                 }
             }
         } catch (Exception e) {
-            log.warn("Failed to fetch live products, using standard fallback specs for {}: {}", symbol, e.getMessage());
+            log.warn("Failed to fetch live products, using fallback specs: {}", e.getClass().getSimpleName());
         }
         return new ProductSpec(134, BigDecimal.ONE, new BigDecimal("0.001"), new BigDecimal("0.05"));
     }
@@ -646,7 +664,7 @@ public class LiveOrderTestService {
             );
             return true;
         } catch (Exception e) {
-            log.error("CRITICAL: Emergency close execution failed for product {}: {}", productId, e.getMessage());
+            log.error("Emergency close execution failed: {}", e.getClass().getSimpleName());
             return false;
         }
     }
@@ -659,7 +677,7 @@ public class LiveOrderTestService {
                     apiKey, apiSecret, HttpMethod.DELETE, "/v2/orders/all", null, cancelPayload
             );
         } catch (Exception e) {
-            log.warn("Failed to cancel open orders for product {}: {}", productId, e.getMessage());
+            log.warn("Failed to cancel open orders: {}", e.getClass().getSimpleName());
         }
     }
 }

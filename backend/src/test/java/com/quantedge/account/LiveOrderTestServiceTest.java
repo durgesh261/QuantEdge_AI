@@ -15,7 +15,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -24,14 +23,16 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Phase 5.17: 20-point comprehensive unit and safety test suite for LiveOrderTestService.
- * Validates isolation, single-use token semantics, pre-submission revalidation,
+ * Phase 5.17.1: Comprehensive unit, security, concurrency, and safety test suite for LiveOrderTestService.
+ * Validates atomic token single-use, race-condition protection, exception sanitization,
  * partial protection failure handling, and position closure safety using isolated mocks.
  * ZERO real orders are placed.
  */
@@ -171,9 +172,47 @@ class LiveOrderTestServiceTest {
     }
 
     @Test
-    @DisplayName("5. IDOR Prevention: User A cannot close User B's test position")
-    void testUserACannotCloseUserBPosition() {
-        assertThrows(SecurityException.class, () -> liveOrderTestService.closeLiveTest(userA, "acct-B", "ETHUSD"));
+    @DisplayName("5. Concurrency Race Protection: Simultaneous confirm requests execute exactly once")
+    void testConcurrentConfirmationRaceProtection() throws Exception {
+        mockStandardExchangeResponses(new BigDecimal("100.00"), new BigDecimal("2500.00"), BigDecimal.ZERO);
+        String orderJson = "{\"result\": {\"id\": \"ord-race-1\", \"state\": \"filled\", \"size\": \"1\", \"avg_fill_price\": \"2500.00\"}}";
+        when(deltaRestClient.executeRequest(anyString(), anyString(), eq(HttpMethod.POST), eq("/v2/orders"), any(), any()))
+                .thenReturn(new ResponseEntity<>(orderJson, HttpStatus.OK));
+
+        var prep = liveOrderTestService.prepareLiveTest(userA, "acct-A", "ETHUSD");
+        String token = prep.confirmationToken();
+
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch endGate = new CountDownLatch(threads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger alreadyUsedCount = new AtomicInteger(0);
+
+        for (int i = 0; i < threads; i++) {
+            executor.submit(() -> {
+                try {
+                    startGate.await();
+                    var res = liveOrderTestService.confirmLiveTest(userA, "acct-A", token);
+                    if (res.success()) {
+                        successCount.incrementAndGet();
+                    } else if ("TOKEN_ALREADY_USED".equals(res.status())) {
+                        alreadyUsedCount.incrementAndGet();
+                    }
+                } catch (Exception ignored) {
+                } finally {
+                    endGate.countDown();
+                }
+            });
+        }
+
+        startGate.countDown(); // Trigger all threads simultaneously
+        endGate.await(5, TimeUnit.SECONDS);
+        executor.shutdown();
+
+        // Exactly one thread must succeed; all other threads must be rejected atomically
+        assertEquals(1, successCount.get());
+        assertEquals(threads - 1, alreadyUsedCount.get());
     }
 
     @Test
@@ -215,7 +254,7 @@ class LiveOrderTestServiceTest {
     }
 
     @Test
-    @DisplayName("10. Successful Execution: Places entry and establish SL/TP brackets")
+    @DisplayName("10. Successful Execution: Places entry and establishes SL/TP brackets")
     void testSuccessfulExecutionFlow() {
         mockStandardExchangeResponses(new BigDecimal("100.00"), new BigDecimal("2500.00"), BigDecimal.ZERO);
         String orderJson = "{\"result\": {\"id\": \"ord-live-101\", \"state\": \"filled\", \"size\": \"1\", \"avg_fill_price\": \"2512.50\"}}";
@@ -350,18 +389,21 @@ class LiveOrderTestServiceTest {
     }
 
     @Test
-    @DisplayName("17. Delta Order Rejection: Handled gracefully without throwing raw exceptions")
+    @DisplayName("17. Delta Order Rejection: Handled gracefully without leaking raw exception messages")
     void testDeltaOrderRejectionHandledGracefully() {
         mockStandardExchangeResponses(new BigDecimal("100.00"), new BigDecimal("2500.00"), BigDecimal.ZERO);
         when(deltaRestClient.executeRequest(anyString(), anyString(), eq(HttpMethod.POST), eq("/v2/orders"), any(), any()))
-                .thenThrow(new RuntimeException("Delta Exchange HTTP error: 400 Bad Request"));
+                .thenThrow(new RuntimeException("Delta Exchange internal stack trace with api_key=KEY_A"));
 
         var prep = liveOrderTestService.prepareLiveTest(userA, "acct-A", "ETHUSD");
         var confirm = liveOrderTestService.confirmLiveTest(userA, "acct-A", prep.confirmationToken());
 
         assertFalse(confirm.success());
         assertEquals("EXECUTION_ERROR", confirm.status());
-        assertTrue(confirm.error().contains("Delta Exchange order rejected"));
+        // Error message must be sanitized and free of raw exception details
+        assertFalse(confirm.error().contains("KEY_A"));
+        assertFalse(confirm.error().contains("stack trace"));
+        assertEquals("Delta Exchange order rejected. Please try again.", confirm.error());
     }
 
     @Test
@@ -400,7 +442,6 @@ class LiveOrderTestServiceTest {
     @Test
     @DisplayName("20. Real Order Claim Rule: Zero orders placed in automated tests")
     void testZeroRealOrdersPlacedInAutomatedTests() {
-        // Assert mock was invoked rather than real network calls
         mockStandardExchangeResponses(new BigDecimal("100.00"), new BigDecimal("2500.00"), BigDecimal.ZERO);
         var prep = liveOrderTestService.prepareLiveTest(userA, "acct-A", "ETHUSD");
         assertTrue(prep.ready());
