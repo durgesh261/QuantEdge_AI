@@ -44,8 +44,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-quantifiedge_dev}
       QUANTEDGE_JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production-min-256-bits}
       QUANTEDGE_CORS_ALLOWED_ORIGINS: http://localhost:3000
-      QUANTEDGE_DELTA_API_URL: https://api.delta.exchange
-      QUANTEDGE_DELTA_TESTNET_API_URL: https://api-testnet.delta.exchange
+      QUANTEDGE_DELTA_API_URL: https://api.india.delta.exchange
       QUANTEDGE_PYTHON_ENGINE_URL: http://engine:8000
     ports:
       - "8080:8080"
@@ -69,10 +68,8 @@ services:
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
       DATABASE_URL: postgresql://quantedge:quantedge_dev@postgres:5432/quantedge
-      # Python engine receives market data only - NO Delta credentials
-      # Delta credentials are managed exclusively by Spring Boot backend
-      DELTA_BASE_URL: https://api.delta.exchange
-      DELTA_TESTNET_BASE_URL: https://api-testnet.delta.exchange
+      # Python engine receives market data and executes per-user live orders
+      DELTA_BASE_URL: https://api.india.delta.exchange
       BACKEND_BASE_URL: http://backend:8080
       BACKEND_API_KEY: ${BACKEND_API_KEY:-}
     ports:

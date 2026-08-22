@@ -98,12 +98,6 @@ from quantedge.execution.trade_lifecycle import (
     CloseReason,
 )
 
-from quantedge.execution.live_proof import (
-    CandidateInstrumentSpec,
-    SafetyGateReport,
-    LiveExecutionProofReport,
-    LiveDeltaExecutionProofOrchestrator,
-)
 
 __all__ = [
     "OrderSide",
@@ -175,8 +169,4 @@ __all__ = [
     "ReconciliationReport",
     "TradeCostBreakdown",
     "DeltaReconciliationService",
-    "CandidateInstrumentSpec",
-    "SafetyGateReport",
-    "LiveExecutionProofReport",
-    "LiveDeltaExecutionProofOrchestrator",
 ]
