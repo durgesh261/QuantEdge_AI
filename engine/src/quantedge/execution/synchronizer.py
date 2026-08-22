@@ -156,6 +156,9 @@ class LocalStateStore:
         self.orders: Dict[str, OrderRecord] = {}  # (delta_order_id or client_order_id) -> OrderRecord
         self.audit_events: List[Dict[str, Any]] = []
 
+    def get_account(self, account_id: Optional[str] = None) -> AccountRecord:
+        return self.account
+
     def get_open_positions(self) -> List[PositionRecord]:
         return [p for p in self.positions.values() if p.status == PositionStatus.OPEN]
 

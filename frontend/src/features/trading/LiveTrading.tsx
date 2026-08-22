@@ -128,7 +128,7 @@ export function LiveTrading() {
             </div>
           </div>
           <p className="text-slate-400 mt-1 text-sm">
-            Phase 5.7: Live signal-to-execution bridge, controlled trade lifecycle & automated bracket protection.
+            Phase 5.13: Delta Exchange Production Execution, Authoritative OB-Edge SL, 35% Max Loss Dynamic Leverage, 60% ROE TP & Continuous Reconciliation.
           </p>
         </div>
 
@@ -140,7 +140,7 @@ export function LiveTrading() {
               className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition disabled:opacity-50"
             >
               <RefreshCw size={16} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
-              {isSyncing ? 'Synchronizing...' : 'Reconcile REST'}
+              {isSyncing ? 'Synchronizing...' : 'Reconcile Delta'}
             </button>
           ) : (
             <Link
@@ -168,6 +168,9 @@ export function LiveTrading() {
                 </span>
                 <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${algoEnabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}`}>
                   ALGO: {algoEnabled ? 'ENABLED' : 'DISABLED'}
+                </span>
+                <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-blue-950 text-blue-300 border border-blue-800">
+                  SINGLE TRADE: 100% CAPITAL
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-1">
@@ -234,9 +237,9 @@ export function LiveTrading() {
         <div className="flex items-start gap-3">
           <Activity size={20} className="text-emerald-400 shrink-0 mt-0.5" />
           <div className="text-sm">
-            <span className="font-semibold text-white">Controlled Trade Lifecycle & Bracket Protection</span>
+            <span className="font-semibold text-white">Delta Exchange Production Execution & Protection Architecture</span>
             <p className="text-slate-400 mt-0.5">
-              Authoritative server-side setups dynamically enforce strict TP/SL geometry, partial fill scaling, and daily loss guards.
+              Authoritative SMC Order Block SL, dynamic leverage capped at 35% max planned loss, 60% ROE default TP, and 100% compounded capital per single active trade.
             </p>
           </div>
         </div>

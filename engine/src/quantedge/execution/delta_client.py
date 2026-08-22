@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 import uuid
 from decimal import Decimal
@@ -29,6 +30,7 @@ from quantedge.execution.models import (
     DeltaOrderRequest,
     DeltaOrderResponse,
     OrderStatus,
+    ConnectionState,
 )
 from quantedge.execution.security import mask_secret, sanitize_text
 
@@ -124,6 +126,13 @@ def generate_client_order_id(prefix: str = "QE") -> str:
     return f"{prefix}-{ts_ms}-{rand_suffix}"
 
 
+def generate_deterministic_client_order_id(account_id: str, setup_id: str, role: str = "ENTRY") -> str:
+    """Generate a deterministic, idempotent client order ID tied to a trade setup and order role."""
+    clean_acct = account_id.replace("-", "")[:8]
+    clean_setup = setup_id.replace("-", "")[:12]
+    return f"QE-{clean_acct}-{clean_setup}-{role.upper()}"
+
+
 # ── Main Client ───────────────────────────────────────────────────────────────
 
 
@@ -144,13 +153,50 @@ class DeltaIndiaClient:
         self.timeout_seconds = timeout_seconds
         self._custom_http_client = http_client
         self._owned_http_client: Optional[httpx.AsyncClient] = None
+        self._connection_state: ConnectionState = ConnectionState.UNKNOWN
+
+    @classmethod
+    def from_env(cls, base_url: Optional[str] = None, timeout_seconds: float = 10.0) -> "DeltaIndiaClient":
+        """Instantiate client securely from environment variables."""
+        api_key = os.getenv("DELTA_API_KEY", "").strip()
+        api_secret = os.getenv("DELTA_API_SECRET", "").strip()
+        url = base_url or os.getenv("DELTA_BASE_URL", DELTA_INDIA_PRODUCTION_URL).strip()
+        if not api_key or not api_secret:
+            raise ValueError("DELTA_API_KEY and DELTA_API_SECRET environment variables must be set.")
+        return cls(api_key=api_key, api_secret=api_secret, base_url=url, timeout_seconds=timeout_seconds)
+
+    @property
+    def connection_state(self) -> ConnectionState:
+        return self._connection_state
 
     def __repr__(self) -> str:
         masked_key = mask_secret(self._api_key)
-        return f"DeltaIndiaClient(base_url={self.base_url!r}, api_key={masked_key!r})"
+        return f"DeltaIndiaClient(base_url={self.base_url!r}, api_key={masked_key!r}, state={self._connection_state.value})"
 
     def __str__(self) -> str:
         return self.__repr__()
+
+    async def validate_credentials(self) -> Tuple[bool, ConnectionState, Optional[str]]:
+        """Perform a read-only request to Delta Exchange to validate API key and secret."""
+        if not self._api_key or not self._api_secret:
+            self._connection_state = ConnectionState.AUTH_FAILED
+            return False, ConnectionState.AUTH_FAILED, "Missing Delta API key or secret."
+        try:
+            await self.get_wallet_balances()
+            self._connection_state = ConnectionState.CONNECTED
+            return True, ConnectionState.CONNECTED, None
+        except DeltaAuthError as e:
+            self._connection_state = ConnectionState.AUTH_FAILED
+            return False, ConnectionState.AUTH_FAILED, "Authentication failed: invalid key or secret."
+        except DeltaRateLimitError as e:
+            self._connection_state = ConnectionState.RATE_LIMITED
+            return False, ConnectionState.RATE_LIMITED, f"Rate limit exceeded (retry after {e.retry_after}s)."
+        except DeltaConnectionError as e:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
+            return False, ConnectionState.EXCHANGE_ERROR, f"Exchange connection error: {e}"
+        except Exception as e:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
+            return False, ConnectionState.EXCHANGE_ERROR, f"Verification failed: {sanitize_text(str(e))}"
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._custom_http_client is not None:
@@ -167,6 +213,7 @@ class DeltaIndiaClient:
         """Close client sessions."""
         if self._owned_http_client is not None and not self._owned_http_client.is_closed:
             await self._owned_http_client.aclose()
+        self._connection_state = ConnectionState.DISCONNECTED
 
     async def request(
         self,
@@ -216,16 +263,21 @@ class DeltaIndiaClient:
                 content=body_str.encode("utf-8") if body_str else None,
             )
         except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
             raise DeltaConnectionError(f"Delta API connection timed out: {e}") from e
         except httpx.ConnectError as e:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
             raise DeltaConnectionError(f"Failed to connect to Delta Exchange at {self.base_url}: {e}") from e
         except httpx.RequestError as e:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
             raise DeltaConnectionError(f"HTTP request error: {e}") from e
 
         # Handle status codes
         if response.status_code == 401:
+            self._connection_state = ConnectionState.AUTH_FAILED
             raise DeltaAuthError("Delta Exchange authentication failed: Invalid API key or signature.", status_code=401)
         elif response.status_code == 429:
+            self._connection_state = ConnectionState.RATE_LIMITED
             retry_after = None
             if "Retry-After" in response.headers:
                 try:
@@ -241,9 +293,13 @@ class DeltaIndiaClient:
                 err_msg = response.text
             raise DeltaOrderRejectedError(f"Delta Exchange rejected request (HTTP 400): {err_msg}", status_code=400, response_body=response.text)
         elif response.status_code >= 500:
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
             raise DeltaConnectionError(f"Delta Exchange server error (HTTP {response.status_code}): {response.text}", status_code=response.status_code)
         elif response.status_code not in (200, 201):
+            self._connection_state = ConnectionState.EXCHANGE_ERROR
             raise DeltaClientError(f"Delta Exchange returned unexpected HTTP status {response.status_code}: {response.text}", status_code=response.status_code)
+
+        self._connection_state = ConnectionState.CONNECTED
 
         try:
             return response.json()
@@ -388,3 +444,19 @@ class DeltaIndiaClient:
         payload = {"product_id": product_id, "client_order_id": client_order_id}
         data = await self.request("DELETE", "/v2/orders", json_body=payload, authenticated=True)
         return bool(data.get("success", False))
+
+    async def get_fills(self, order_id: Optional[int] = None, product_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch execution fills / trades from Delta Exchange."""
+        params: Dict[str, Any] = {}
+        if order_id is not None:
+            params["order_id"] = order_id
+        if product_id is not None:
+            params["product_id"] = product_id
+        try:
+            data = await self.request("GET", "/v2/fills", params=params, authenticated=True)
+            results = data.get("result", [])
+            return results if isinstance(results, list) else []
+        except Exception as e:
+            logger.warning("Failed to fetch fills from Delta: %s", e)
+            return []
+

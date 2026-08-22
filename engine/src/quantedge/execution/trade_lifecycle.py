@@ -43,6 +43,8 @@ from quantedge.execution.models import (
     TimeInForce,
     DeltaOrderRequest,
     DeltaOrderResponse,
+    ConnectionState,
+    ExecutionMode,
 )
 from quantedge.execution.delta_client import (
     DeltaIndiaClient,
@@ -218,6 +220,7 @@ class TradeLifecycleManager:
         capital_allocator: Optional[CapitalAllocator] = None,
         daily_loss_limit: Decimal = Decimal("500.00"),
         max_stale_seconds: int = 120,
+        execution_mode: ExecutionMode = ExecutionMode.LIVE,
     ):
         self.client = client
         self.validation_gateway = validation_gateway
@@ -228,6 +231,7 @@ class TradeLifecycleManager:
         self.capital_allocator = capital_allocator or CapitalAllocator()
         self.daily_loss_limit = daily_loss_limit
         self.max_stale_seconds = max_stale_seconds
+        self.execution_mode = execution_mode
 
         self._active_trades: Dict[str, TradeLifecycleRecord] = {}  # setup_id -> record
         self._trade_history: List[TradeLifecycleRecord] = []
@@ -377,6 +381,28 @@ class TradeLifecycleManager:
                 entry_price, stop_loss, take_profit, risk_reward,
                 RejectionReasonCode.ALGO_DISABLED.value, "Algorithmic trading is disabled on this account"
             )
+
+        # 3b. Verify Connection State in LIVE mode
+        if self.execution_mode == ExecutionMode.LIVE:
+            conn_state = getattr(self.client, "connection_state", ConnectionState.UNKNOWN)
+            if conn_state == ConnectionState.AUTH_FAILED:
+                return self._create_rejected_record(
+                    setup_id, account_id, user_id, symbol, decision.direction, quantity,
+                    entry_price, stop_loss, take_profit, risk_reward,
+                    "AUTH_FAILED", "Delta Exchange authentication failed — check API credentials"
+                )
+            elif conn_state == ConnectionState.RATE_LIMITED:
+                return self._create_rejected_record(
+                    setup_id, account_id, user_id, symbol, decision.direction, quantity,
+                    entry_price, stop_loss, take_profit, risk_reward,
+                    "RATE_LIMITED", "Delta Exchange rate limit active — order submission blocked"
+                )
+            elif conn_state in (ConnectionState.EXCHANGE_ERROR, ConnectionState.DISCONNECTED):
+                return self._create_rejected_record(
+                    setup_id, account_id, user_id, symbol, decision.direction, quantity,
+                    entry_price, stop_loss, take_profit, risk_reward,
+                    "EXCHANGE_ERROR", f"Delta Exchange connection state is {conn_state.value}"
+                )
 
         # 4. Verify TP/SL Geometry
         if decision.direction in (TradeDirection.LONG, StrategyDirection.LONG):
@@ -650,10 +676,14 @@ class TradeLifecycleManager:
             )
 
         except Exception as e:
-            logger.error("Failed to submit bracket protection for setup %s: %s", record.setup_id, str(e))
+            logger.critical("CRITICAL: Failed to submit bracket protection for setup %s: %s", record.setup_id, str(e))
             record.record_transition(
                 TradeLifecycleState.PROTECTION_FAILED,
                 f"Bracket protection submission failed: {str(e)}"
+            )
+            self.state_store.record_audit(
+                action="PROTECTION_PLACEMENT_FAILED",
+                details={"setup_id": record.setup_id, "error": str(e), "symbol": record.symbol, "target_size": str(target_protected_size)}
             )
 
     # ── Position Closure Lifecycle ────────────────────────────────────────────

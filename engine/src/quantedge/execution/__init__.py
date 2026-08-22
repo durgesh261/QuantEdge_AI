@@ -13,6 +13,15 @@ from quantedge.execution.models import (
     DeltaPosition,
     DeltaOrderRequest,
     DeltaOrderResponse,
+    ConnectionState,
+    ExecutionMode,
+    ReconciliationDiscrepancyType,
+    ReconciliationDiscrepancy,
+    ReconciliationReport,
+    TradeCostBreakdown,
+)
+from quantedge.execution.reconciliation import (
+    DeltaReconciliationService,
 )
 from quantedge.execution.security import (
     mask_secret,
@@ -150,4 +159,11 @@ __all__ = [
     "TradeLifecycleRecord",
     "TradeLifecycleState",
     "CloseReason",
+    "ConnectionState",
+    "ExecutionMode",
+    "ReconciliationDiscrepancyType",
+    "ReconciliationDiscrepancy",
+    "ReconciliationReport",
+    "TradeCostBreakdown",
+    "DeltaReconciliationService",
 ]
