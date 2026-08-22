@@ -13,9 +13,17 @@ import {
   Sliders,
   Save,
   Layers,
+  Zap,
+  AlertOctagon,
 } from 'lucide-react'
 import { useAccountStore } from '@/stores/accountStore'
-import { accountService, AlgoConfigResponse } from '@/services/accountService'
+import {
+  accountService,
+  AlgoConfigResponse,
+  LiveTestPrepareResponse,
+  LiveTestConfirmResponse,
+  LiveTestCloseResponse,
+} from '@/services/accountService'
 
 export function Settings() {
   const {
@@ -38,6 +46,17 @@ export function Settings() {
   const [accountName, setAccountName] = useState('Delta Live Account')
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+
+  // Live Order Test State (Phase 5.17)
+  const [testSymbol, setTestSymbol] = useState('ETHUSD')
+  const [isPreparingTest, setIsPreparingTest] = useState(false)
+  const [isConfirmingTest, setIsConfirmingTest] = useState(false)
+  const [isClosingTest, setIsClosingTest] = useState(false)
+  const [liveTestPrepareData, setLiveTestPrepareData] = useState<LiveTestPrepareResponse | null>(null)
+  const [liveTestConfirmData, setLiveTestConfirmData] = useState<LiveTestConfirmResponse | null>(null)
+  const [liveTestCloseData, setLiveTestCloseData] = useState<LiveTestCloseResponse | null>(null)
+  const [liveTestError, setLiveTestError] = useState<string | null>(null)
+  const [showConfirmOrderModal, setShowConfirmOrderModal] = useState(false)
 
   // Algo Trading Configuration State
   const [algoConfig, setAlgoConfig] = useState<AlgoConfigResponse | null>(null)
@@ -98,6 +117,72 @@ export function Settings() {
       setConfigErrorMsg(err.response?.data?.message || err.message || 'Error updating configuration')
     } finally {
       setIsSavingConfig(false)
+    }
+  }
+
+  const handlePrepareLiveTest = async () => {
+    setIsPreparingTest(true)
+    setLiveTestError(null)
+    setLiveTestConfirmData(null)
+    setLiveTestCloseData(null)
+
+    try {
+      const res = await accountService.prepareLiveTest(status?.accountId, testSymbol)
+      if (res.ready) {
+        setLiveTestPrepareData(res)
+        setShowConfirmOrderModal(true)
+      } else {
+        setLiveTestError(res.error || 'Live order test preparation failed')
+      }
+    } catch (err: any) {
+      setLiveTestError(err.response?.data?.error || err.message || 'Failed to prepare live order test')
+    } finally {
+      setIsPreparingTest(false)
+    }
+  }
+
+  const handleConfirmLiveTest = async () => {
+    if (!liveTestPrepareData?.confirmationToken) return
+
+    setIsConfirmingTest(true)
+    setLiveTestError(null)
+
+    try {
+      const res = await accountService.confirmLiveTest(
+        liveTestPrepareData.confirmationToken,
+        status?.accountId
+      )
+      setLiveTestConfirmData(res)
+      setShowConfirmOrderModal(false)
+      if (!res.success) {
+        setLiveTestError(res.error || res.message || 'Live order execution failed')
+      }
+      // Refresh summary
+      await fetchSummary(status?.accountId)
+    } catch (err: any) {
+      setLiveTestError(err.response?.data?.error || err.message || 'Failed to confirm live order')
+    } finally {
+      setIsConfirmingTest(false)
+    }
+  }
+
+  const handleCloseLiveTest = async () => {
+    setIsClosingTest(true)
+    setLiveTestError(null)
+
+    try {
+      const res = await accountService.closeLiveTest(status?.accountId, testSymbol)
+      setLiveTestCloseData(res)
+      if (res.success) {
+        // Refresh summary
+        await fetchSummary(status?.accountId)
+      } else {
+        setLiveTestError(res.error || res.message || 'Failed to close live test position')
+      }
+    } catch (err: any) {
+      setLiveTestError(err.response?.data?.error || err.message || 'Failed to close position')
+    } finally {
+      setIsClosingTest(false)
     }
   }
 
@@ -412,6 +497,148 @@ export function Settings() {
         </form>
       </div>
 
+      {/* Live Order Test Panel (Phase 5.17) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-600/20 text-amber-400 border border-amber-500/30">
+              <Zap size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white">Explicit Live Order Test</h2>
+                <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-amber-950 text-amber-300 border border-amber-800">
+                  Phase 5.17
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Deliberate two-step test order with dynamic smallest lot sizing, live bracket protection, and position closure.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-lg">
+            <ShieldCheck size={14} className="text-emerald-400" />
+            <span>SMC Strategy Disconnected</span>
+          </div>
+        </div>
+
+        {/* Warning Banner */}
+        <div className="bg-amber-950/40 border border-amber-800/70 rounded-xl p-4 text-xs text-amber-200 flex items-start gap-3">
+          <AlertOctagon size={18} className="text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold text-amber-100 uppercase tracking-wide">
+              WARNING: This will place a REAL order using your connected Delta Exchange account.
+            </p>
+            <p className="text-slate-300">
+              This workflow submits the smallest allowable live order, immediately establishes reduce-only Stop Loss and Take Profit orders, and provides verified position closure. Automated algorithms will NEVER trigger this test.
+            </p>
+          </div>
+        </div>
+
+        {liveTestError && (
+          <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-300 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-red-400 shrink-0" />
+            <span>{liveTestError}</span>
+          </div>
+        )}
+
+        {liveTestConfirmData && (
+          <div className={`p-4 rounded-xl border space-y-3 ${
+            liveTestConfirmData.success
+              ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-300'
+              : 'bg-red-950/30 border-red-800/60 text-red-300'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {liveTestConfirmData.success ? (
+                  <CheckCircle2 size={18} className="text-emerald-400" />
+                ) : (
+                  <AlertTriangle size={18} className="text-red-400" />
+                )}
+                <span className="font-bold font-mono text-sm">
+                  {liveTestConfirmData.status}
+                </span>
+              </div>
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
+                Position: {liveTestConfirmData.positionStatus}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono pt-2 border-t border-slate-800">
+              <div>
+                <span className="text-slate-500 block">Exchange Order ID</span>
+                <span className="text-slate-200 font-bold">{liveTestConfirmData.exchangeOrderId || 'N/A'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Filled Quantity</span>
+                <span className="text-slate-200 font-bold">{liveTestConfirmData.filledQuantity} Lot</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Fill Price</span>
+                <span className="text-emerald-400 font-bold">${liveTestConfirmData.fillPrice}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Protective SL / TP</span>
+                <span className="text-slate-200">
+                  SL: ${liveTestConfirmData.stopLossPrice} | TP: ${liveTestConfirmData.takeProfitPrice}
+                </span>
+              </div>
+            </div>
+
+            {liveTestConfirmData.positionStatus === 'OPEN' && (
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={handleCloseLiveTest}
+                  disabled={isClosingTest}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-600/20 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  <PowerOff size={14} />
+                  {isClosingTest ? 'Closing Test Position...' : 'Close Test Position (Flatten)'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {liveTestCloseData && (
+          <div className="bg-blue-950/30 border border-blue-800/60 rounded-xl p-4 text-xs font-mono text-blue-200 space-y-2">
+            <div className="flex items-center gap-2 font-bold text-blue-100">
+              <CheckCircle2 size={16} className="text-blue-400" />
+              <span>{liveTestCloseData.status}: {liveTestCloseData.message}</span>
+            </div>
+            <p className="text-slate-400">
+              Final Position Size: <strong className="text-white">{liveTestCloseData.finalPosition ?? 0}</strong> | Available Balance: <strong className="text-emerald-400">${liveTestCloseData.finalAvailableBalance ?? 'N/A'}</strong>
+            </p>
+          </div>
+        )}
+
+        {/* Live Test Trigger Form */}
+        <div className="flex flex-col sm:flex-row items-end gap-4 pt-2">
+          <div className="w-full sm:w-64 space-y-1.5">
+            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+              Test Contract Symbol
+            </label>
+            <select
+              value={testSymbol}
+              onChange={(e) => setTestSymbol(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500 font-mono"
+            >
+              <option value="ETHUSD">ETHUSD (Ethereum Perpetual)</option>
+              <option value="BTCUSD">BTCUSD (Bitcoin Perpetual)</option>
+            </select>
+          </div>
+
+          <button
+            onClick={handlePrepareLiveTest}
+            disabled={!isConnected || isPreparingTest}
+            className="w-full sm:w-auto px-6 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-amber-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <Zap size={16} />
+            {isPreparingTest ? 'Inspecting Exchange...' : 'Prepare Live Test'}
+          </button>
+        </div>
+      </div>
+
       {/* Security Architecture & Guide */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
@@ -440,11 +667,10 @@ export function Settings() {
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
           <div className="flex items-center gap-3 text-indigo-400 mb-3">
             <Activity size={20} />
-            <h3 className="font-semibold text-white">Phase 5.5 Read-Only Verification</h3>
+            <h3 className="font-semibold text-white">Phase 5.17 Explicit Live Execution</h3>
           </div>
           <p className="text-sm text-slate-400 leading-relaxed">
-            During Phase 5.5, account verification performs <strong className="text-slate-200">read-only</strong> queries
-            for wallet balance, margined positions, and open orders. Zero live orders are placed, cancelled, or modified.
+            Phase 5.17 allows you to explicitly test order placement on Delta Exchange India with the smallest valid contract lot, protective SL/TP brackets, and verified closure.
           </p>
           <a
             href="https://india.delta.exchange"
@@ -456,6 +682,91 @@ export function Settings() {
           </a>
         </div>
       </div>
+
+      {/* Explicit Order Confirmation Modal */}
+      {showConfirmOrderModal && liveTestPrepareData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-600/60 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30">
+                  <AlertOctagon size={20} />
+                </div>
+                <h3 className="text-lg font-bold text-white">Confirm REAL Live Order</h3>
+              </div>
+              <button
+                onClick={() => setShowConfirmOrderModal(false)}
+                className="text-slate-500 hover:text-slate-300 text-sm font-bold p-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-200">
+              <p className="font-bold uppercase tracking-wider mb-1">
+                ATTENTION: REAL FUNDS AT RISK
+              </p>
+              <p className="text-red-300">
+                {liveTestPrepareData.warning}
+              </p>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5 text-xs font-mono">
+              <div className="flex justify-between text-slate-400">
+                <span>Exchange:</span>
+                <span className="text-white font-bold">{liveTestPrepareData.exchange}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Product & Side:</span>
+                <span className="text-amber-400 font-bold">{liveTestPrepareData.symbol} ({liveTestPrepareData.side})</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Minimum Quantity:</span>
+                <span className="text-white font-bold">{liveTestPrepareData.minimumQuantity} Lot</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Current Mark Price:</span>
+                <span className="text-emerald-400 font-bold">${liveTestPrepareData.markPrice}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Estimated Margin:</span>
+                <span className="text-white font-bold">${liveTestPrepareData.estimatedMargin}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Available Collateral:</span>
+                <span className="text-emerald-400 font-bold">${liveTestPrepareData.availableBalance}</span>
+              </div>
+              <div className="flex justify-between text-slate-400">
+                <span>Risk & Margin Validation:</span>
+                <span className="text-emerald-400 font-bold">{liveTestPrepareData.riskCheck}</span>
+              </div>
+              <div className="flex justify-between text-slate-400 pt-2 border-t border-slate-800">
+                <span>Token Expiration:</span>
+                <span className="text-slate-400">{new Date(liveTestPrepareData.expiresAt || '').toLocaleTimeString()}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowConfirmOrderModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLiveTest}
+                disabled={isConfirmingTest}
+                className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-red-600/30 transition disabled:opacity-50 flex items-center gap-2"
+              >
+                <Zap size={16} />
+                {isConfirmingTest ? 'Submitting Real Order...' : 'Confirm REAL Order Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Connect Account Modal */}
       {showConnectModal && (
