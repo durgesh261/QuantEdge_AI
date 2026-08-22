@@ -14,11 +14,20 @@ public class RiskConfiguration extends BaseEntity {
     @JoinColumn(name = "trading_account_id", nullable = false, unique = true)
     private TradingAccount tradingAccount;
 
+    @Column(name = "version", nullable = false)
+    private Integer version = 1;
+
+    @Column(name = "take_profit_percent", precision = 5, scale = 2, nullable = false)
+    private BigDecimal takeProfitPercent = new BigDecimal("2.00");
+
+    @Column(name = "stop_loss_percent", precision = 5, scale = 2, nullable = false)
+    private BigDecimal stopLossPercent = new BigDecimal("1.00");
+
     @Column(name = "risk_per_trade_percent", precision = 5, scale = 2, nullable = false)
-    private BigDecimal riskPerTradePercent = new BigDecimal("35.00");
+    private BigDecimal riskPerTradePercent = new BigDecimal("1.00");
 
     @Column(name = "target_reward_percent", precision = 5, scale = 2, nullable = false)
-    private BigDecimal targetRewardPercent = new BigDecimal("60.00");
+    private BigDecimal targetRewardPercent = new BigDecimal("2.00");
 
     @Column(name = "max_leverage", nullable = false)
     private Integer maxLeverage = 100;
@@ -30,19 +39,37 @@ public class RiskConfiguration extends BaseEntity {
     private BigDecimal minimumRiskReward = new BigDecimal("1.50");
 
     @Column(name = "max_daily_loss_percent", precision = 5, scale = 2)
-    private BigDecimal maxDailyLossPercent;
+    private BigDecimal maxDailyLossPercent = new BigDecimal("5.00");
 
     @Column(name = "max_drawdown_percent", precision = 5, scale = 2)
     private BigDecimal maxDrawdownPercent;
+
+    @Column(name = "algo_enabled", nullable = false)
+    private Boolean algoEnabled = false;
+
+    @Column(name = "kill_switch_active", nullable = false)
+    private Boolean killSwitchActive = true;
 
     public RiskConfiguration() {}
 
     public RiskConfiguration(TradingAccount tradingAccount) {
         this.tradingAccount = tradingAccount;
+        this.version = 1;
+        this.algoEnabled = false;
+        this.killSwitchActive = true;
     }
 
     public TradingAccount getTradingAccount() { return tradingAccount; }
     public void setTradingAccount(TradingAccount tradingAccount) { this.tradingAccount = tradingAccount; }
+
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
+
+    public BigDecimal getTakeProfitPercent() { return takeProfitPercent; }
+    public void setTakeProfitPercent(BigDecimal takeProfitPercent) { this.takeProfitPercent = takeProfitPercent; }
+
+    public BigDecimal getStopLossPercent() { return stopLossPercent; }
+    public void setStopLossPercent(BigDecimal stopLossPercent) { this.stopLossPercent = stopLossPercent; }
 
     public BigDecimal getRiskPerTradePercent() { return riskPerTradePercent; }
     public void setRiskPerTradePercent(BigDecimal riskPerTradePercent) { this.riskPerTradePercent = riskPerTradePercent; }
@@ -64,4 +91,10 @@ public class RiskConfiguration extends BaseEntity {
 
     public BigDecimal getMaxDrawdownPercent() { return maxDrawdownPercent; }
     public void setMaxDrawdownPercent(BigDecimal maxDrawdownPercent) { this.maxDrawdownPercent = maxDrawdownPercent; }
+
+    public Boolean getAlgoEnabled() { return algoEnabled; }
+    public void setAlgoEnabled(Boolean algoEnabled) { this.algoEnabled = algoEnabled; }
+
+    public Boolean getKillSwitchActive() { return killSwitchActive; }
+    public void setKillSwitchActive(Boolean killSwitchActive) { this.killSwitchActive = killSwitchActive; }
 }

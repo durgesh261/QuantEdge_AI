@@ -101,6 +101,32 @@ export interface AccountSummaryResponse {
   error?: string
 }
 
+export interface AlgoConfigResponse {
+  success: boolean
+  accountId: string
+  version: number
+  takeProfitPercent: number
+  stopLossPercent: number
+  riskPerTradePercent: number
+  maxDailyLossPercent: number
+  maxLeverage: number
+  algoEnabled: boolean
+  killSwitchActive: boolean
+  message?: string
+  updatedAt?: string
+}
+
+export interface UpdateAlgoConfigRequest {
+  accountId?: string
+  takeProfitPercent?: number
+  stopLossPercent?: number
+  riskPerTradePercent?: number
+  maxDailyLossPercent?: number
+  maxLeverage?: number
+  algoEnabled?: boolean
+  killSwitchActive?: boolean
+}
+
 export const accountService = {
   async connectAccount(data: ConnectAccountRequest): Promise<ConnectAccountResponse> {
     const response = await api.post<ConnectAccountResponse>('/api/v1/account/connect', data)
@@ -128,6 +154,18 @@ export const accountService = {
 
   async disconnectAccount(accountId?: string): Promise<AccountStatusResponse> {
     const response = await api.post<AccountStatusResponse>('/api/v1/account/disconnect', { accountId })
+    return response.data
+  },
+
+  async getAlgoConfig(accountId?: string): Promise<AlgoConfigResponse> {
+    const response = await api.get<AlgoConfigResponse>('/api/v1/account/algo-config', {
+      params: accountId ? { accountId } : undefined,
+    })
+    return response.data
+  },
+
+  async updateAlgoConfig(data: UpdateAlgoConfigRequest): Promise<AlgoConfigResponse> {
+    const response = await api.put<AlgoConfigResponse>('/api/v1/account/algo-config', data)
     return response.data
   },
 }

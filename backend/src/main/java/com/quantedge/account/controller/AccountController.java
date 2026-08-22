@@ -110,4 +110,34 @@ public class AccountController {
         AccountManagementService.AccountStatusResponse response = accountService.disconnectAccount(effectiveUser, accountId);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/algo-config")
+    public ResponseEntity<AccountManagementService.AlgoConfigResponse> getAlgoConfig(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @RequestParam(value = "accountId", required = false) String accountId
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        AccountManagementService.AlgoConfigResponse response = accountService.getAlgoConfig(effectiveUser, accountId);
+        if (response.success()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    @PutMapping("/algo-config")
+    public ResponseEntity<AccountManagementService.AlgoConfigResponse> updateAlgoConfig(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @RequestBody AccountManagementService.UpdateAlgoConfigRequest request
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        AccountManagementService.AlgoConfigResponse response = accountService.updateAlgoConfig(effectiveUser, request);
+        if (response.success()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
 }

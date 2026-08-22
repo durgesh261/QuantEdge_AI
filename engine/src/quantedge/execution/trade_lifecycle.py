@@ -74,6 +74,11 @@ from quantedge.execution.private_websocket import (
     DeltaFillEvent,
     StreamHealth,
 )
+from quantedge.execution.algo_config import (
+    AlgoConfigStore,
+    AlgoConfiguration,
+    AlgoConfigurationSnapshot,
+)
 from quantedge.strategy.models import StrategyDecision, SetupState, StrategyDirection, TradeDirection
 
 logger = logging.getLogger("trade_lifecycle")
@@ -149,6 +154,10 @@ class TradeLifecycleRecord:
     rejection_code: Optional[str] = None
     error_message: Optional[str] = None
     
+    # Configuration Snapshot (Phase 5.7)
+    config_version: Optional[int] = None
+    config_snapshot: Optional[Any] = None
+    
     # Audit log history
     history: List[Dict[str, Any]] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -187,6 +196,7 @@ class TradeLifecycleManager:
         validation_gateway: OrderValidationGateway,
         state_store: LocalStateStore,
         sync_service: Optional[LiveAccountSyncService] = None,
+        algo_config_store: Optional[AlgoConfigStore] = None,
         daily_loss_limit: Decimal = Decimal("500.00"),
         max_stale_seconds: int = 120,
     ):
@@ -194,6 +204,7 @@ class TradeLifecycleManager:
         self.validation_gateway = validation_gateway
         self.state_store = state_store
         self.sync_service = sync_service
+        self.algo_config_store = algo_config_store or AlgoConfigStore()
         self.daily_loss_limit = daily_loss_limit
         self.max_stale_seconds = max_stale_seconds
 
@@ -345,7 +356,14 @@ class TradeLifecycleManager:
                     f"Account state is stale ({age_seconds:.0f}s old, max allowed {self.max_stale_seconds}s)"
                 )
 
-        # 7. Create authoritative TradeLifecycleRecord
+        # 7. Create authoritative TradeLifecycleRecord & Bind Immutable Config Snapshot
+        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
+        snapshot = self.algo_config_store.create_trade_snapshot(
+            user_id=effective_user_id,
+            account_id=account_id,
+            setup_id=setup_id,
+        )
+
         record = TradeLifecycleRecord(
             setup_id=setup_id,
             account_id=account_id,
@@ -360,6 +378,8 @@ class TradeLifecycleManager:
             risk_amount=risk_amount,
             reward_amount=reward_amount,
             daily_loss_at_entry=today_loss,
+            config_version=snapshot.version,
+            config_snapshot=snapshot,
         )
 
         with self._lock:

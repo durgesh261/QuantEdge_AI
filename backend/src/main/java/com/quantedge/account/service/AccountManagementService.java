@@ -10,6 +10,8 @@ import com.quantedge.exchange.repository.DeltaConnectionRepository;
 import com.quantedge.exchange.service.DeltaCredentialService;
 import com.quantedge.portfolio.entity.Position;
 import com.quantedge.portfolio.repository.PositionRepository;
+import com.quantedge.risk.entity.RiskConfiguration;
+import com.quantedge.risk.repository.RiskConfigurationRepository;
 import com.quantedge.trading.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,7 @@ public class AccountManagementService {
     private final AuditLogRepository auditLogRepository;
     private final DeltaCredentialService credentialService;
     private final LiveAccountSyncService syncService;
+    private final RiskConfigurationRepository riskConfigRepository;
 
     public AccountManagementService(
             TradingAccountRepository accountRepository,
@@ -42,7 +45,8 @@ public class AccountManagementService {
             OrderRepository orderRepository,
             AuditLogRepository auditLogRepository,
             DeltaCredentialService credentialService,
-            LiveAccountSyncService syncService
+            LiveAccountSyncService syncService,
+            RiskConfigurationRepository riskConfigRepository
     ) {
         this.accountRepository = accountRepository;
         this.connectionRepository = connectionRepository;
@@ -51,6 +55,7 @@ public class AccountManagementService {
         this.auditLogRepository = auditLogRepository;
         this.credentialService = credentialService;
         this.syncService = syncService;
+        this.riskConfigRepository = riskConfigRepository;
     }
 
     public record ConnectAccountRequest(
@@ -575,5 +580,138 @@ public class AccountManagementService {
         } catch (Exception e) {
             log.error("Failed to sync positions to database for account {}: {}", account.getId(), e.getMessage());
         }
+    }
+
+    public record AlgoConfigResponse(
+            boolean success,
+            String accountId,
+            int version,
+            BigDecimal takeProfitPercent,
+            BigDecimal stopLossPercent,
+            BigDecimal riskPerTradePercent,
+            BigDecimal maxDailyLossPercent,
+            int maxLeverage,
+            boolean algoEnabled,
+            boolean killSwitchActive,
+            String message,
+            Instant updatedAt
+    ) {
+        public static AlgoConfigResponse of(TradingAccount account, RiskConfiguration config) {
+            return new AlgoConfigResponse(
+                    true,
+                    account.getId(),
+                    config.getVersion(),
+                    config.getTakeProfitPercent(),
+                    config.getStopLossPercent(),
+                    config.getRiskPerTradePercent(),
+                    config.getMaxDailyLossPercent(),
+                    config.getMaxLeverage(),
+                    Boolean.TRUE.equals(account.getAlgoEnabled()),
+                    Boolean.TRUE.equals(account.getKillSwitchActive()),
+                    "Active algorithm configuration retrieved.",
+                    config.getUpdatedAt() != null ? config.getUpdatedAt() : Instant.now()
+            );
+        }
+
+        public static AlgoConfigResponse error(String message) {
+            return new AlgoConfigResponse(false, null, 0, null, null, null, null, 0, false, true, message, Instant.now());
+        }
+    }
+
+    public record UpdateAlgoConfigRequest(
+            String accountId,
+            BigDecimal takeProfitPercent,
+            BigDecimal stopLossPercent,
+            BigDecimal riskPerTradePercent,
+            BigDecimal maxDailyLossPercent,
+            Integer maxLeverage,
+            Boolean algoEnabled,
+            Boolean killSwitchActive
+    ) {}
+
+    @Transactional(readOnly = true)
+    public AlgoConfigResponse getAlgoConfig(User user, String accountId) {
+        TradingAccount account = resolveAccount(user, accountId);
+        RiskConfiguration config = riskConfigRepository.findByTradingAccountId(account.getId())
+                .orElseGet(() -> {
+                    RiskConfiguration def = new RiskConfiguration(account);
+                    return riskConfigRepository.save(def);
+                });
+
+        return AlgoConfigResponse.of(account, config);
+    }
+
+    @Transactional
+    public AlgoConfigResponse updateAlgoConfig(User user, UpdateAlgoConfigRequest request) {
+        TradingAccount account = resolveAccount(user, request.accountId());
+        RiskConfiguration config = riskConfigRepository.findByTradingAccountId(account.getId())
+                .orElseGet(() -> new RiskConfiguration(account));
+
+        if (request.takeProfitPercent() != null) {
+            if (request.takeProfitPercent().compareTo(BigDecimal.ZERO) <= 0) {
+                return AlgoConfigResponse.error("Take Profit percent must be positive.");
+            }
+            config.setTakeProfitPercent(request.takeProfitPercent());
+            config.setTargetRewardPercent(request.takeProfitPercent());
+        }
+
+        if (request.stopLossPercent() != null) {
+            if (request.stopLossPercent().compareTo(BigDecimal.ZERO) <= 0) {
+                return AlgoConfigResponse.error("Stop Loss percent must be positive.");
+            }
+            config.setStopLossPercent(request.stopLossPercent());
+        }
+
+        if (request.riskPerTradePercent() != null) {
+            if (request.riskPerTradePercent().compareTo(BigDecimal.ZERO) <= 0 || request.riskPerTradePercent().compareTo(new BigDecimal("100")) > 0) {
+                return AlgoConfigResponse.error("Risk per trade must be between 0 and 100%.");
+            }
+            config.setRiskPerTradePercent(request.riskPerTradePercent());
+        }
+
+        if (request.maxDailyLossPercent() != null) {
+            if (request.maxDailyLossPercent().compareTo(BigDecimal.ZERO) <= 0) {
+                return AlgoConfigResponse.error("Max daily loss must be positive.");
+            }
+            config.setMaxDailyLossPercent(request.maxDailyLossPercent());
+        }
+
+        if (request.maxLeverage() != null) {
+            if (request.maxLeverage() < 1 || request.maxLeverage() > 100) {
+                return AlgoConfigResponse.error("Max leverage must be between 1 and 100.");
+            }
+            config.setMaxLeverage(request.maxLeverage());
+        }
+
+        if (request.killSwitchActive() != null) {
+            account.setKillSwitchActive(request.killSwitchActive());
+            config.setKillSwitchActive(request.killSwitchActive());
+            if (request.killSwitchActive()) {
+                account.setAlgoEnabled(false);
+                config.setAlgoEnabled(false);
+            }
+        }
+
+        if (request.algoEnabled() != null) {
+            if (request.algoEnabled() && Boolean.TRUE.equals(account.getKillSwitchActive())) {
+                return AlgoConfigResponse.error("Cannot enable algorithmic execution while emergency kill switch is active.");
+            }
+            account.setAlgoEnabled(request.algoEnabled());
+            config.setAlgoEnabled(request.algoEnabled());
+        }
+
+        // Increment configuration version
+        config.setVersion(config.getVersion() != null ? config.getVersion() + 1 : 1);
+        config.setUpdatedAt(Instant.now());
+
+        riskConfigRepository.save(config);
+        accountRepository.save(account);
+
+        recordAuditLog(account, "ALGO_CONFIG_UPDATED", "RiskConfiguration", config.getId(),
+                "Updated algo configuration to version " + config.getVersion());
+
+        log.info("Updated algo configuration to version {} for account {}", config.getVersion(), account.getId());
+
+        return AlgoConfigResponse.of(account, config);
     }
 }

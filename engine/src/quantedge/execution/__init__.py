@@ -61,6 +61,19 @@ from quantedge.execution.execution_engine import (
     StrategyDecisionStore,
 )
 
+from quantedge.execution.algo_config import (
+    AlgoConfiguration,
+    AlgoConfigurationSnapshot,
+    AlgoConfigStore,
+    AlgoConfigValidationError,
+)
+from quantedge.execution.trade_lifecycle import (
+    TradeLifecycleManager,
+    TradeLifecycleRecord,
+    TradeLifecycleState,
+    CloseReason,
+)
+
 __all__ = [
     "OrderSide",
     "OrderType",
@@ -107,4 +120,12 @@ __all__ = [
     "OrderExecutionRequest",
     "OrderExecutionResult",
     "LiveOrderExecutionService",
+    "AlgoConfiguration",
+    "AlgoConfigurationSnapshot",
+    "AlgoConfigStore",
+    "AlgoConfigValidationError",
+    "TradeLifecycleManager",
+    "TradeLifecycleRecord",
+    "TradeLifecycleState",
+    "CloseReason",
 ]

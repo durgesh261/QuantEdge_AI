@@ -9,9 +9,13 @@ import {
   Lock,
   ExternalLink,
   Activity,
-  DollarSign
+  DollarSign,
+  Sliders,
+  Save,
+  Layers,
 } from 'lucide-react'
 import { useAccountStore } from '@/stores/accountStore'
+import { accountService, AlgoConfigResponse } from '@/services/accountService'
 
 export function Settings() {
   const {
@@ -35,10 +39,67 @@ export function Settings() {
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
+  // Algo Trading Configuration State
+  const [algoConfig, setAlgoConfig] = useState<AlgoConfigResponse | null>(null)
+  const [takeProfitPct, setTakeProfitPct] = useState<number>(2.0)
+  const [stopLossPct, setStopLossPct] = useState<number>(1.0)
+  const [riskPerTradePct, setRiskPerTradePct] = useState<number>(1.0)
+  const [maxDailyLossPct, setMaxDailyLossPct] = useState<number>(5.0)
+  const [maxLeverage, setMaxLeverage] = useState<number>(100)
+  const [isSavingConfig, setIsSavingConfig] = useState(false)
+  const [configSuccessMsg, setConfigSuccessMsg] = useState<string | null>(null)
+  const [configErrorMsg, setConfigErrorMsg] = useState<string | null>(null)
+
   useEffect(() => {
     fetchStatus()
     fetchSummary()
+    fetchAlgoConfig()
   }, [fetchStatus, fetchSummary])
+
+  const fetchAlgoConfig = async () => {
+    try {
+      const res = await accountService.getAlgoConfig(status?.accountId)
+      if (res.success) {
+        setAlgoConfig(res)
+        setTakeProfitPct(res.takeProfitPercent)
+        setStopLossPct(res.stopLossPercent)
+        setRiskPerTradePct(res.riskPerTradePercent)
+        setMaxDailyLossPct(res.maxDailyLossPercent)
+        setMaxLeverage(res.maxLeverage)
+      }
+    } catch (e) {
+      // Ignored if account not yet connected
+    }
+  }
+
+  const handleSaveAlgoConfig = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSavingConfig(true)
+    setConfigSuccessMsg(null)
+    setConfigErrorMsg(null)
+
+    try {
+      const res = await accountService.updateAlgoConfig({
+        accountId: status?.accountId,
+        takeProfitPercent: takeProfitPct,
+        stopLossPercent: stopLossPct,
+        riskPerTradePercent: riskPerTradePct,
+        maxDailyLossPercent: maxDailyLossPct,
+        maxLeverage: maxLeverage,
+      })
+
+      if (res.success) {
+        setAlgoConfig(res)
+        setConfigSuccessMsg(`Configuration updated to Version ${res.version}. New trades will use these parameters.`)
+      } else {
+        setConfigErrorMsg(res.message || 'Failed to update algorithm configuration')
+      }
+    } catch (err: any) {
+      setConfigErrorMsg(err.response?.data?.message || err.message || 'Error updating configuration')
+    } finally {
+      setIsSavingConfig(false)
+    }
+  }
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -194,6 +255,161 @@ export function Settings() {
             <p className="text-xs text-slate-500 mt-2">Default safe flags prevent automated executions.</p>
           </div>
         </div>
+      </div>
+
+      {/* Algorithm Trading Configuration Panel (Phase 5.7) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+              <Sliders size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-white">Algorithm Trading Configuration</h2>
+                <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                  Version {algoConfig?.version ?? 1}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Authoritative parameters for automated strategy order submission and bracket protection.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-lg">
+            <Layers size={14} className="text-indigo-400" />
+            <span>Immutable Trade Snapshots: Active</span>
+          </div>
+        </div>
+
+        {/* Informational Guidance Notice */}
+        <div className="bg-blue-950/40 border border-blue-800/60 rounded-xl p-4 text-xs text-blue-200 flex items-start gap-3">
+          <CheckCircle2 size={16} className="text-blue-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold text-blue-100">
+              These settings apply to new trades. Existing positions keep their original trade parameters.
+            </p>
+            <p className="text-slate-300">
+              When a trade signal is generated, an immutable snapshot of this version is locked to that trade. Updating parameters increments the version and only governs future orders.
+            </p>
+          </div>
+        </div>
+
+        {configSuccessMsg && (
+          <div className="bg-emerald-950/40 border border-emerald-800/80 rounded-xl p-3.5 text-xs font-mono text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <span>{configSuccessMsg}</span>
+          </div>
+        )}
+
+        {configErrorMsg && (
+          <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-300 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-red-400 shrink-0" />
+            <span>{configErrorMsg}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveAlgoConfig} className="space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Take Profit */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                Take Profit (TP %)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="100"
+                  value={takeProfitPct}
+                  onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-emerald-400 focus:outline-none focus:border-blue-500"
+                  required
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
+              </div>
+              <p className="text-xs text-slate-500">Auto TP bracket distance from entry.</p>
+            </div>
+
+            {/* Stop Loss */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                Stop Loss (SL %)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="100"
+                  value={stopLossPct}
+                  onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-red-400 focus:outline-none focus:border-blue-500"
+                  required
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
+              </div>
+              <p className="text-xs text-slate-500">Auto SL bracket distance from entry.</p>
+            </div>
+
+            {/* Risk per Trade */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                Risk Per Trade (%)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="100"
+                  value={riskPerTradePct}
+                  onChange={(e) => setRiskPerTradePct(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-blue-400 focus:outline-none focus:border-blue-500"
+                  required
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
+              </div>
+              <p className="text-xs text-slate-500">Fraction of account equity risked.</p>
+            </div>
+
+            {/* Max Daily Loss */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
+              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
+                Daily Loss Limit (%)
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  max="100"
+                  value={maxDailyLossPct}
+                  onChange={(e) => setMaxDailyLossPct(parseFloat(e.target.value) || 0)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-amber-400 focus:outline-none focus:border-blue-500"
+                  required
+                />
+                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
+              </div>
+              <p className="text-xs text-slate-500">Blocks new entries if breached.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div className="text-xs font-mono text-slate-400">
+              Risk/Reward Ratio: <span className="text-emerald-400 font-bold">1:{(takeProfitPct / (stopLossPct || 1)).toFixed(2)}</span>
+            </div>
+            <button
+              type="submit"
+              disabled={isSavingConfig}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-blue-600/20 transition disabled:opacity-50"
+            >
+              <Save size={15} />
+              {isSavingConfig ? 'Saving Version...' : 'Save Configuration (Increments Version)'}
+            </button>
+          </div>
+        </form>
       </div>
 
       {/* Security Architecture & Guide */}
