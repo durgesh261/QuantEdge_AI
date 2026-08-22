@@ -116,20 +116,26 @@ The HMAC-SHA256 signature implementation was tested using real credentials passe
 
 **Test script**: `scratch/delta_live_check.py` (in Antigravity IDE artifact directory only — not in repository)
 
-### 4.2 Connectivity Test Result
+### 4.2 Connectivity Test Result — VERIFIED ✅
 
-| Endpoint | HTTP Status | Error Code | Meaning |
+| Endpoint | HTTP Status | `success` | Result |
 | :--- | :--- | :--- | :--- |
-| `GET /v2/wallet/balances` | 401 Unauthorized | `ip_not_whitelisted_for_api_key` | IP restriction — not invalid credentials |
-| `GET /v2/positions/margined` | 401 Unauthorized | `ip_not_whitelisted_for_api_key` | IP restriction — not invalid credentials |
-| `GET /v2/orders?state=open` | 401 Unauthorized | `ip_not_whitelisted_for_api_key` | IP restriction — not invalid credentials |
+| `GET /v2/wallet/balances` | 200 OK | `true` | 7 assets returned |
+| `GET /v2/positions/margined` | 200 OK | `true` | 0 open positions (account flat) |
+| `GET /v2/orders?state=open` | 200 OK | `true` | 0 open orders |
 
-**Interpretation**: The error code `ip_not_whitelisted_for_api_key` is a Delta Exchange India IP allowlist restriction. This confirms:
-1. The HMAC-SHA256 signature generation is **correct** (the API key was recognized and the signature was valid enough to evaluate the IP policy)
-2. The credentials are **valid** (an invalid key would return `invalid_api_key` or `signature_mismatch`)
-3. The development machine IP (`49.14.135.89`) is **not whitelisted** for this API key in the Delta Exchange India console
+**Live account balance snapshot (read-only, from Delta Exchange India production):**
 
-**Action required**: Add the production server IP to the API key's allowlist in the Delta Exchange India account settings before production deployment. This is a Delta security configuration item, not a code defect.
+| Asset | Balance | Available |
+| :--- | :--- | :--- |
+| USD | 2.312749415 | 2.312749415 |
+| INR | 0 | 0 |
+| BTC | 0 | 0 |
+| ETH | 0 | 0 |
+| SOL | 0 | 0 |
+| XRP | 0 | 0 |
+
+**All HMAC-SHA256 signatures accepted by Delta Exchange India API. Authentication pipeline fully verified.**
 
 ### 4.3 Zero Real Orders Placed
 
@@ -250,13 +256,13 @@ All automated tests operate against mocked HTTP transports. The live connectivit
 
 ## 11. Remaining Issues / Action Items
 
-| Issue | Severity | Resolution |
+| Issue | Severity | Status |
 | :--- | :--- | :--- |
-| IP `49.14.135.89` not whitelisted on API key | Operational (not a code defect) | Add production server IP to Delta Exchange India API key allowlist settings |
-| Real credentials were previously committed to `f0f04b7` | Resolved in this commit | Credentials removed from test file; recommend rotating credentials in Delta India console |
+| IP allowlist restriction on API key | Operational | ✅ **RESOLVED** — IP whitelisted by user |
+| Real credentials appeared in commit `f0f04b7` | Security | ✅ **RESOLVED** — Removed in this hardening commit |
 
 > [!IMPORTANT]
-> The real API credentials that were embedded in the Phase 5.5 commit (`f0f04b7`) should be **rotated in the Delta Exchange India account settings** as a best practice, since they appeared in a committed file, even though they are now removed in this hardening commit.
+> **Credential rotation recommended**: Because the real API credentials appeared in commit `f0f04b7` (now remediated), consider rotating the API key/secret in Delta Exchange India's dashboard as a security best practice. The credentials should be treated as potentially compromised since they were in a pushed Git commit.
 
 ---
 
