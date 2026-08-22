@@ -169,11 +169,12 @@ class MarketScannerOrchestrator:
             lot_step = spec.size_step if spec else Decimal("1")
             min_qty = spec.min_size if spec else Decimal("1")
 
+            effective_lev = qualified_decision.calculated_leverage or 10
             sizing = self.capital_allocator.calculate_100_percent_allocation(
                 symbol=qualified_decision.symbol,
                 entry_price=entry_price,
                 available_balance=available_balance,
-                leverage=10,
+                leverage=effective_lev,
                 lot_size_step=lot_step,
                 min_quantity=min_qty,
             )

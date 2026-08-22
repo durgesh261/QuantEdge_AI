@@ -311,7 +311,7 @@ class TradeLifecycleManager:
 
         # 1. Authoritative Parameter Enforcement & Anti-Tampering Check
         if frontend_params:
-            # Check if frontend attempted to alter direction, prices, or R:R
+            # Check if frontend attempted to alter direction, prices, leverage, quantity, or R:R
             if "direction" in frontend_params and frontend_params["direction"] != decision.direction.value:
                 return self._create_rejected_record(
                     setup_id, account_id, user_id, symbol, decision.direction, quantity,
@@ -336,6 +336,23 @@ class TradeLifecycleManager:
                     entry_price, stop_loss, take_profit, risk_reward,
                     "FRONTEND_TP_TAMPERING", "Frontend cannot alter authoritative take profit"
                 )
+            if "leverage" in frontend_params:
+                fe_lev = int(frontend_params["leverage"])
+                expected_lev = getattr(decision, "calculated_leverage", None)
+                if expected_lev is not None and fe_lev != expected_lev:
+                    return self._create_rejected_record(
+                        setup_id, account_id, user_id, symbol, decision.direction, quantity,
+                        entry_price, stop_loss, take_profit, risk_reward,
+                        "FRONTEND_LEVERAGE_TAMPERING", "Frontend cannot alter authoritative leverage"
+                    )
+            if "quantity" in frontend_params or "position_size" in frontend_params:
+                fe_qty = Decimal(str(frontend_params.get("quantity") or frontend_params.get("position_size")))
+                if fe_qty != quantity:
+                    return self._create_rejected_record(
+                        setup_id, account_id, user_id, symbol, decision.direction, quantity,
+                        entry_price, stop_loss, take_profit, risk_reward,
+                        "FRONTEND_QUANTITY_TAMPERING", "Frontend cannot alter authoritative position size"
+                    )
 
         # 2. Verify Strategy Status
         if setup_state != SetupState.TRADE_SETUP_READY:
@@ -408,6 +425,8 @@ class TradeLifecycleManager:
             setup_id=setup_id,
         )
 
+        effective_leverage = getattr(decision, "calculated_leverage", None) or 100
+
         record = TradeLifecycleRecord(
             setup_id=setup_id,
             account_id=account_id,
@@ -460,7 +479,7 @@ class TradeLifecycleManager:
             entry_price=record.entry_price,
             stop_loss=record.stop_loss_price,
             take_profit=record.take_profit_price,
-            leverage=100,
+            leverage=effective_leverage,
             client_order_id=client_order_id,
         )
 
@@ -497,27 +516,33 @@ class TradeLifecycleManager:
         record.record_transition(TradeLifecycleState.ENTRY_SUBMITTED, f"Submitted limit entry order {client_order_id}")
 
         try:
-            order_resp: DeltaOrderResponse = await self.client.place_order(order_req)
-            record.entry_order_id = str(order_resp.id)
+            order_resp = await self.client.place_order(order_req)
+            resp_id = getattr(order_resp, "id", None) or (order_resp.get("order_id") or order_resp.get("id") if isinstance(order_resp, dict) else str(order_resp))
+            resp_state = getattr(order_resp, "state", None) or (order_resp.get("state") if isinstance(order_resp, dict) else OrderStatus.OPEN)
+            resp_filled = getattr(order_resp, "filled_size", None) or (Decimal(str(order_resp.get("filled_size", 0))) if isinstance(order_resp, dict) else Decimal("0"))
+            resp_size = getattr(order_resp, "size", None) or (Decimal(str(order_resp.get("size", record.requested_quantity))) if isinstance(order_resp, dict) else record.requested_quantity)
+            resp_avg_price = getattr(order_resp, "average_fill_price", None) or (Decimal(str(order_resp["average_fill_price"])) if isinstance(order_resp, dict) and order_resp.get("average_fill_price") else None)
+
+            record.entry_order_id = str(resp_id)
             
             # Record entry order in state store
-            self.state_store.orders[str(order_resp.id)] = OrderRecord(
-                delta_order_id=str(order_resp.id),
+            self.state_store.orders[str(resp_id)] = OrderRecord(
+                delta_order_id=str(resp_id),
                 client_order_id=client_order_id,
                 symbol=symbol,
                 side=side,
                 order_type=OrderType.LIMIT_ORDER,
                 quantity=record.requested_quantity,
-                filled_quantity=order_resp.filled_size,
-                status=order_resp.state,
+                filled_quantity=resp_filled,
+                status=resp_state if isinstance(resp_state, OrderStatus) else OrderStatus.OPEN,
                 price=record.entry_price,
             )
 
             # Check if immediately filled or partially filled
-            if order_resp.state == OrderStatus.FILLED:
-                await self.on_entry_fill(setup_id, order_resp.size, order_resp.average_fill_price or record.entry_price)
-            elif order_resp.filled_size > Decimal("0"):
-                await self.on_entry_partial_fill(setup_id, order_resp.filled_size, order_resp.average_fill_price or record.entry_price)
+            if resp_state == OrderStatus.FILLED or str(resp_state).lower() == "filled":
+                await self.on_entry_fill(setup_id, resp_size, resp_avg_price or record.entry_price)
+            elif resp_filled > Decimal("0"):
+                await self.on_entry_partial_fill(setup_id, resp_filled, resp_avg_price or record.entry_price)
 
             return record
 

@@ -222,9 +222,15 @@ class StrategyEngine:
                         )
 
                     risk_distance = entry - stop_loss
-                    take_profit = entry + (risk_distance * rr_cfg.reward_multiple)
+                    take_profit = (entry + (risk_distance * rr_cfg.reward_multiple)).quantize(Decimal("0.01"))
                     reward_distance = take_profit - entry
                     risk_reward = reward_distance / risk_distance
+                    stop_distance_fraction = risk_distance / entry
+                    stop_distance_pct = (stop_distance_fraction * Decimal("100")).quantize(Decimal("0.01"))
+                    max_loss_pct = Decimal("35.0")
+                    raw_lev = max_loss_pct / stop_distance_pct if stop_distance_pct > Decimal("0") else Decimal("1")
+                    calculated_leverage = max(1, int(raw_lev))
+                    take_profit_target_pct = Decimal("60.0")
 
                     if risk_reward >= rr_cfg.minimum_risk_reward:
                         setup_state = SetupState.TRADE_SETUP_READY
@@ -266,6 +272,13 @@ class StrategyEngine:
                         reward_distance=reward_distance,
                         risk_reward=risk_reward,
                         minimum_risk_reward=rr_cfg.minimum_risk_reward,
+                        order_block_upper_edge=ob.top_price,
+                        order_block_lower_edge=ob.bottom_price,
+                        stop_distance_pct=stop_distance_pct,
+                        max_loss_pct=max_loss_pct,
+                        calculated_leverage=calculated_leverage,
+                        take_profit_target_pct=take_profit_target_pct,
+                        take_profit_price=take_profit,
                         confidence=float(ob.confidence_score) if ob.confidence_score else None,
                         reasons=reasons,
                         order_block=ob,
@@ -350,9 +363,15 @@ class StrategyEngine:
                         )
 
                     risk_distance = stop_loss - entry
-                    take_profit = entry - (risk_distance * rr_cfg.reward_multiple)
+                    take_profit = (entry - (risk_distance * rr_cfg.reward_multiple)).quantize(Decimal("0.01"))
                     reward_distance = entry - take_profit
                     risk_reward = reward_distance / risk_distance
+                    stop_distance_fraction = risk_distance / entry
+                    stop_distance_pct = (stop_distance_fraction * Decimal("100")).quantize(Decimal("0.01"))
+                    max_loss_pct = Decimal("35.0")
+                    raw_lev = max_loss_pct / stop_distance_pct if stop_distance_pct > Decimal("0") else Decimal("1")
+                    calculated_leverage = max(1, int(raw_lev))
+                    take_profit_target_pct = Decimal("60.0")
 
                     if risk_reward >= rr_cfg.minimum_risk_reward:
                         setup_state = SetupState.TRADE_SETUP_READY
@@ -394,6 +413,13 @@ class StrategyEngine:
                         reward_distance=reward_distance,
                         risk_reward=risk_reward,
                         minimum_risk_reward=rr_cfg.minimum_risk_reward,
+                        order_block_upper_edge=ob.top_price,
+                        order_block_lower_edge=ob.bottom_price,
+                        stop_distance_pct=stop_distance_pct,
+                        max_loss_pct=max_loss_pct,
+                        calculated_leverage=calculated_leverage,
+                        take_profit_target_pct=take_profit_target_pct,
+                        take_profit_price=take_profit,
                         confidence=float(ob.confidence_score) if ob.confidence_score else None,
                         reasons=reasons,
                         order_block=ob,

@@ -29,6 +29,15 @@ export interface StrategyResult {
   takeProfit?: number
   riskReward?: number
   confidence?: number
+  orderBlockUpperEdge?: number
+  orderBlockLowerEdge?: number
+  stopDistancePct?: number
+  maxLossPct?: number
+  calculatedLeverage?: number
+  takeProfitTargetPct?: number
+  takeProfitPrice?: number
+  configurationVersion?: number
+  riskValidationStatus?: string
   strategyName: string
   strategyVersion: string
   setupId?: string
@@ -44,6 +53,8 @@ export interface AlgoConfig {
   takeProfitPercent: number
   stopLossPercent: number
   riskPerTradePercent: number
+  takeProfitTargetPercent?: number
+  maxLossPercent?: number
   maxDailyLossPercent: number
   maxLeverage: number
   algoEnabled: boolean
@@ -59,6 +70,11 @@ export interface TradeRecordSnapshot {
   takeProfitPercent: number
   stopLossPercent: number
   riskPercent: number
+  takeProfitTargetPercent?: number
+  maxLossPercent?: number
+  calculatedLeverage?: number
+  orderBlockUpperEdge?: number
+  orderBlockLowerEdge?: number
   entryPrice: number
   stopLossPrice: number
   takeProfitPrice: number

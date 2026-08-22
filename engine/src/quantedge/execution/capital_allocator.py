@@ -164,3 +164,64 @@ class CapitalAllocator:
         if new_balance < Decimal("0"):
             return Decimal("0.00")
         return new_balance.quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def calculate_leverage_from_stop_distance(
+        entry_price: Decimal,
+        stop_loss_price: Decimal,
+        max_loss_pct: Decimal = Decimal("35.0"),
+        max_leverage_cap: int = 100,
+    ) -> int:
+        """Calculate dynamic leverage such that maximum planned loss at SL is <= max_loss_pct of allocated margin.
+
+        Formula:
+            stopDistanceFraction = abs(entry - SL) / entry
+            requiredLeverage = max_loss_pct / (stopDistanceFraction * 100) = 0.35 / stopDistanceFraction
+            leverage = int(requiredLeverage)
+        """
+        if entry_price <= Decimal("0") or stop_loss_price <= Decimal("0"):
+            raise CapitalAllocationError("Entry price and stop loss price must be positive")
+
+        stop_dist_fraction = abs(entry_price - stop_loss_price) / entry_price
+        if stop_dist_fraction <= Decimal("0"):
+            raise CapitalAllocationError("Stop loss cannot equal entry price")
+
+        stop_dist_pct = stop_dist_fraction * Decimal("100")
+        raw_leverage = max_loss_pct / stop_dist_pct
+        calculated_leverage = max(1, int(raw_leverage))
+
+        if calculated_leverage > max_leverage_cap:
+            raise CapitalAllocationError(
+                f"Calculated leverage {calculated_leverage}x exceeds maximum allowed cap of {max_leverage_cap}x"
+            )
+        return calculated_leverage
+
+    @staticmethod
+    def calculate_roe_take_profit(
+        entry_price: Decimal,
+        direction: str,
+        leverage: int,
+        target_roe_pct: Decimal = Decimal("60.0"),
+        tick_size: Decimal = Decimal("0.50"),
+    ) -> Decimal:
+        """Convert target return on margin (ROE) into the required underlying Take Profit price.
+
+        Formula:
+            price_movement_fraction = (target_roe_pct / 100) / leverage
+            LONG:  TP = entry * (1 + price_movement_fraction)
+            SHORT: TP = entry * (1 - price_movement_fraction)
+        """
+        if entry_price <= Decimal("0"):
+            raise CapitalAllocationError("Entry price must be positive")
+        if leverage < 1:
+            raise CapitalAllocationError("Leverage must be at least 1x")
+
+        price_move_fraction = (target_roe_pct / Decimal("100")) / Decimal(str(leverage))
+        is_long = direction.upper() in ("LONG", "BUY")
+
+        if is_long:
+            raw_tp = entry_price * (Decimal("1") + price_move_fraction)
+        else:
+            raw_tp = entry_price * (Decimal("1") - price_move_fraction)
+
+        return (raw_tp / tick_size).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * tick_size

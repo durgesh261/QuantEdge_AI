@@ -50,9 +50,11 @@ class AlgoConfiguration:
     """Persistent, user-defined algorithm configuration linked to a specific trading account."""
     account_id: str
     user_id: str
-    take_profit_pct: Decimal = Decimal("2.00")       # Default 2.0%
+    take_profit_pct: Decimal = Decimal("2.00")       # Default 2.0% raw price move
     stop_loss_pct: Decimal = Decimal("1.00")         # Default 1.0%
-    risk_per_trade_pct: Decimal = Decimal("1.00")    # Default 1.0% of balance
+    risk_per_trade_pct: Decimal = Decimal("1.00")    # Default 1.0%
+    take_profit_target_pct: Decimal = Decimal("60.00") # Target ROE on allocated margin
+    max_loss_pct: Decimal = Decimal("35.00")         # Max loss on allocated margin
     max_risk_usd: Optional[Decimal] = None
     max_daily_loss_usd: Decimal = Decimal("500.00")
     max_leverage: int = 100
@@ -72,6 +74,8 @@ class AlgoConfiguration:
             raise AlgoConfigValidationError("Stop Loss percentage must be greater than 0")
         if self.risk_per_trade_pct <= Decimal("0") or self.risk_per_trade_pct > Decimal("100"):
             raise AlgoConfigValidationError("Risk per trade percentage must be between 0 and 100")
+        if self.max_loss_pct <= Decimal("0") or self.max_loss_pct > Decimal("100"):
+            raise AlgoConfigValidationError("Max loss percentage must be between 0 and 100")
         if self.max_leverage < 1 or self.max_leverage > 100:
             raise AlgoConfigValidationError("Max leverage must be between 1 and 100")
         if self.max_daily_loss_usd <= Decimal("0"):
@@ -82,6 +86,8 @@ class AlgoConfiguration:
         take_profit_pct: Optional[Decimal] = None,
         stop_loss_pct: Optional[Decimal] = None,
         risk_per_trade_pct: Optional[Decimal] = None,
+        take_profit_target_pct: Optional[Decimal] = None,
+        max_loss_pct: Optional[Decimal] = None,
         max_risk_usd: Optional[Decimal] = None,
         max_daily_loss_usd: Optional[Decimal] = None,
         max_leverage: Optional[int] = None,
@@ -89,7 +95,8 @@ class AlgoConfiguration:
         kill_switch_active: Optional[bool] = None,
     ) -> "AlgoConfiguration":
         """Update configuration parameters, increment version, and record timestamp."""
-        new_tp = take_profit_pct if take_profit_pct is not None else self.take_profit_pct
+        eff_tp = take_profit_target_pct if take_profit_target_pct is not None else (take_profit_pct if take_profit_pct is not None else self.take_profit_pct)
+        eff_loss = max_loss_pct if max_loss_pct is not None else self.max_loss_pct
         new_sl = stop_loss_pct if stop_loss_pct is not None else self.stop_loss_pct
         new_risk = risk_per_trade_pct if risk_per_trade_pct is not None else self.risk_per_trade_pct
         new_max_risk = max_risk_usd if max_risk_usd is not None else self.max_risk_usd
@@ -103,12 +110,14 @@ class AlgoConfiguration:
             raise AlgoConfigValidationError("Cannot enable algorithmic trading while emergency kill switch is active")
 
         # Validate numeric ranges
-        if new_tp <= Decimal("0") or new_sl <= Decimal("0") or new_risk <= Decimal("0") or new_risk > Decimal("100") or new_daily_loss <= Decimal("0"):
+        if eff_tp <= Decimal("0") or new_sl <= Decimal("0") or new_risk <= Decimal("0") or new_risk > Decimal("100") or new_daily_loss <= Decimal("0"):
             raise AlgoConfigValidationError("Invalid numeric ranges in configuration update")
 
-        self.take_profit_pct = new_tp
+        self.take_profit_pct = eff_tp
+        self.take_profit_target_pct = eff_tp
         self.stop_loss_pct = new_sl
         self.risk_per_trade_pct = new_risk
+        self.max_loss_pct = eff_loss
         self.max_risk_usd = new_max_risk
         self.max_daily_loss_usd = new_daily_loss
         self.max_leverage = new_lev
@@ -128,6 +137,8 @@ class AlgoConfiguration:
             take_profit_pct=self.take_profit_pct,
             stop_loss_pct=self.stop_loss_pct,
             risk_per_trade_pct=self.risk_per_trade_pct,
+            take_profit_target_pct=self.take_profit_target_pct,
+            max_loss_pct=self.max_loss_pct,
             max_risk_usd=self.max_risk_usd,
             max_daily_loss_usd=self.max_daily_loss_usd,
             max_leverage=self.max_leverage,
@@ -144,6 +155,8 @@ class AlgoConfiguration:
             "take_profit_pct": str(self.take_profit_pct),
             "stop_loss_pct": str(self.stop_loss_pct),
             "risk_per_trade_pct": str(self.risk_per_trade_pct),
+            "take_profit_target_pct": str(self.take_profit_target_pct),
+            "max_loss_pct": str(self.max_loss_pct),
             "max_risk_usd": str(self.max_risk_usd) if self.max_risk_usd is not None else None,
             "max_daily_loss_usd": str(self.max_daily_loss_usd),
             "max_leverage": self.max_leverage,
@@ -160,9 +173,11 @@ class AlgoConfiguration:
         return cls(
             account_id=data["account_id"],
             user_id=data["user_id"],
-            take_profit_pct=Decimal(str(data["take_profit_pct"])),
-            stop_loss_pct=Decimal(str(data["stop_loss_pct"])),
-            risk_per_trade_pct=Decimal(str(data["risk_per_trade_pct"])),
+            take_profit_pct=Decimal(str(data.get("take_profit_pct", "60.00"))),
+            stop_loss_pct=Decimal(str(data.get("stop_loss_pct", "1.00"))),
+            risk_per_trade_pct=Decimal(str(data.get("risk_per_trade_pct", "35.00"))),
+            take_profit_target_pct=Decimal(str(data.get("take_profit_target_pct", data.get("take_profit_pct", "60.00")))),
+            max_loss_pct=Decimal(str(data.get("max_loss_pct", "35.00"))),
             max_risk_usd=Decimal(str(data["max_risk_usd"])) if data.get("max_risk_usd") is not None else None,
             max_daily_loss_usd=Decimal(str(data.get("max_daily_loss_usd", "500.00"))),
             max_leverage=int(data.get("max_leverage", 100)),
@@ -192,7 +207,72 @@ class AlgoConfigurationSnapshot:
     max_leverage: int
     algo_enabled_at_snapshot: bool
     kill_switch_active_at_snapshot: bool
+    take_profit_target_pct: Decimal = Decimal("60.00")
+    max_loss_pct: Decimal = Decimal("35.00")
     snapshot_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def calculate_authoritative_ob_trade_parameters(
+        self,
+        entry_price: Decimal,
+        direction: Union[TradeDirection, StrategyDirection, str],
+        ob_top: Decimal,
+        ob_bottom: Decimal,
+        max_instrument_leverage: int = 100,
+        tick_size: Decimal = Decimal("0.50"),
+    ) -> Dict[str, Any]:
+        """
+        Calculate authoritative SL from OB boundary, dynamic leverage (35% max loss), and ROE-based TP.
+        """
+        is_long = direction in (TradeDirection.LONG, StrategyDirection.LONG, "LONG", "BUY")
+
+        # 1. Authoritative Stop Loss from opposite OB boundary
+        if is_long:
+            stop_loss = ob_bottom
+            if stop_loss >= entry_price:
+                raise AlgoConfigValidationError(f"Invalid LONG OB geometry: OB bottom ({ob_bottom}) must be < Entry ({entry_price})")
+            risk_dist = entry_price - stop_loss
+        else:
+            stop_loss = ob_top
+            if stop_loss <= entry_price:
+                raise AlgoConfigValidationError(f"Invalid SHORT OB geometry: OB top ({ob_top}) must be > Entry ({entry_price})")
+            risk_dist = stop_loss - entry_price
+
+        # 2. Stop Distance and Dynamic Leverage (Max Loss = 35%)
+        stop_dist_fraction = risk_dist / entry_price
+        stop_dist_pct = (stop_dist_fraction * Decimal("100")).quantize(Decimal("0.01"))
+        raw_leverage = self.max_loss_pct / stop_dist_pct if stop_dist_pct > Decimal("0") else Decimal("1")
+        calculated_leverage = max(1, int(raw_leverage))
+
+        effective_max_leverage = min(self.max_leverage, max_instrument_leverage)
+        if calculated_leverage > effective_max_leverage:
+            raise AlgoConfigValidationError(
+                f"Calculated leverage {calculated_leverage}x exceeds maximum allowed leverage {effective_max_leverage}x for stop distance {stop_dist_pct}%"
+            )
+
+        # 3. ROE-based Take Profit (Target ROE on capital)
+        target_tp_pct = self.take_profit_target_pct if hasattr(self, "take_profit_target_pct") else self.take_profit_pct
+        price_move_fraction = (target_tp_pct / Decimal("100")) / Decimal(str(calculated_leverage))
+
+        if is_long:
+            tp_raw = entry_price * (Decimal("1") + price_move_fraction)
+        else:
+            tp_raw = entry_price * (Decimal("1") - price_move_fraction)
+
+        tp_price = (tp_raw / tick_size).quantize(Decimal("1"), rounding=ROUND_HALF_UP) * tick_size
+        reward_dist = (tp_price - entry_price) if is_long else (entry_price - tp_price)
+        rr = reward_dist / risk_dist if risk_dist > 0 else Decimal("0")
+
+        return {
+            "stop_loss_price": stop_loss,
+            "take_profit_price": tp_price,
+            "calculated_leverage": calculated_leverage,
+            "stop_distance_pct": stop_dist_pct,
+            "max_loss_pct": self.max_loss_pct,
+            "take_profit_target_pct": target_tp_pct,
+            "risk_reward_ratio": rr,
+            "order_block_upper_edge": ob_top,
+            "order_block_lower_edge": ob_bottom,
+        }
 
     def calculate_tp_sl(
         self,
@@ -317,6 +397,8 @@ class AlgoConfigStore:
         take_profit_pct: Optional[Decimal] = None,
         stop_loss_pct: Optional[Decimal] = None,
         risk_per_trade_pct: Optional[Decimal] = None,
+        take_profit_target_pct: Optional[Decimal] = None,
+        max_loss_pct: Optional[Decimal] = None,
         max_risk_usd: Optional[Decimal] = None,
         max_daily_loss_usd: Optional[Decimal] = None,
         max_leverage: Optional[int] = None,
@@ -339,6 +421,8 @@ class AlgoConfigStore:
                 take_profit_pct=take_profit_pct,
                 stop_loss_pct=stop_loss_pct,
                 risk_per_trade_pct=risk_per_trade_pct,
+                take_profit_target_pct=take_profit_target_pct,
+                max_loss_pct=max_loss_pct,
                 max_risk_usd=max_risk_usd,
                 max_daily_loss_usd=max_daily_loss_usd,
                 max_leverage=max_leverage,

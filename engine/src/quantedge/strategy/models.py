@@ -98,6 +98,18 @@ class StrategyDecision:
     quantity: Optional[Decimal] = None
     risk_amount: Optional[Decimal] = None
     reward_amount: Optional[Decimal] = None
+    
+    # Phase 5.9 Authoritative OB, Dynamic Leverage & ROE TP Fields
+    order_block_upper_edge: Optional[Decimal] = None
+    order_block_lower_edge: Optional[Decimal] = None
+    stop_distance_pct: Optional[Decimal] = None
+    max_loss_pct: Decimal = Decimal("35.0")
+    calculated_leverage: Optional[int] = None
+    take_profit_target_pct: Decimal = Decimal("60.0")
+    take_profit_price: Optional[Decimal] = None
+    configuration_version: Optional[int] = None
+    risk_validation_status: Optional[str] = None
+
     confidence: Optional[float] = None
     reasons: list[str] = field(default_factory=list)
     order_block: Optional[OrderBlock] = None
@@ -105,6 +117,14 @@ class StrategyDecision:
     strategy_name: str = "SMC"
     strategy_version: str = "2.1"
     metadata: dict = field(default_factory=dict)
+
+    @property
+    def entry_price(self) -> Optional[Decimal]:
+        return self.entry
+
+    @property
+    def stop_loss_price(self) -> Optional[Decimal]:
+        return self.stop_loss
 
     @property
     def timestamp_ist(self) -> str:
