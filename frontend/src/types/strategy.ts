@@ -65,3 +65,26 @@ export interface TradeRecordSnapshot {
   riskReward: number
   createdAt: string
 }
+
+export interface SingleTradeLockStatus {
+  accountId: string
+  isLocked: boolean
+  activeSetupId?: string
+  activeSymbol?: string
+  acquiredAt?: string
+}
+
+export interface CompoundingTradeRecord {
+  setupId: string
+  symbol: string
+  direction: StrategyDirection
+  entryPrice: number
+  closePrice?: number
+  grossPnL: number
+  tradingFees: number
+  fundingCosts: number
+  netPnL: number
+  preTradeBalance: number
+  postTradeBalance: number
+  closedAt?: string
+}

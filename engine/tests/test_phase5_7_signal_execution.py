@@ -309,6 +309,9 @@ async def test_07_short_tp_sl_geometry_valid_and_invalid(lifecycle_manager, vali
     rec_valid = await lifecycle_manager.execute_trade_setup(valid_bearish_decision, "acc_live_5_7")
     assert rec_valid.state == TradeLifecycleState.ENTRY_SUBMITTED
 
+    # Close valid short to release single active trade lock
+    await lifecycle_manager.close_position(rec_valid.setup_id, CloseReason.TAKE_PROFIT)
+
     # Inverted Short
     bad_short = StrategyDecision(
         timestamp=datetime.now(timezone.utc),

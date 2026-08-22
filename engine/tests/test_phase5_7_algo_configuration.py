@@ -299,6 +299,9 @@ async def test_10_existing_trade_preserves_version_1_snapshot_immutability(lifec
     assert trade1.config_version == 1
     assert trade1.config_snapshot.take_profit_pct == Decimal("2.00")
 
+    # Close trade1 so single active trade lock is released
+    await lifecycle_manager.close_position(trade1.setup_id, CloseReason.TAKE_PROFIT)
+
     # 2. Update config to version 2
     algo_store.update_config(
         user_id="user_1",
@@ -515,6 +518,9 @@ async def test_19_trade_preserves_strategy_version_across_engine_updates(lifecyc
     assert trade1.strategy_name == "SMC"
     assert trade1.strategy_version == "2.1"
 
+    # Close trade1 to release single active trade lock
+    await lifecycle_manager.close_position(trade1.setup_id, CloseReason.TAKE_PROFIT)
+
     # 2. Strategy Engine updated to v2.2 (e.g. FVG Confirmation added)
     decision_v2_2 = StrategyDecision(
         timestamp=datetime.now(timezone.utc),
@@ -629,6 +635,9 @@ async def test_22_cross_restart_trade_lifecycle_retrieval(lifecycle_manager, alg
     )
     assert trade1.config_version == 1
     assert trade1.config_snapshot.take_profit_pct == Decimal("2.00")
+
+    # Close trade1 to release single active trade lock
+    await lifecycle_manager.close_position(trade1.setup_id, CloseReason.TAKE_PROFIT)
 
     # 2. Update config to version 2
     algo_store.update_config(

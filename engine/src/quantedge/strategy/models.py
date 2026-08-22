@@ -95,6 +95,9 @@ class StrategyDecision:
     reward_distance: Optional[Decimal] = None
     risk_reward: Optional[Decimal] = None
     minimum_risk_reward: Optional[Decimal] = None
+    quantity: Optional[Decimal] = None
+    risk_amount: Optional[Decimal] = None
+    reward_amount: Optional[Decimal] = None
     confidence: Optional[float] = None
     reasons: list[str] = field(default_factory=list)
     order_block: Optional[OrderBlock] = None

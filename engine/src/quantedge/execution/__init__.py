@@ -67,6 +67,20 @@ from quantedge.execution.algo_config import (
     AlgoConfigStore,
     AlgoConfigValidationError,
 )
+from quantedge.execution.single_trade_lock import (
+    SingleTradeLockManager,
+    SingleTradeLockError,
+    AccountTradeLockState,
+)
+from quantedge.execution.capital_allocator import (
+    CapitalAllocator,
+    CapitalAllocationError,
+    PositionSizingResult,
+)
+from quantedge.execution.market_orchestrator import (
+    MarketScannerOrchestrator,
+    MarketScanResult,
+)
 from quantedge.execution.trade_lifecycle import (
     TradeLifecycleManager,
     TradeLifecycleRecord,
@@ -124,6 +138,14 @@ __all__ = [
     "AlgoConfigurationSnapshot",
     "AlgoConfigStore",
     "AlgoConfigValidationError",
+    "SingleTradeLockManager",
+    "SingleTradeLockError",
+    "AccountTradeLockState",
+    "CapitalAllocator",
+    "CapitalAllocationError",
+    "PositionSizingResult",
+    "MarketScannerOrchestrator",
+    "MarketScanResult",
     "TradeLifecycleManager",
     "TradeLifecycleRecord",
     "TradeLifecycleState",

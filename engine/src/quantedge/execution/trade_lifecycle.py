@@ -65,6 +65,7 @@ from quantedge.execution.validation import (
     OrderValidationGateway,
     OrderValidationRequest,
     OrderValidationResult,
+    RiskConfiguration,
     ValidationContext,
     RejectionReasonCode,
 )
@@ -78,6 +79,14 @@ from quantedge.execution.algo_config import (
     AlgoConfigStore,
     AlgoConfiguration,
     AlgoConfigurationSnapshot,
+)
+from quantedge.execution.single_trade_lock import (
+    SingleTradeLockManager,
+    SingleTradeLockError,
+)
+from quantedge.execution.capital_allocator import (
+    CapitalAllocator,
+    CapitalAllocationError,
 )
 from quantedge.strategy.models import StrategyDecision, SetupState, StrategyDirection, TradeDirection
 
@@ -150,6 +159,12 @@ class TradeLifecycleRecord:
     state: TradeLifecycleState = TradeLifecycleState.ENTRY_PENDING
     close_reason: Optional[CloseReason] = None
     realized_pnl: Optional[Decimal] = None
+    gross_pnl: Optional[Decimal] = None
+    trading_fees: Decimal = Decimal("0")
+    funding_costs: Decimal = Decimal("0")
+    net_pnl: Optional[Decimal] = None
+    pre_trade_balance: Decimal = Decimal("0")
+    post_trade_balance: Optional[Decimal] = None
     daily_loss_at_entry: Decimal = Decimal("0")
     rejection_code: Optional[str] = None
     error_message: Optional[str] = None
@@ -199,6 +214,8 @@ class TradeLifecycleManager:
         state_store: LocalStateStore,
         sync_service: Optional[LiveAccountSyncService] = None,
         algo_config_store: Optional[AlgoConfigStore] = None,
+        single_trade_lock: Optional[SingleTradeLockManager] = None,
+        capital_allocator: Optional[CapitalAllocator] = None,
         daily_loss_limit: Decimal = Decimal("500.00"),
         max_stale_seconds: int = 120,
     ):
@@ -207,6 +224,8 @@ class TradeLifecycleManager:
         self.state_store = state_store
         self.sync_service = sync_service
         self.algo_config_store = algo_config_store or AlgoConfigStore()
+        self.single_trade_lock = single_trade_lock or SingleTradeLockManager()
+        self.capital_allocator = capital_allocator or CapitalAllocator()
         self.daily_loss_limit = daily_loss_limit
         self.max_stale_seconds = max_stale_seconds
 
@@ -257,15 +276,38 @@ class TradeLifecycleManager:
                 rec.error_message = f"Setup {setup_id} is already in active execution"
                 return rec
 
+        # Step 0: Single-Trade Account Lock
+        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
+        try:
+            self.single_trade_lock.acquire_lock(
+                user_id=effective_user_id,
+                account_id=account_id,
+                setup_id=setup_id,
+                symbol=symbol,
+            )
+        except SingleTradeLockError as e:
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction, Decimal("1.0"),
+                getattr(decision, "entry", Decimal("0")) or Decimal("0"),
+                decision.stop_loss or Decimal("0"),
+                decision.take_profit or Decimal("0"),
+                getattr(decision, "risk_reward", Decimal("2.0")),
+                RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value,
+                str(e),
+            )
+
         # Extract attributes with fallback
         setup_state = getattr(decision, "setup_state", None) or getattr(decision, "status", None)
         entry_price = getattr(decision, "entry", None) or getattr(decision, "entry_price", None)
         stop_loss = decision.stop_loss
         take_profit = decision.take_profit
         risk_reward = getattr(decision, "risk_reward", None) or getattr(decision, "risk_reward_ratio", Decimal("2.0"))
-        quantity = getattr(decision, "quantity", Decimal("1.0"))
-        risk_amount = getattr(decision, "risk_amount", None) or (abs(entry_price - stop_loss) * quantity if entry_price and stop_loss else Decimal("0"))
-        reward_amount = getattr(decision, "reward_amount", None) or (abs(take_profit - entry_price) * quantity if entry_price and take_profit else Decimal("0"))
+        raw_qty = getattr(decision, "quantity", None)
+        quantity = raw_qty if raw_qty is not None else Decimal("1.0")
+        raw_risk = getattr(decision, "risk_amount", None)
+        risk_amount = raw_risk if raw_risk is not None else (abs(entry_price - stop_loss) * quantity if entry_price and stop_loss else Decimal("0"))
+        raw_reward = getattr(decision, "reward_amount", None)
+        reward_amount = raw_reward if raw_reward is not None else (abs(take_profit - entry_price) * quantity if entry_price and take_profit else Decimal("0"))
 
         # 1. Authoritative Parameter Enforcement & Anti-Tampering Check
         if frontend_params:
@@ -379,6 +421,7 @@ class TradeLifecycleManager:
             risk_reward_ratio=risk_reward,
             risk_amount=risk_amount,
             reward_amount=reward_amount,
+            pre_trade_balance=self.state_store.account.available_balance,
             daily_loss_at_entry=today_loss,
             config_version=snapshot.version,
             config_snapshot=snapshot,
@@ -421,8 +464,15 @@ class TradeLifecycleManager:
             client_order_id=client_order_id,
         )
 
+        eff_risk_pct = snapshot.risk_per_trade_pct if (snapshot.risk_per_trade_pct and snapshot.risk_per_trade_pct > Decimal("1.00")) else Decimal("35.0")
+        risk_cfg = RiskConfiguration(
+            risk_per_trade_pct=eff_risk_pct,
+            max_leverage=snapshot.max_leverage or 100,
+        )
+
         context = ValidationContext(
             account=self.state_store.account,
+            risk_config=risk_cfg,
             algo_enabled=self.state_store.account.algo_enabled,
             kill_switch_active=self.state_store.account.kill_switch_active,
             connection=self.state_store.connection,
@@ -587,9 +637,14 @@ class TradeLifecycleManager:
         self,
         setup_id: str,
         reason: CloseReason,
-        realized_pnl: Optional[Decimal] = None
+        realized_pnl: Optional[Decimal] = None,
+        gross_pnl: Optional[Decimal] = None,
+        trading_fees: Decimal = Decimal("0.0"),
+        funding_costs: Decimal = Decimal("0.0"),
+        taxes_and_charges: Decimal = Decimal("0.0"),
+        final_exchange_balance: Optional[Decimal] = None,
     ) -> TradeLifecycleRecord:
-        """Close an active position, cancel stale protective orders, and finalize lifecycle."""
+        """Close an active position, cancel stale protective orders, reconcile net PnL, and finalize lifecycle."""
         with self._lock:
             record = self._active_trades.get(setup_id)
             if not record:
@@ -608,12 +663,30 @@ class TradeLifecycleManager:
                 except Exception as e:
                     logger.warning("Error cancelling TP order %s: %s", record.tp_order_id, str(e))
 
-            # 2. Update record state
+            # 2. Net PnL & Fee Calculation
+            eff_gross = gross_pnl if gross_pnl is not None else (realized_pnl or Decimal("0"))
+            net_pnl = CapitalAllocator.calculate_net_pnl(eff_gross, trading_fees, funding_costs, taxes_and_charges)
+
+            record.gross_pnl = eff_gross
+            record.trading_fees = trading_fees
+            record.funding_costs = funding_costs
+            record.net_pnl = net_pnl
+            record.realized_pnl = net_pnl
             record.close_reason = reason
-            record.realized_pnl = realized_pnl
+
+            if final_exchange_balance is not None:
+                record.post_trade_balance = final_exchange_balance
+                self.state_store.account.available_balance = final_exchange_balance
+                self.state_store.account.total_equity = final_exchange_balance
+            else:
+                post_bal = CapitalAllocator.calculate_compounded_balance(record.pre_trade_balance, net_pnl)
+                record.post_trade_balance = post_bal
+                self.state_store.account.available_balance = post_bal
+                self.state_store.account.total_equity = post_bal
+
             record.record_transition(
                 TradeLifecycleState.POSITION_CLOSED,
-                f"Position closed due to {reason.value}. Realized PnL: ${realized_pnl or Decimal('0'):.2f}"
+                f"Position closed due to {reason.value}. Gross: ${eff_gross:.2f}, Fees: ${trading_fees:.2f}, Net PnL: ${net_pnl:.2f}, Post Balance: ${record.post_trade_balance:.2f}"
             )
 
             # 3. Archive to history
@@ -625,9 +698,13 @@ class TradeLifecycleManager:
                 pos = self.state_store.positions[record.symbol]
                 pos.status = PositionStatus.CLOSED
                 pos.closed_at = datetime.now(timezone.utc)
-                pos.realized_pnl = realized_pnl or Decimal("0")
+                pos.realized_pnl = net_pnl
                 self.state_store.position_history.append(pos)
                 del self.state_store.positions[record.symbol]
+
+            # 4. Release Single-Trade Lock
+            effective_user_id = record.user_id or self.state_store.account.user_id or "default_user"
+            self.single_trade_lock.release_lock(effective_user_id, record.account_id, setup_id)
 
             return record
 
@@ -704,6 +781,11 @@ class TradeLifecycleManager:
         code: str,
         message: str,
     ) -> TradeLifecycleRecord:
+        # Release single trade lock if it was acquired for this rejected attempt
+        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
+        if code != RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value:
+            self.single_trade_lock.release_lock(effective_user_id, account_id, setup_id)
+
         dir_enum = direction if isinstance(direction, TradeDirection) else TradeDirection.LONG
         rec = TradeLifecycleRecord(
             setup_id=setup_id,
@@ -718,6 +800,7 @@ class TradeLifecycleManager:
             risk_reward_ratio=risk_reward_ratio,
             risk_amount=abs(entry_price - stop_loss) * quantity,
             reward_amount=abs(take_profit - entry_price) * quantity,
+            pre_trade_balance=self.state_store.account.available_balance,
             state=TradeLifecycleState.ENTRY_REJECTED,
             rejection_code=code,
             error_message=message,
