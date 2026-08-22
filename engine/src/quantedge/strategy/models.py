@@ -99,6 +99,9 @@ class StrategyDecision:
     reasons: list[str] = field(default_factory=list)
     order_block: Optional[OrderBlock] = None
     candle: Optional[object] = None
+    strategy_name: str = "SMC"
+    strategy_version: str = "2.1"
+    metadata: dict = field(default_factory=dict)
 
     @property
     def timestamp_ist(self) -> str:

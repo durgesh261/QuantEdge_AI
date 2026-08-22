@@ -1,4 +1,4 @@
-# Phase 5.7 — Persistent Versioned Algo Configuration & Immutable Trade Snapshots
+# Phase 5.7 — Persistent Versioned Algo Configuration, Dynamic Strategy Contract & Immutable Trade Snapshots
 
 **Verdict: PERSISTENT_ALGO_CONFIGURATION_READY**
 
@@ -6,97 +6,163 @@
 
 ## 1. Executive Summary
 
-Phase 5.7 implements **Persistent, Versioned Algorithmic Trading Configuration** and **Immutable Trade Configuration Snapshots** across the QuantEdge AI engine, Java backend, and React frontend.
-
-### Problem Addressed:
-In algorithmic execution, global configuration updates (e.g. modifying Take Profit from 2.0% to 3.0%) must strictly govern **future trades** without silently mutating parameters of existing, in-flight, or historical trades. 
-
-### Solution Architecture:
-1. **User Algo Configuration (`AlgoConfiguration` / `RiskConfiguration`)**:
-   - Belongs to the authenticated user's `TradingAccount`.
-   - Persists user preferences: Take Profit %, Stop Loss %, Risk Per Trade %, Daily Loss Limit %, Leverage.
-   - Enforces strict account isolation (User A cannot access or mutate User B's settings).
-   - Strict fail-safe defaults: `algo_enabled = false`, `kill_switch_active = true`.
-2. **Safe Version Incrementing**:
-   - Every update to configuration increments `version` (`1 -> 2 -> 3...`).
-3. **Immutable Trade Snapshots (`AlgoConfigurationSnapshot`)**:
-   - When a trade setup is generated or executed, an immutable snapshot of the active configuration version is permanently bound to that trade.
-   - Any subsequent update to the user configuration only affects future trades.
+Phase 5.7 establishes two core architectural pillars for QuantEdge AI:
+1. **Persistent, Versioned Algorithmic Trading Configuration & Immutable Trade Snapshots**.
+2. **Backend/Engine-Driven Dynamic Strategy Architecture**: Trading logic, signal generation, Order Block/FVG confirmation, risk calculations, and TP/SL decisions reside exclusively in the backend/Python engine, while the frontend operates strictly as a presentation, visualization, and configuration layer.
 
 ---
 
-## 2. Configuration & Trade Lifecycle Interaction
+## 2. Fundamental Architectural Principle: Backend/Engine-Driven Logic
+
+> **"Trading logic lives strictly in the backend and Python engine. The frontend is a configurable UI and visualization layer."**
 
 ```
-[User Saves Config: Version 1 (TP=2%, SL=1%)]
+                ┌─────────────────────────────────┐
+                │        React Frontend           │
+                │ Presentation / Configuration    │
+                │ Visualization (NO Trade Logic)  │
+                └────────────────┬────────────────┘
+                                 │ Stable DTO API Contract
+                ┌────────────────▼────────────────┐
+                │       Java Spring Backend       │
+                │ Auth / Config / DB Persistence  │
+                │ Execution Safety & Isolation    │
+                └────────────────┬────────────────┘
+                                 │ Authoritative Commands
+                ┌────────────────▼────────────────┐
+                │         Python Engine           │
+                │ SMC Strategy / FVG / Signals    │
+                │ Risk Calculations / Validation  │
+                └────────────────┬────────────────┘
+                                 │ REST & Private WS
+                ┌────────────────▼────────────────┐
+                │   Delta Exchange India (Live)   │
+                └─────────────────────────────────┘
+```
+
+### Strict Separation of Concerns:
+- **The Frontend MUST NOT contain authoritative implementations of**:
+  - SMC strategy rules or Market Structure analysis
+  - Order Block, Liquidity, or Fair Value Gap (FVG) detection
+  - Entry confirmations or signal scoring
+  - Risk calculations, leverage formulas, or position sizing
+  - Authoritative Take Profit / Stop Loss prices
+  - Order validation gateways or execution state machines
+  - Position management decisions
+- **Future Strategy Modifications (e.g. Adding FVG Confirmation)**:
+  - Requires updating solely the Python engine / backend strategy pipeline.
+  - When the updated engine is deployed, the frontend automatically receives the new behavior via the stable DTO contract without requiring code rewrites in React.
+
+---
+
+## 3. Dynamic Strategy Contract (DTO Model)
+
+The Python engine and backend output a strictly typed contract (`StrategyResult` / `StrategyDecision`):
+
+```json
+{
+  "signal": "LONG",
+  "symbol": "BTCUSD",
+  "timeframe": "1h",
+  "direction": "LONG",
+  "entry": 95000.00,
+  "stopLoss": 94000.00,
+  "takeProfit": 98000.00,
+  "riskReward": 3.0,
+  "confidence": 88.5,
+  "strategyName": "SMC",
+  "strategyVersion": "2.1",
+  "setupId": "SETUP_20260822_001",
+  "status": "TRADE_SETUP_READY",
+  "metadata": {
+    "ob_confirmed": true,
+    "fvg_confirmed": true,
+    "liquidity_swept": true
+  },
+  "timestamp": "2026-08-22T07:25:00Z"
+}
+```
+
+---
+
+## 4. Multi-Tier Database & Configuration Separation
+
+| Tier | Component | Responsibility | Mutability |
+|---|---|---|---|
+| **Tier 1** | **Strategy Implementation** | SMC rules, OB algorithms, FVG filters, trend analysis | Engine-driven, version-controlled |
+| **Tier 2** | **Global Strategy Configuration** | System limits, tick sizes, maximum leverage bounds | Server-side / Database registry |
+| **Tier 3** | **User-Specific Configuration** | `take_profit_pct`, `stop_loss_pct`, `risk_per_trade_pct`, `daily_loss_limit` | Account-isolated, user-editable |
+| **Tier 4** | **Trade Configuration Snapshot** | `AlgoConfigurationSnapshot` pinned at signal creation | **Strictly Immutable** |
+| **Tier 5** | **Historical Trade Result** | `TradeLifecycleRecord`, filled prices, realized PnL, close reasons | **Strictly Immutable** |
+
+---
+
+## 5. Configuration & Strategy Versioning Interaction
+
+```
+[User Config: Version 1 (TP=2%, SL=1%)]  &  [Engine Strategy: v2.1]
                      │
                      ▼
              AlgoConfiguration (v1)
                      │
      ┌───────────────┴───────────────┐
      ▼                               ▼
-[Trade A Signal (10:01)]     [Trade B Signal (10:02)]
-  Binds Snapshot v1             Binds Snapshot v1
-  TP = 2.0%, SL = 1.0%          TP = 2.0%, SL = 1.0%
+[Trade A (10:01)]             [Trade B (10:02)]
+  Binds Config v1               Binds Config v1
+  Binds Strategy v2.1           Binds Strategy v2.1
+  TP=2.0%, SL=1.0%              TP=2.0%, SL=1.0%
                                      │
                      ┌───────────────┘
                      ▼
     [User Updates Config: Version 2 (TP=3%, SL=1.5%)]
+    [Engine Strategy Deployed: v2.2 (FVG Added)]
                      │
                      ▼
              AlgoConfiguration (v2)
                      │
                      ▼
-          [Trade C Signal (10:05)]
-            Binds Snapshot v2
-            TP = 3.0%, SL = 1.5%
+          [Trade C (10:05)]
+            Binds Config v2
+            Binds Strategy v2.2 (SMC_FVG)
+            TP=3.0%, SL=1.5%
 
-★ RESULT: Trade A & B remain pinned to v1; Trade C uses v2. Zero cross-mutation.
+★ INVARIANT: Trade A & B permanently retain Config v1 and Strategy v2.1.
+★ INVARIANT: Modifying configuration or deploying strategy v2.2 affects ONLY future trades.
 ```
 
 ---
 
-## 3. Account Isolation & Authorization Model
+## 6. Account Isolation & Security Model
 
-| Operation | Endpoint | Security & Ownership Validation | Fail-Closed Policy |
+| Action | API Endpoint | Security & Ownership Validation | Fail-Safe Default |
 |---|---|---|---|
-| **Retrieve Config** | `GET /api/v1/account/algo-config` | Validates `User` owns requested `TradingAccount` | 400 Bad Request if unowned |
-| **Update Config** | `PUT /api/v1/account/algo-config` | Validates `User` owns requested `TradingAccount`, validates numeric bounds, increments `version` | 400 Bad Request on invalid bounds / unowned |
-| **Trade Execution** | `POST /api/v1/trade/execute` | Evaluates server-side setup snapshot, rejects frontend parameter tampering | `ENTRY_REJECTED` (0 exchange calls) |
+| **Get Algo Config** | `GET /api/v1/account/algo-config` | Validates authenticated user owns account | 400 Bad Request if unowned |
+| **Update Algo Config** | `PUT /api/v1/account/algo-config` | Validates ownership, validates bounds, increments version | 400 Bad Request on invalid ranges |
+| **Execute Trade** | `POST /api/v1/trade/execute` | Validates server snapshot; rejects frontend parameter tampering | `ENTRY_REJECTED` (0 exchange calls) |
 
 ---
 
-## 4. Authoritative TP/SL Calculation & Geometry Matrix
+## 7. Verification & Test Metrics
 
-| Trade Direction | Authoritative Formula | Strict Safety Invariant | On Failure |
+| Test Suite | Scope | Passed / Total | Time |
 |---|---|---|---|
-| **LONG** | $\text{SL} = \text{Entry} \times (1 - \text{SL}\%)$, $\text{TP} = \text{Entry} \times (1 + \text{TP}\%)$ | $\text{SL} < \text{Entry} < \text{TP}$ | Throws `AlgoConfigValidationError`, rejects order |
-| **SHORT** | $\text{SL} = \text{Entry} \times (1 + \text{SL}\%)$, $\text{TP} = \text{Entry} \times (1 - \text{TP}\%)$ | $\text{TP} < \text{Entry} < \text{SL}$ | Throws `AlgoConfigValidationError`, rejects order |
+| **`test_phase5_7_algo_configuration.py`** | Defaults, Isolation, Versioning, Snapshots, Geometry, Immutability, Strategy Contract | **20 / 20** | 1.73s |
+| **`test_phase5_7_signal_execution.py`** | Signal Bridge, Bracket Protection, Partial Fill Scaling, Kill Switch | **25 / 25** | 1.49s |
+| **`test_phase5_6_private_websocket.py`** | Private WebSocket Stream, HMAC Auth, Orders/Positions/Trades Sync | **23 / 23** | 0.85s |
+| **`test_phase5_5_account_connection.py`** | Delta India Auth, AES-256 Encryption, Read-Only Sync | **11 / 11** | 0.32s |
+| **`test_phase5_4_order_execution.py`** | Order Execution, Idempotency, Gateway Validation, Rate Limits | **22 / 22** | 0.45s |
+| **Full Engine Pytest Suite** | Complete SMC, Strategy, Execution, WebSocket, Persistence | **722 Passed, 1 Skipped, 0 Failed** | 19.55s |
+| **Frontend Production Build** | `tsc && vite build` bundle compilation | **Clean Build (1602 modules)** | 5.82s |
+| **Frozen SMC Core Verification** | Zero diff against baseline `b8095dc` | **ZERO DIFF** | - |
+| **Credential Leakage Audit** | Repository secret scan | **0 Leaks** | - |
+| **Real Orders Placed** | Development order placement | **ZERO (0)** | - |
 
 ---
 
-## 5. Verification & Test Metrics
+## 8. Deployment Principles for Future Strategy Iterations
 
-| Suite | Scope | Result | Execution Time |
-|---|---|---|---|
-| **`test_phase5_7_algo_configuration.py`** | Defaults, Isolation, Versioning, Snapshots, Geometry, Immutability, Tampering | **17/17 Passed** | 1.06s |
-| **`test_phase5_7_signal_execution.py`** | Signal Execution Bridge, Bracket Protection, Partial Fills, Kill Switch | **25/25 Passed** | 1.49s |
-| **`test_phase5_6_private_websocket.py`** | Private WebSocket Sync, HMAC Auth, User Trades | **23/23 Passed** | 0.85s |
-| **`test_phase5_5_account_connection.py`** | Delta India Auth, AES-256 Encryption, Read-Only Sync | **11/11 Passed** | 0.32s |
-| **`test_phase5_4_order_execution.py`** | Real Order Submission, Idempotency, Gateway Validation | **22/22 Passed** | 0.45s |
-| **Full Engine Regression** | Full SMC, Strategy, Execution, Validation, WebSocket | **722 Passed, 1 Skipped, 0 Failed** | 19.55s |
-| **Frontend Production Build** | TypeScript compilation & Vite bundle | **Clean Build (1602 modules)** | 5.82s |
-| **Frozen SMC Core Check** | Diff against baseline `b8095dc` | **ZERO DIFF** | - |
-| **Security Audit** | Hardcoded secret detection | **0 Leaks** | - |
-| **Real Exchange Orders** | Development & testing orders placed | **ZERO (0)** | - |
-
----
-
-## 6. Pre-Flight Live Trading Checklist
-
-> **CRITICAL NOTICE**: Phase 5.7 confirms the mathematical and architectural integrity of persistent configuration and immutable trade snapshots, but **DOES NOT authorize the placement of real live trades**.
-
-### Requirements before enabling algorithmic execution:
-1. Explicit operator action to toggle `algo_enabled = true` and `kill_switch_active = false`.
-2. Verifying sufficient available margin in wallet.
-3. Reviewing risk limits (`daily_loss_limit`, `risk_per_trade_percent`).
+1. Developer enhances strategy logic (e.g. FVG confirmation or trailing stops) in the Python engine / Java backend.
+2. Run backend & engine test suites (`pytest`).
+3. Build and deploy backend/engine update.
+4. React frontend consumes the stable DTO contract without needing changes to trading algorithms.
+5. All pre-existing trades retain their original strategy and configuration version snapshots.

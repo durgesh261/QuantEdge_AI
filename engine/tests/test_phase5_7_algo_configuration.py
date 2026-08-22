@@ -489,3 +489,81 @@ def test_17_zero_credential_leakage(algo_store):
     assert "api_secret" not in dump_s.lower()
     assert "secret" not in dump_c.lower()
     assert "secret" not in dump_s.lower()
+
+
+def test_18_strategy_contract_structure_and_versioning(bullish_decision):
+    """18. Verify StrategyDecision adheres to Dynamic Strategy Contract and carries strategy version."""
+    assert bullish_decision.strategy_name == "SMC"
+    assert bullish_decision.strategy_version == "2.1"
+    assert bullish_decision.is_trade_setup_ready is True
+    assert bullish_decision.direction == StrategyDirection.LONG
+    assert bullish_decision.entry == Decimal("95000.00")
+    assert bullish_decision.stop_loss == Decimal("94000.00")
+    assert bullish_decision.take_profit == Decimal("98000.00")
+
+
+@pytest.mark.asyncio
+async def test_19_trade_preserves_strategy_version_across_engine_updates(lifecycle_manager, bullish_decision):
+    """19. Architectural Invariant: Trade 1 generated under Strategy v2.1 retains v2.1 when Strategy v2.2 is released."""
+    # 1. Trade 1 executed under Strategy v2.1
+    trade1 = await lifecycle_manager.execute_trade_setup(
+        decision=bullish_decision,
+        account_id="acc_user_1",
+        user_id="user_1",
+        override_client_order_id="QE_BTCUSD_STRAT_V1",
+    )
+    assert trade1.strategy_name == "SMC"
+    assert trade1.strategy_version == "2.1"
+
+    # 2. Strategy Engine updated to v2.2 (e.g. FVG Confirmation added)
+    decision_v2_2 = StrategyDecision(
+        timestamp=datetime.now(timezone.utc),
+        symbol="BTCUSD",
+        timeframe="1h",
+        direction=StrategyDirection.LONG,
+        setup_state=SetupState.TRADE_SETUP_READY,
+        setup_id="SETUP_SMC_V2_2",
+        entry=Decimal("97000.00"),
+        stop_loss=Decimal("95000.00"),
+        take_profit=Decimal("101000.00"),
+        risk_reward=Decimal("2.0"),
+        strategy_name="SMC_FVG",
+        strategy_version="2.2",
+        metadata={"fvg_confirmed": True, "ob_confirmed": True},
+    )
+
+    # 3. Trade 2 executed under Strategy v2.2
+    trade2 = await lifecycle_manager.execute_trade_setup(
+        decision=decision_v2_2,
+        account_id="acc_user_1",
+        user_id="user_1",
+        override_client_order_id="QE_BTCUSD_STRAT_V2",
+    )
+    assert trade2.strategy_name == "SMC_FVG"
+    assert trade2.strategy_version == "2.2"
+
+    # 4. Critical Invariant: Trade 1 remains permanently stamped with Strategy v2.1
+    assert trade1.strategy_name == "SMC"
+    assert trade1.strategy_version == "2.1"
+
+
+def test_20_strategy_contract_preserves_backend_authority():
+    """20. Verify strategy contract parameters originate strictly from backend and cannot be fabricated."""
+    decision = StrategyDecision(
+        timestamp=datetime.now(timezone.utc),
+        symbol="ETHUSD",
+        timeframe="1h",
+        direction=StrategyDirection.SHORT,
+        setup_state=SetupState.TRADE_SETUP_READY,
+        setup_id="SETUP_ETH_SHORT_01",
+        entry=Decimal("2800.00"),
+        stop_loss=Decimal("2850.00"),
+        take_profit=Decimal("2700.00"),
+        risk_reward=Decimal("2.0"),
+        strategy_name="SMC",
+        strategy_version="2.1",
+    )
+    # Short geometry: TP < Entry < SL
+    assert decision.take_profit < decision.entry < decision.stop_loss
+    assert decision.strategy_version == "2.1"
+

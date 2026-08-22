@@ -154,9 +154,11 @@ class TradeLifecycleRecord:
     rejection_code: Optional[str] = None
     error_message: Optional[str] = None
     
-    # Configuration Snapshot (Phase 5.7)
+    # Configuration & Strategy Snapshot (Phase 5.7)
     config_version: Optional[int] = None
     config_snapshot: Optional[Any] = None
+    strategy_name: str = "SMC"
+    strategy_version: str = "2.1"
     
     # Audit log history
     history: List[Dict[str, Any]] = field(default_factory=list)
@@ -380,6 +382,8 @@ class TradeLifecycleManager:
             daily_loss_at_entry=today_loss,
             config_version=snapshot.version,
             config_snapshot=snapshot,
+            strategy_name=getattr(decision, "strategy_name", "SMC"),
+            strategy_version=getattr(decision, "strategy_version", "2.1"),
         )
 
         with self._lock:
