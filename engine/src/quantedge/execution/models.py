@@ -53,8 +53,8 @@ class OrderType(str, Enum):
         mapping = {
             self.LIMIT_ORDER: "limit_order",
             self.MARKET_ORDER: "market_order",
-            self.STOP_LIMIT_ORDER: "stop_limit_order",
-            self.STOP_MARKET_ORDER: "stop_market_order",
+            self.STOP_LIMIT_ORDER: "limit_order",
+            self.STOP_MARKET_ORDER: "market_order",
         }
         return mapping[self]
 
@@ -206,12 +206,17 @@ class DeltaOrderRequest:
 
     def to_exchange_payload(self) -> Dict[str, Any]:
         """Serialize into Delta Exchange REST API POST /v2/orders payload."""
+        if isinstance(self.size, Decimal):
+            size_val = int(self.size) if self.size == self.size.to_integral_value() else float(self.size)
+        else:
+            size_val = int(self.size) if int(self.size) == self.size else float(self.size)
+
         payload: Dict[str, Any] = {
             "product_id": self.product_id,
             "product_symbol": self.product_symbol,
             "side": self.side.to_exchange(),
             "order_type": self.order_type.to_exchange(),
-            "size": int(self.size) if self.size == self.size.to_integral_value() else float(self.size),
+            "size": size_val,
             "time_in_force": self.time_in_force.to_exchange(),
             "reduce_only": self.reduce_only,
         }

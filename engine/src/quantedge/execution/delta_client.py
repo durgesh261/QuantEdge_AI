@@ -117,20 +117,24 @@ def generate_signature(
 
 
 def generate_client_order_id(prefix: str = "QE") -> str:
-    """Generate a unique, collision-resistant client order identifier.
+    """Generate a unique, collision-resistant client order identifier (max 32 chars).
 
-    Format: QE-{timestamp_ms}-{uuid_hex_8}
+    Format: {prefix[:6]}-{timestamp_ms}-{uuid_hex_6}
     """
+    clean_prefix = prefix[:6]
     ts_ms = int(time.time() * 1000)
-    rand_suffix = uuid.uuid4().hex[:8]
-    return f"{prefix}-{ts_ms}-{rand_suffix}"
+    rand_suffix = uuid.uuid4().hex[:6]
+    cid = f"{clean_prefix}-{ts_ms}-{rand_suffix}"
+    return cid[:32]
 
 
 def generate_deterministic_client_order_id(account_id: str, setup_id: str, role: str = "ENTRY") -> str:
-    """Generate a deterministic, idempotent client order ID tied to a trade setup and order role."""
+    """Generate a deterministic, idempotent client order ID tied to a trade setup and order role (max 32 chars)."""
     clean_acct = account_id.replace("-", "")[:8]
     clean_setup = setup_id.replace("-", "")[:12]
-    return f"QE-{clean_acct}-{clean_setup}-{role.upper()}"
+    clean_role = role.upper()[:5]
+    cid = f"QE-{clean_acct}-{clean_setup}-{clean_role}"
+    return cid[:32]
 
 
 # ── Main Client ───────────────────────────────────────────────────────────────

@@ -434,7 +434,7 @@ class LiveDeltaExecutionProofOrchestrator:
         account_id = self.state_store.account.account_id
         user_id = self.state_store.account.user_id
         setup_id = f"LIVEPROOF-{int(time.time())}"
-        client_order_id = generate_client_order_id("QE-LIVEPROOF")
+        client_order_id = generate_client_order_id("LP")
 
         report = LiveExecutionProofReport(
             account_id=account_id,
@@ -514,7 +514,7 @@ class LiveDeltaExecutionProofOrchestrator:
             report.tp_price = tp_price
 
             print(f">>> [3/6] Submitting REAL protective brackets: SL=${sl_price}, TP=${tp_price}...")
-            sl_client_id = generate_client_order_id("QE-LIVE-SL")
+            sl_client_id = generate_client_order_id("SL")
             sl_req = DeltaOrderRequest(
                 product_id=inst.product_id,
                 product_symbol=inst.symbol,
@@ -528,7 +528,7 @@ class LiveDeltaExecutionProofOrchestrator:
             sl_resp = await self.client.place_order(sl_req)
             report.sl_order_id = str(sl_resp.id)
 
-            tp_client_id = generate_client_order_id("QE-LIVE-TP")
+            tp_client_id = generate_client_order_id("TP")
             tp_req = DeltaOrderRequest(
                 product_id=inst.product_id,
                 product_symbol=inst.symbol,
@@ -563,7 +563,7 @@ class LiveDeltaExecutionProofOrchestrator:
                 logger.warning("Error cancelling bracket orders: %s", e)
 
             # Submit market sell to close long position
-            close_client_id = generate_client_order_id("QE-LIVE-CLOSE")
+            close_client_id = generate_client_order_id("CL")
             close_limit_price = (inst.mark_price * Decimal("0.995")).quantize(inst.tick_size)
             close_req = DeltaOrderRequest(
                 product_id=inst.product_id,
