@@ -330,8 +330,6 @@ class ConnectionState(str, Enum):
 
 
 class ExecutionMode(str, Enum):
-    PAPER = "PAPER"
-    SANDBOX = "SANDBOX"
     LIVE = "LIVE"
 
 

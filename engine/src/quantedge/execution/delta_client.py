@@ -433,7 +433,7 @@ class DeltaIndiaClient:
     # Alias for create_order
     place_order = create_order
 
-    async def cancel_order(self, order_id: int, product_id: int) -> bool:
+    async def cancel_order(self, order_id: Union[int, str], product_id: int) -> bool:
         """Cancel an open order by exchange order ID."""
         payload = {"product_id": product_id}
         data = await self.request("DELETE", f"/v2/orders/{order_id}", json_body=payload, authenticated=True)

@@ -67,6 +67,7 @@ from quantedge.execution.validation import (
     OrderValidationGateway,
     OrderValidationRequest,
     OrderValidationResult,
+    get_product_specification,
     RiskConfiguration,
     ValidationContext,
     RejectionReasonCode,
@@ -478,13 +479,14 @@ class TradeLifecycleManager:
             self._active_trades[setup_id] = record
 
         # 8. Submit Entry Order via OrderValidationGateway
+        product_spec = get_product_specification(symbol)
         client_order_id = override_client_order_id or generate_client_order_id(f"QE_{symbol}_ENTRY")
         record.entry_client_order_id = client_order_id
 
         side = OrderSide.BUY if record.direction == TradeDirection.LONG else OrderSide.SELL
 
         order_req = DeltaOrderRequest(
-            product_id=27,
+            product_id=product_spec.product_id,
             product_symbol=symbol,
             side=side,
             order_type=OrderType.LIMIT_ORDER,
@@ -635,12 +637,13 @@ class TradeLifecycleManager:
         )
 
         close_side = OrderSide.SELL if record.direction == TradeDirection.LONG else OrderSide.BUY
+        product_spec = get_product_specification(record.symbol)
 
         try:
             # 1. Submit Stop Loss Order (Stop Market with reduce_only)
             sl_client_id = generate_client_order_id(f"QE_{record.symbol}_SL")
             sl_req = DeltaOrderRequest(
-                product_id=27,
+                product_id=product_spec.product_id,
                 product_symbol=record.symbol,
                 side=close_side,
                 order_type=OrderType.STOP_MARKET_ORDER,
@@ -656,7 +659,7 @@ class TradeLifecycleManager:
             # 2. Submit Take Profit Order (Limit with reduce_only)
             tp_client_id = generate_client_order_id(f"QE_{record.symbol}_TP")
             tp_req = DeltaOrderRequest(
-                product_id=27,
+                product_id=product_spec.product_id,
                 product_symbol=record.symbol,
                 side=close_side,
                 order_type=OrderType.LIMIT_ORDER,
@@ -668,6 +671,9 @@ class TradeLifecycleManager:
             tp_resp = await self.client.place_order(tp_req)
             record.tp_order_id = str(tp_resp.id)
             record.tp_client_order_id = tp_client_id
+
+            if not record.sl_order_id or not record.tp_order_id:
+                raise RuntimeError("Exchange failed to confirm SL/TP bracket order IDs")
 
             record.protected_quantity = target_protected_size
             record.record_transition(
@@ -705,16 +711,18 @@ class TradeLifecycleManager:
             if not record:
                 raise ValueError(f"No active trade found for setup {setup_id}")
 
+            product_spec = get_product_specification(record.symbol)
+
             # 1. Cancel remaining open bracket orders to avoid stale executions
             if record.sl_order_id:
                 try:
-                    await self.client.cancel_order(record.sl_order_id, 27)
+                    await self.client.cancel_order(int(record.sl_order_id), product_spec.product_id)
                 except Exception as e:
                     logger.warning("Error cancelling SL order %s: %s", record.sl_order_id, str(e))
 
             if record.tp_order_id:
                 try:
-                    await self.client.cancel_order(record.tp_order_id, 27)
+                    await self.client.cancel_order(int(record.tp_order_id), product_spec.product_id)
                 except Exception as e:
                     logger.warning("Error cancelling TP order %s: %s", record.tp_order_id, str(e))
 
@@ -778,7 +786,8 @@ class TradeLifecycleManager:
                 if trade.state in (TradeLifecycleState.ENTRY_PENDING, TradeLifecycleState.ENTRY_SUBMITTED):
                     if trade.entry_order_id:
                         try:
-                            await self.client.cancel_order(trade.entry_order_id, 27)
+                            spec = get_product_specification(trade.symbol)
+                            await self.client.cancel_order(int(trade.entry_order_id), spec.product_id)
                             cancelled_orders.append(trade.entry_order_id)
                         except Exception as e:
                             logger.warning("Failed to cancel entry order %s on kill-switch: %s", trade.entry_order_id, str(e))

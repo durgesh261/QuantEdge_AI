@@ -90,6 +90,7 @@ class ProductSpecification:
     size_step: Decimal
     tick_size: Decimal
     max_leverage: int = 100
+    contract_value: Decimal = Decimal("1.0")
 
 
 DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
@@ -111,7 +112,7 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "ETHUSD": ProductSpecification(
         symbol="ETHUSD",
-        product_id=28,
+        product_id=3136,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.05"),
@@ -119,7 +120,7 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "ETHUSD.P": ProductSpecification(
         symbol="ETHUSD.P",
-        product_id=28,
+        product_id=3136,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.05"),
@@ -127,7 +128,7 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "SOLUSD": ProductSpecification(
         symbol="SOLUSD",
-        product_id=29,
+        product_id=14823,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.01"),
@@ -135,7 +136,7 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "SOLUSD.P": ProductSpecification(
         symbol="SOLUSD.P",
-        product_id=29,
+        product_id=14823,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.01"),
@@ -143,7 +144,7 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "XRPUSD": ProductSpecification(
         symbol="XRPUSD",
-        product_id=30,
+        product_id=14969,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.0001"),
@@ -151,13 +152,31 @@ DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
     ),
     "XRPUSD.P": ProductSpecification(
         symbol="XRPUSD.P",
-        product_id=30,
+        product_id=14969,
         min_size=Decimal("1"),
         size_step=Decimal("1"),
         tick_size=Decimal("0.0001"),
         max_leverage=50,
     ),
 }
+
+
+def get_product_specification(symbol: str) -> ProductSpecification:
+    """Retrieve instrument specification for symbol with fallback defaults."""
+    clean = symbol.upper().strip()
+    if clean in DEFAULT_DELTA_INDIA_PRODUCTS:
+        return DEFAULT_DELTA_INDIA_PRODUCTS[clean]
+    clean_no_p = clean.replace(".P", "")
+    if clean_no_p in DEFAULT_DELTA_INDIA_PRODUCTS:
+        return DEFAULT_DELTA_INDIA_PRODUCTS[clean_no_p]
+    return ProductSpecification(
+        symbol=symbol,
+        product_id=27,
+        min_size=Decimal("1"),
+        size_step=Decimal("1"),
+        tick_size=Decimal("0.5"),
+        max_leverage=100,
+    )
 
 
 # ── Risk Configuration ────────────────────────────────────────────────────────
@@ -466,7 +485,8 @@ class OrderValidationGateway:
                 )
 
             # Risk exposure check
-            risk_amount = request.quantity * risk_dist
+            contract_val = getattr(spec, "contract_value", Decimal("1.0"))
+            risk_amount = request.quantity * contract_val * risk_dist
             max_risk_allowed = context.account.total_equity * (context.risk_config.risk_per_trade_pct / Decimal("100"))
             # Allow minor rounding tolerance (0.01%)
             if risk_amount > (max_risk_allowed * Decimal("1.01")) and max_risk_allowed > Decimal("0"):
@@ -478,7 +498,7 @@ class OrderValidationGateway:
                 )
 
             # Available Margin Check
-            notional_value = request.quantity * entry
+            notional_value = request.quantity * contract_val * entry
             required_margin = notional_value / Decimal(str(leverage))
             if required_margin > context.account.available_balance:
                 return self._reject(

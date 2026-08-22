@@ -119,6 +119,15 @@ class DeltaReconciliationService:
         exchange_equity = exchange_usdt.balance if exchange_usdt else Decimal("0")
         local_equity = local_acct.total_equity if local_acct else Decimal("0")
 
+        if local_acct and exchange_usdt and abs(exchange_equity - local_equity) > Decimal("0.01"):
+            discrepancies.append(ReconciliationDiscrepancy(
+                discrepancy_type=ReconciliationDiscrepancyType.QUANTITY_MISMATCH,
+                resource_id=f"{account_id}_EQUITY",
+                details=f"Account equity mismatch: local={local_equity:.2f}, exchange={exchange_equity:.2f}",
+                local_value=str(local_equity),
+                exchange_value=str(exchange_equity),
+            ))
+
         if local_acct and local_acct.last_synced_at:
             age_seconds = (now - local_acct.last_synced_at).total_seconds()
             if age_seconds > self.max_stale_seconds:
@@ -199,6 +208,14 @@ class DeltaReconciliationService:
 
         # 7. Auto-Resolution if requested
         if auto_resolve and discrepancies:
+            # Update local account balance to authoritative Delta balance
+            if local_acct and exchange_usdt:
+                local_acct.available_balance = exchange_usdt.available_balance
+                local_acct.total_equity = exchange_usdt.balance
+                local_acct.current_balance = exchange_usdt.balance
+                local_acct.last_synced_at = now
+                actions_taken.append("ACCOUNT_BALANCE_SYNCHRONIZED_FROM_DELTA")
+
             # Sync local store with authoritative Delta data
             if self.sync_service:
                 await self.sync_service.sync_account(account_id)
