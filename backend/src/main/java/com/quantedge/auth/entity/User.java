@@ -31,15 +31,23 @@ public class User extends BaseEntity implements UserDetails {
     @Column(name = "email_verified", nullable = false)
     private Boolean emailVerified = false;
 
+    @Column(name = "role", nullable = false, length = 50)
+    private String role = "USER";
+
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
     public User() {}
 
     public User(String email, String passwordHash, String name, Boolean isActive, Boolean emailVerified, Instant lastLoginAt) {
+        this(email, passwordHash, name, "USER", isActive, emailVerified, lastLoginAt);
+    }
+
+    public User(String email, String passwordHash, String name, String role, Boolean isActive, Boolean emailVerified, Instant lastLoginAt) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.name = name;
+        this.role = role != null && !role.trim().isEmpty() ? role.trim().toUpperCase() : "USER";
         this.isActive = isActive != null ? isActive : true;
         this.emailVerified = emailVerified != null ? emailVerified : false;
         this.lastLoginAt = lastLoginAt;
@@ -53,6 +61,7 @@ public class User extends BaseEntity implements UserDetails {
         private String email;
         private String passwordHash;
         private String name;
+        private String role = "USER";
         private Boolean isActive = true;
         private Boolean emailVerified = false;
         private Instant lastLoginAt;
@@ -60,12 +69,13 @@ public class User extends BaseEntity implements UserDetails {
         public Builder email(String email) { this.email = email; return this; }
         public Builder passwordHash(String passwordHash) { this.passwordHash = passwordHash; return this; }
         public Builder name(String name) { this.name = name; return this; }
+        public Builder role(String role) { this.role = role; return this; }
         public Builder isActive(Boolean isActive) { this.isActive = isActive; return this; }
         public Builder emailVerified(Boolean emailVerified) { this.emailVerified = emailVerified; return this; }
         public Builder lastLoginAt(Instant lastLoginAt) { this.lastLoginAt = lastLoginAt; return this; }
 
         public User build() {
-            return new User(email, passwordHash, name, isActive, emailVerified, lastLoginAt);
+            return new User(email, passwordHash, name, role, isActive, emailVerified, lastLoginAt);
         }
     }
 
@@ -78,6 +88,9 @@ public class User extends BaseEntity implements UserDetails {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role != null && !role.trim().isEmpty() ? role.trim().toUpperCase() : "USER"; }
+
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean active) { isActive = active; }
 
@@ -89,7 +102,8 @@ public class User extends BaseEntity implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        String effectiveRole = (role != null && !role.trim().isEmpty()) ? role.trim().toUpperCase() : "USER";
+        return List.of(new SimpleGrantedAuthority("ROLE_" + effectiveRole));
     }
 
     @Override

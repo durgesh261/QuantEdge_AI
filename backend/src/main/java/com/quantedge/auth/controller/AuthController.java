@@ -110,7 +110,7 @@ public class AuthController {
             String accessToken
     ) {
         public AuthResponse(com.quantedge.auth.entity.User user, String accessToken) {
-            this(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getIsActive()), accessToken);
+            this(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getRole(), user.getIsActive()), accessToken);
         }
     }
 
@@ -118,6 +118,7 @@ public class AuthController {
             String id,
             String name,
             String email,
+            String role,
             Boolean isActive
     ) {}
 }

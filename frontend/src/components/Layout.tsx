@@ -15,7 +15,7 @@ const navigation = [
 
 export function Layout({ children }: { children?: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const { logout } = useAuthStore()
+  const { user, logout } = useAuthStore()
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -53,7 +53,17 @@ export function Layout({ children }: { children?: React.ReactNode }) {
               </NavLink>
             ))}
           </nav>
-          <div className="p-4 border-t border-slate-800">
+          <div className="p-4 border-t border-slate-800 space-y-2">
+            {(user?.role === 'DEVELOPER' || user?.role === 'ADMIN') && (
+              <NavLink
+                to="/developer"
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-xs font-mono font-bold text-amber-400 hover:text-amber-300 hover:bg-amber-950/30 border border-amber-500/20 transition-colors"
+                onClick={() => setSidebarOpen(false)}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                Developer Console →
+              </NavLink>
+            )}
             <button
               onClick={logout}
               className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
