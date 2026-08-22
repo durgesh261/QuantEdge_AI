@@ -188,8 +188,9 @@ public class AccountManagementService {
         String encryptedApiSecret = credentialService.encrypt(rawApiSecret);
 
         // 3. Resolve or create DeltaConnection
-        DeltaConnection connection = connectionRepository.findByTradingAccountIdAndEnvironment(account.getId(), "LIVE")
-                .orElseGet(() -> new DeltaConnection(account, "LIVE", encryptedApiKey, encryptedApiSecret));
+        final TradingAccount targetAccount = account;
+        DeltaConnection connection = connectionRepository.findByTradingAccountIdAndEnvironment(targetAccount.getId(), "LIVE")
+                .orElseGet(() -> new DeltaConnection(targetAccount, "LIVE", encryptedApiKey, encryptedApiSecret));
 
         connection.setEncryptedApiKey(encryptedApiKey);
         connection.setEncryptedApiSecret(encryptedApiSecret);

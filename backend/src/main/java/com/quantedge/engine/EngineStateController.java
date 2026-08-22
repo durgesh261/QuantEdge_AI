@@ -110,6 +110,16 @@ public class EngineStateController {
             String exitOrderId
     ) {}
 
+    public record ActiveAccountDto(
+            String accountId,
+            String userId,
+            String name,
+            boolean isActive,
+            boolean algoEnabled,
+            boolean killSwitchActive,
+            BigDecimal currentBalance
+    ) {}
+
     public record ApiResult(boolean success, String error, Object data) {}
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -308,6 +318,39 @@ public class EngineStateController {
             return ResponseEntity.ok(new ApiResult(true, null, capital));
         } catch (Exception e) {
             log.error("getNextTradeCapital error: account={}", accountId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ApiResult(false, e.getMessage(), null));
+        }
+    }
+
+    /**
+     * GET /api/engine/active-accounts
+     *
+     * Returns all active eligible accounts (is_active=true, algo_enabled=true, kill_switch_active=false).
+     * Strictly returns account metadata (IDs, active status, balances).
+     * Zero credentials or encryption keys are ever returned.
+     */
+    @GetMapping("/active-accounts")
+    public ResponseEntity<ApiResult> getActiveEligibleAccounts(
+            @RequestHeader(value = "X-Engine-Api-Key", required = false) String apiKey
+    ) {
+        if (!isAuthorized(apiKey)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiResult(false, "UNAUTHORIZED", null));
+        }
+        try {
+            var accounts = accountRepository.findByIsActiveTrueAndAlgoEnabledTrueAndKillSwitchActiveFalse();
+            var dtos = accounts.stream().map(a -> new ActiveAccountDto(
+                    a.getId(),
+                    a.getUser().getId(),
+                    a.getName(),
+                    Boolean.TRUE.equals(a.getIsActive()),
+                    Boolean.TRUE.equals(a.getAlgoEnabled()),
+                    Boolean.TRUE.equals(a.getKillSwitchActive()),
+                    a.getCurrentBalance()
+            )).toList();
+            return ResponseEntity.ok(new ApiResult(true, null, dtos));
+        } catch (Exception e) {
+            log.error("getActiveEligibleAccounts error", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(new ApiResult(false, e.getMessage(), null));
         }

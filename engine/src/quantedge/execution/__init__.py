@@ -169,4 +169,17 @@ __all__ = [
     "ReconciliationReport",
     "TradeCostBreakdown",
     "DeltaReconciliationService",
+    "UserAccountConfig",
+    "UserExecutionResult",
+    "MultiUserDispatchSummary",
+    "UserExecutionSession",
+    "MultiUserExecutionOrchestrator",
 ]
+
+from quantedge.execution.multi_user_orchestrator import (
+    UserAccountConfig,
+    UserExecutionResult,
+    MultiUserDispatchSummary,
+    UserExecutionSession,
+    MultiUserExecutionOrchestrator,
+)

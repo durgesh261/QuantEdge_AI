@@ -13,4 +13,6 @@ public interface TradingAccountRepository extends JpaRepository<TradingAccount, 
     List<TradingAccount> findByUserId(String userId);
 
     Optional<TradingAccount> findByIdAndUserId(String id, String userId);
+
+    List<TradingAccount> findByIsActiveTrueAndAlgoEnabledTrueAndKillSwitchActiveFalse();
 }

@@ -69,6 +69,8 @@ quantedge:
     secret: ${JWT_SECRET:dev-secret-key-change-in-production-min-256-bits}
     expiration: 86400000 # 24 hours
     refresh-expiration: 604800000 # 7 days
+  encryption:
+    key: ${ENCRYPTION_KEY:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   delta:
@@ -97,5 +99,7 @@ spring:
 quantedge:
   jwt:
     secret: test-secret-key-for-testing-purposes-only-256-bits-minimum
+  encryption:
+    key: test-encryption-key-for-unit-tests-only-256-bits-fixed
   cors:
     allowed-origins: http://localhost:3000
