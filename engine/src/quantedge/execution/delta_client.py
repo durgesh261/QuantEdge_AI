@@ -32,7 +32,7 @@ from quantedge.execution.models import (
     OrderStatus,
     ConnectionState,
 )
-from quantedge.execution.security import mask_secret, sanitize_text
+from quantedge.execution.security import mask_secret, sanitize_text, load_project_env
 
 logger = logging.getLogger("delta_execution_client")
 
@@ -157,7 +157,8 @@ class DeltaIndiaClient:
 
     @classmethod
     def from_env(cls, base_url: Optional[str] = None, timeout_seconds: float = 10.0) -> "DeltaIndiaClient":
-        """Instantiate client securely from environment variables."""
+        """Instantiate client securely from environment variables, loading .env if present."""
+        load_project_env()
         api_key = os.getenv("DELTA_API_KEY", "").strip()
         api_secret = os.getenv("DELTA_API_SECRET", "").strip()
         url = base_url or os.getenv("DELTA_BASE_URL", DELTA_INDIA_PRODUCTION_URL).strip()

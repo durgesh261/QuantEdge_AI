@@ -74,3 +74,41 @@ def sanitize_text(text: str, secrets_to_redact: Optional[Iterable[Optional[str]]
             if secret and len(secret) > 3 and secret in sanitized:
                 sanitized = sanitized.replace(secret, mask_secret(secret))
     return sanitized
+
+
+def load_project_env(override: bool = False) -> tuple[bool, Optional[str]]:
+    """Locate and load .env file from workspace root, current directory, or parent paths.
+
+    Returns:
+        (loaded_success: bool, loaded_path: Optional[str])
+    """
+    try:
+        from dotenv import load_dotenv, find_dotenv
+        
+        # 1. Try find_dotenv from cwd
+        dotenv_path = find_dotenv(usecwd=True)
+        if dotenv_path and os.path.isfile(dotenv_path):
+            load_dotenv(dotenv_path, override=override)
+            return True, dotenv_path
+
+        # 2. Try relative to this file's repository root (up 4 levels)
+        # engine/src/quantedge/execution/security.py -> ../../../../.env
+        repo_root_env = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".env")
+        )
+        if os.path.isfile(repo_root_env):
+            load_dotenv(repo_root_env, override=override)
+            return True, repo_root_env
+
+        # 3. Try engine directory .env
+        engine_env = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", ".env")
+        )
+        if os.path.isfile(engine_env):
+            load_dotenv(engine_env, override=override)
+            return True, engine_env
+
+        return False, None
+    except ImportError:
+        return False, None
+
