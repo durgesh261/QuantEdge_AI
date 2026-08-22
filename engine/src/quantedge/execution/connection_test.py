@@ -95,12 +95,14 @@ async def run_live_connection_test(base_url: str = DELTA_INDIA_PRODUCTION_URL) -
 
             if auth_pass:
                 balances = await client.get_wallet_balances()
-                usdt_bal = next((b for b in balances if b.asset_symbol == "USDT"), None)
-                if usdt_bal:
-                    equity_usdt = usdt_bal.balance
-                    available_usdt = usdt_bal.available_balance
-                    blocked_margin_usdt = usdt_bal.blocked_margin
-                    user_id = usdt_bal.user_id
+                usd_bal = next((b for b in balances if b.asset_symbol in ("USD", "USDT") and b.balance > 0), None)
+                if not usd_bal and balances:
+                    usd_bal = next((b for b in balances if b.asset_symbol in ("USD", "USDT")), None)
+                if usd_bal:
+                    equity_usdt = usd_bal.balance
+                    available_usdt = usd_bal.available_balance
+                    blocked_margin_usdt = usd_bal.blocked_margin
+                    user_id = usd_bal.user_id
 
                 positions = await client.get_positions()
                 positions_count = len(positions)

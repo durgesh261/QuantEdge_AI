@@ -203,8 +203,11 @@ class DeltaIndiaClient:
         if self._custom_http_client is not None:
             return self._custom_http_client
         if self._owned_http_client is None or self._owned_http_client.is_closed:
+            # Bind to IPv4 0.0.0.0 to ensure requests route through whitelisted IPv4 address
+            transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
             self._owned_http_client = httpx.AsyncClient(
                 base_url=self.base_url,
+                transport=transport,
                 timeout=httpx.Timeout(self.timeout_seconds),
                 headers={"User-Agent": "QuantEdge-AI/2.0"},
             )

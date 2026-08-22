@@ -147,12 +147,14 @@ def mock_client_live():
 async def test_safety_gate_missing_credentials():
     """Verify safety gates halt gracefully when credentials are not configured."""
     with patch.dict("os.environ", {}, clear=True):
-        orchestrator = LiveDeltaExecutionProofOrchestrator()
-        gate_report = await orchestrator.evaluate_safety_gates()
+        with patch("quantedge.execution.security.load_project_env", return_value=(False, None)):
+            with patch("quantedge.execution.delta_client.load_project_env", return_value=(False, None)):
+                orchestrator = LiveDeltaExecutionProofOrchestrator()
+                gate_report = await orchestrator.evaluate_safety_gates()
 
-        assert gate_report.api_authentication_pass is False
-        assert gate_report.all_gates_passed is False
-        assert "Missing credentials" in gate_report.blocked_reason
+                assert gate_report.api_authentication_pass is False
+                assert gate_report.all_gates_passed is False
+                assert "Missing credentials" in gate_report.blocked_reason
 
 
 # ── Test 2: Safety Gate Evaluation with Auth Failure ──────────────────────────

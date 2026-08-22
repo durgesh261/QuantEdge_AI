@@ -285,11 +285,13 @@ class LiveDeltaExecutionProofOrchestrator:
                 blocked_reason=f"Failed to query account details: {e}",
             )
 
-        usdt_bal = next((b for b in balances if b.asset_symbol == "USDT"), None)
-        total_equity = usdt_bal.balance if usdt_bal else Decimal("0")
-        available_balance = usdt_bal.available_balance if usdt_bal else Decimal("0")
-        blocked_margin = usdt_bal.blocked_margin if usdt_bal else Decimal("0")
-        user_id_val = str(usdt_bal.user_id) if usdt_bal and usdt_bal.user_id else "live_user"
+        usd_bal = next((b for b in balances if b.asset_symbol in ("USD", "USDT") and b.balance > 0), None)
+        if not usd_bal and balances:
+            usd_bal = next((b for b in balances if b.asset_symbol in ("USD", "USDT")), None)
+        total_equity = usd_bal.balance if usd_bal else Decimal("0")
+        available_balance = usd_bal.available_balance if usd_bal else Decimal("0")
+        blocked_margin = usd_bal.blocked_margin if usd_bal else Decimal("0")
+        user_id_val = str(usd_bal.user_id) if usd_bal and usd_bal.user_id else "live_user"
         acct_id = f"acct-{user_id_val}"
 
         # Update local state store
@@ -586,8 +588,10 @@ class LiveDeltaExecutionProofOrchestrator:
             # 8. Reconcile Final Authoritative Balance & Net P&L
             print(">>> [6/6] Fetching final authoritative balance and fills from Delta Exchange...")
             final_balances = await self.client.get_wallet_balances()
-            final_usdt = next((b for b in final_balances if b.asset_symbol == "USDT"), None)
-            report.final_balance = final_usdt.available_balance if final_usdt else report.initial_balance
+            final_usd = next((b for b in final_balances if b.asset_symbol in ("USD", "USDT") and b.balance > 0), None)
+            if not final_usd and final_balances:
+                final_usd = next((b for b in final_balances if b.asset_symbol in ("USD", "USDT")), None)
+            report.final_balance = final_usd.available_balance if final_usd else report.initial_balance
 
             # Estimate net PnL
             report.net_pnl = report.final_balance - report.initial_balance
