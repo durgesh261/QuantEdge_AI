@@ -127,6 +127,35 @@ export interface UpdateAlgoConfigRequest {
   killSwitchActive?: boolean
 }
 
+export interface AlgoConfigHistoryItem {
+  id: string
+  action: string
+  description: string
+  timestamp: string
+}
+
+export interface AlgoConfigHistoryResponse {
+  success: boolean
+  accountId: string
+  history: AlgoConfigHistoryItem[]
+  message?: string
+}
+
+export interface TradeConfigSnapshotResponse {
+  success: boolean
+  setupId: string
+  accountId: string
+  strategyName: string
+  strategyVersion: string
+  configurationVersion: number
+  entryPrice: number
+  stopLoss: number
+  takeProfit: number
+  riskReward: number
+  createdAt: string
+  message?: string
+}
+
 export const accountService = {
   async connectAccount(data: ConnectAccountRequest): Promise<ConnectAccountResponse> {
     const response = await api.post<ConnectAccountResponse>('/api/v1/account/connect', data)
@@ -166,6 +195,20 @@ export const accountService = {
 
   async updateAlgoConfig(data: UpdateAlgoConfigRequest): Promise<AlgoConfigResponse> {
     const response = await api.put<AlgoConfigResponse>('/api/v1/account/algo-config', data)
+    return response.data
+  },
+
+  async getAlgoConfigHistory(accountId?: string): Promise<AlgoConfigHistoryResponse> {
+    const response = await api.get<AlgoConfigHistoryResponse>('/api/v1/account/algo-config/history', {
+      params: accountId ? { accountId } : undefined,
+    })
+    return response.data
+  },
+
+  async getTradeConfigSnapshot(setupId: string, accountId?: string): Promise<TradeConfigSnapshotResponse> {
+    const response = await api.get<TradeConfigSnapshotResponse>(`/api/v1/account/algo-config/snapshot/${setupId}`, {
+      params: accountId ? { accountId } : undefined,
+    })
     return response.data
   },
 }

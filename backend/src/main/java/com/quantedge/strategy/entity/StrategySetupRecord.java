@@ -39,6 +39,9 @@ public class StrategySetupRecord extends BaseEntity {
     @Column(name = "strategy_version", nullable = false, length = 20)
     private String strategyVersion = "2.1";
 
+    @Column(name = "configuration_version")
+    private Integer configurationVersion = 1;
+
     @Column(name = "entry_price", precision = 20, scale = 8, nullable = false)
     private BigDecimal entryPrice;
 
@@ -87,6 +90,7 @@ public class StrategySetupRecord extends BaseEntity {
         this.expiresAt = expiresAt;
         this.strategyName = "SMC";
         this.strategyVersion = "2.1";
+        this.configurationVersion = 1;
     }
 
     public TradingAccount getTradingAccount() { return tradingAccount; }
@@ -112,6 +116,9 @@ public class StrategySetupRecord extends BaseEntity {
 
     public String getStrategyVersion() { return strategyVersion; }
     public void setStrategyVersion(String strategyVersion) { this.strategyVersion = strategyVersion; }
+
+    public Integer getConfigurationVersion() { return configurationVersion; }
+    public void setConfigurationVersion(Integer configurationVersion) { this.configurationVersion = configurationVersion; }
 
     public BigDecimal getEntryPrice() { return entryPrice; }
     public void setEntryPrice(BigDecimal entryPrice) { this.entryPrice = entryPrice; }

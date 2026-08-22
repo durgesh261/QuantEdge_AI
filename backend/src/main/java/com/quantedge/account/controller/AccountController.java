@@ -140,4 +140,31 @@ public class AccountController {
             return ResponseEntity.badRequest().body(response);
         }
     }
+
+    @GetMapping("/algo-config/history")
+    public ResponseEntity<AccountManagementService.AlgoConfigHistoryResponse> getAlgoConfigHistory(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @RequestParam(value = "accountId", required = false) String accountId
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        AccountManagementService.AlgoConfigHistoryResponse response = accountService.getAlgoConfigHistory(effectiveUser, accountId);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/algo-config/snapshot/{setupId}")
+    public ResponseEntity<AccountManagementService.TradeConfigSnapshotResponse> getTradeConfigSnapshot(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @PathVariable("setupId") String setupId,
+            @RequestParam(value = "accountId", required = false) String accountId
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        AccountManagementService.TradeConfigSnapshotResponse response = accountService.getTradeConfigSnapshot(effectiveUser, setupId, accountId);
+        if (response.success()) {
+            return ResponseEntity.ok(response);
+        } else {
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
 }

@@ -12,6 +12,8 @@ import com.quantedge.portfolio.entity.Position;
 import com.quantedge.portfolio.repository.PositionRepository;
 import com.quantedge.risk.entity.RiskConfiguration;
 import com.quantedge.risk.repository.RiskConfigurationRepository;
+import com.quantedge.strategy.entity.StrategySetupRecord;
+import com.quantedge.strategy.repository.StrategySetupRepository;
 import com.quantedge.trading.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,7 @@ public class AccountManagementService {
     private final DeltaCredentialService credentialService;
     private final LiveAccountSyncService syncService;
     private final RiskConfigurationRepository riskConfigRepository;
+    private final StrategySetupRepository strategySetupRepository;
 
     public AccountManagementService(
             TradingAccountRepository accountRepository,
@@ -46,7 +49,8 @@ public class AccountManagementService {
             AuditLogRepository auditLogRepository,
             DeltaCredentialService credentialService,
             LiveAccountSyncService syncService,
-            RiskConfigurationRepository riskConfigRepository
+            RiskConfigurationRepository riskConfigRepository,
+            StrategySetupRepository strategySetupRepository
     ) {
         this.accountRepository = accountRepository;
         this.connectionRepository = connectionRepository;
@@ -56,6 +60,7 @@ public class AccountManagementService {
         this.credentialService = credentialService;
         this.syncService = syncService;
         this.riskConfigRepository = riskConfigRepository;
+        this.strategySetupRepository = strategySetupRepository;
     }
 
     public record ConnectAccountRequest(
@@ -713,5 +718,72 @@ public class AccountManagementService {
         log.info("Updated algo configuration to version {} for account {}", config.getVersion(), account.getId());
 
         return AlgoConfigResponse.of(account, config);
+    }
+
+    public record AlgoConfigHistoryItem(
+            String id,
+            String action,
+            String description,
+            Instant timestamp
+    ) {}
+
+    public record AlgoConfigHistoryResponse(
+            boolean success,
+            String accountId,
+            List<AlgoConfigHistoryItem> history,
+            String message
+    ) {}
+
+    public record TradeConfigSnapshotResponse(
+            boolean success,
+            String setupId,
+            String accountId,
+            String strategyName,
+            String strategyVersion,
+            Integer configurationVersion,
+            BigDecimal entryPrice,
+            BigDecimal stopLoss,
+            BigDecimal takeProfit,
+            BigDecimal riskReward,
+            Instant createdAt,
+            String message
+    ) {}
+
+    @Transactional(readOnly = true)
+    public AlgoConfigHistoryResponse getAlgoConfigHistory(User user, String accountId) {
+        TradingAccount account = resolveAccount(user, accountId);
+        List<AuditLog> logs = auditLogRepository.findByTradingAccountId(account.getId());
+        List<AlgoConfigHistoryItem> items = logs.stream()
+                .filter(l -> "ALGO_CONFIG_UPDATED".equals(l.getAction()) || "KILL_SWITCH_TRIGGERED".equals(l.getAction()) || "KILL_SWITCH_RESET".equals(l.getAction()))
+                .map(l -> new AlgoConfigHistoryItem(l.getId(), l.getAction(), l.getDetails(), l.getCreatedAt()))
+                .toList();
+
+        return new AlgoConfigHistoryResponse(true, account.getId(), items, "Configuration audit history retrieved.");
+    }
+
+    @Transactional(readOnly = true)
+    public TradeConfigSnapshotResponse getTradeConfigSnapshot(User user, String setupId, String accountId) {
+        TradingAccount account = resolveAccount(user, accountId);
+        Optional<StrategySetupRecord> setupOpt = strategySetupRepository.findBySetupIdAndTradingAccountId(setupId, account.getId());
+
+        if (setupOpt.isEmpty()) {
+            return new TradeConfigSnapshotResponse(false, setupId, account.getId(), null, null, null, null, null, null, null, null, "Trade setup snapshot not found or access denied.");
+        }
+
+        StrategySetupRecord setup = setupOpt.get();
+        return new TradeConfigSnapshotResponse(
+                true,
+                setup.getSetupId(),
+                account.getId(),
+                setup.getStrategyName(),
+                setup.getStrategyVersion(),
+                setup.getConfigurationVersion(),
+                setup.getEntryPrice(),
+                setup.getStopLoss(),
+                setup.getTakeProfit(),
+                setup.getRiskReward(),
+                setup.getCreatedAt(),
+                "Trade configuration snapshot retrieved."
+        );
     }
 }

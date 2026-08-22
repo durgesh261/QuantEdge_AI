@@ -567,3 +567,111 @@ def test_20_strategy_contract_preserves_backend_authority():
     assert decision.take_profit < decision.entry < decision.stop_loss
     assert decision.strategy_version == "2.1"
 
+
+def test_21_configuration_persistence_across_restarts(algo_store):
+    """21. Requirement A: Verify configuration and trade snapshots persist across engine restarts."""
+    # 1. User configures version 1
+    algo_store.update_config(
+        user_id="user_restart",
+        account_id="acc_restart",
+        take_profit_pct=Decimal("2.50"),
+        stop_loss_pct=Decimal("1.25"),
+    )
+    # 2. Trade 1 created with snapshot version 1
+    snap1 = algo_store.create_trade_snapshot("user_restart", "acc_restart", "SETUP_RESTART_1")
+    assert snap1.version == 2
+    assert snap1.take_profit_pct == Decimal("2.50")
+
+    # 3. User updates config to version 3
+    algo_store.update_config(
+        user_id="user_restart",
+        account_id="acc_restart",
+        take_profit_pct=Decimal("4.00"),
+    )
+    snap2 = algo_store.create_trade_snapshot("user_restart", "acc_restart", "SETUP_RESTART_2")
+    assert snap2.version == 3
+    assert snap2.take_profit_pct == Decimal("4.00")
+
+    # 4. Engine simulates restart: export state and load into fresh store
+    state_dump = algo_store.export_state()
+
+    fresh_store = AlgoConfigStore()
+    fresh_store.load_state(state_dump)
+
+    # 5. Verify restored active config
+    restored_config = fresh_store.get_config("user_restart", "acc_restart")
+    assert restored_config is not None
+    assert restored_config.version == 3
+    assert restored_config.take_profit_pct == Decimal("4.00")
+    assert restored_config.stop_loss_pct == Decimal("1.25")
+
+    # 6. Verify restored immutable snapshots
+    restored_snap1 = fresh_store.get_trade_snapshot("SETUP_RESTART_1")
+    assert restored_snap1 is not None
+    assert restored_snap1.version == 2
+    assert restored_snap1.take_profit_pct == Decimal("2.50")
+
+    restored_snap2 = fresh_store.get_trade_snapshot("SETUP_RESTART_2")
+    assert restored_snap2 is not None
+    assert restored_snap2.version == 3
+    assert restored_snap2.take_profit_pct == Decimal("4.00")
+
+
+@pytest.mark.asyncio
+async def test_22_cross_restart_trade_lifecycle_retrieval(lifecycle_manager, algo_store, bullish_decision):
+    """22. Verify lifecycle manager and trade snapshots maintain mathematical integrity across restarts."""
+    # 1. Trade 1 under version 1
+    trade1 = await lifecycle_manager.execute_trade_setup(
+        decision=bullish_decision,
+        account_id="acc_user_1",
+        user_id="user_1",
+        override_client_order_id="QE_BTCUSD_RESTART_1",
+    )
+    assert trade1.config_version == 1
+    assert trade1.config_snapshot.take_profit_pct == Decimal("2.00")
+
+    # 2. Update config to version 2
+    algo_store.update_config(
+        user_id="user_1",
+        account_id="acc_user_1",
+        take_profit_pct=Decimal("3.50"),
+    )
+
+    # 3. Trade 2 under version 2
+    decision2 = StrategyDecision(
+        timestamp=datetime.now(timezone.utc),
+        symbol="BTCUSD",
+        timeframe="1h",
+        direction=StrategyDirection.LONG,
+        setup_state=SetupState.TRADE_SETUP_READY,
+        setup_id="SETUP_RESTART_DEC_2",
+        entry=Decimal("95000.00"),
+        stop_loss=Decimal("94000.00"),
+        take_profit=Decimal("98000.00"),
+        risk_reward=Decimal("3.0"),
+    )
+    trade2 = await lifecycle_manager.execute_trade_setup(
+        decision=decision2,
+        account_id="acc_user_1",
+        user_id="user_1",
+        override_client_order_id="QE_BTCUSD_RESTART_2",
+    )
+    assert trade2.config_version == 2
+    assert trade2.config_snapshot.take_profit_pct == Decimal("3.50")
+
+    # 4. Engine simulates restart: export state and restore
+    state_dump = algo_store.export_state()
+    new_store = AlgoConfigStore()
+    new_store.load_state(state_dump)
+
+    # Historical Trade 1 snapshot still produces exact 2% TP calculation
+    snap1_restored = new_store.get_trade_snapshot(trade1.setup_id)
+    sl_1, tp_1, _ = snap1_restored.calculate_tp_sl(Decimal("100000.00"), TradeDirection.LONG)
+    assert tp_1 == Decimal("102000.00")
+
+    # Trade 2 snapshot still produces exact 3.5% TP calculation
+    snap2_restored = new_store.get_trade_snapshot(trade2.setup_id)
+    sl_2, tp_2, _ = snap2_restored.calculate_tp_sl(Decimal("100000.00"), TradeDirection.LONG)
+    assert tp_2 == Decimal("103500.00")
+
+

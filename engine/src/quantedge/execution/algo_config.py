@@ -17,6 +17,8 @@ Phase 5.7 Implementation:
    - Long: SL < Entry < TP
    - Short: TP < Entry < SL
    - Fail-closed geometry validation: zero exchange orders on invalid geometry.
+5. Multi-Tier Persistence & Serialization:
+   - State import/export for cross-restart and multi-tier synchronization.
 """
 
 from dataclasses import dataclass, field
@@ -134,6 +136,43 @@ class AlgoConfiguration:
             snapshot_timestamp=datetime.now(timezone.utc),
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize configuration to dictionary."""
+        return {
+            "account_id": self.account_id,
+            "user_id": self.user_id,
+            "take_profit_pct": str(self.take_profit_pct),
+            "stop_loss_pct": str(self.stop_loss_pct),
+            "risk_per_trade_pct": str(self.risk_per_trade_pct),
+            "max_risk_usd": str(self.max_risk_usd) if self.max_risk_usd is not None else None,
+            "max_daily_loss_usd": str(self.max_daily_loss_usd),
+            "max_leverage": self.max_leverage,
+            "algo_enabled": self.algo_enabled,
+            "kill_switch_active": self.kill_switch_active,
+            "version": self.version,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AlgoConfiguration":
+        """Reconstruct configuration from serialized dictionary."""
+        return cls(
+            account_id=data["account_id"],
+            user_id=data["user_id"],
+            take_profit_pct=Decimal(str(data["take_profit_pct"])),
+            stop_loss_pct=Decimal(str(data["stop_loss_pct"])),
+            risk_per_trade_pct=Decimal(str(data["risk_per_trade_pct"])),
+            max_risk_usd=Decimal(str(data["max_risk_usd"])) if data.get("max_risk_usd") is not None else None,
+            max_daily_loss_usd=Decimal(str(data.get("max_daily_loss_usd", "500.00"))),
+            max_leverage=int(data.get("max_leverage", 100)),
+            algo_enabled=bool(data.get("algo_enabled", False)),
+            kill_switch_active=bool(data.get("kill_switch_active", True)),
+            version=int(data.get("version", 1)),
+            created_at=datetime.fromisoformat(data["created_at"]) if "created_at" in data else datetime.now(timezone.utc),
+            updated_at=datetime.fromisoformat(data["updated_at"]) if "updated_at" in data else datetime.now(timezone.utc),
+        )
+
 
 # ── Immutable Trade Configuration Snapshot ───────────────────────────────────
 
@@ -200,6 +239,43 @@ class AlgoConfigurationSnapshot:
 
         rr = reward_dist / risk_dist
         return sl_price, tp_price, rr
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize snapshot to dictionary."""
+        return {
+            "setup_id": self.setup_id,
+            "account_id": self.account_id,
+            "user_id": self.user_id,
+            "version": self.version,
+            "take_profit_pct": str(self.take_profit_pct),
+            "stop_loss_pct": str(self.stop_loss_pct),
+            "risk_per_trade_pct": str(self.risk_per_trade_pct),
+            "max_risk_usd": str(self.max_risk_usd) if self.max_risk_usd is not None else None,
+            "max_daily_loss_usd": str(self.max_daily_loss_usd),
+            "max_leverage": self.max_leverage,
+            "algo_enabled_at_snapshot": self.algo_enabled_at_snapshot,
+            "kill_switch_active_at_snapshot": self.kill_switch_active_at_snapshot,
+            "snapshot_timestamp": self.snapshot_timestamp.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AlgoConfigurationSnapshot":
+        """Reconstruct snapshot from serialized dictionary."""
+        return cls(
+            setup_id=data.get("setup_id"),
+            account_id=data["account_id"],
+            user_id=data.get("user_id"),
+            version=int(data["version"]),
+            take_profit_pct=Decimal(str(data["take_profit_pct"])),
+            stop_loss_pct=Decimal(str(data["stop_loss_pct"])),
+            risk_per_trade_pct=Decimal(str(data["risk_per_trade_pct"])),
+            max_risk_usd=Decimal(str(data["max_risk_usd"])) if data.get("max_risk_usd") is not None else None,
+            max_daily_loss_usd=Decimal(str(data.get("max_daily_loss_usd", "500.00"))),
+            max_leverage=int(data.get("max_leverage", 100)),
+            algo_enabled_at_snapshot=bool(data.get("algo_enabled_at_snapshot", False)),
+            kill_switch_active_at_snapshot=bool(data.get("kill_switch_active_at_snapshot", True)),
+            snapshot_timestamp=datetime.fromisoformat(data["snapshot_timestamp"]) if "snapshot_timestamp" in data else datetime.now(timezone.utc),
+        )
 
 
 # ── Thread-Safe Algo Configuration Store ──────────────────────────────────────
@@ -291,3 +367,26 @@ class AlgoConfigStore:
         """Retrieve the immutable snapshot bound to an existing trade setup."""
         with self._lock:
             return self._trade_snapshots.get(setup_id)
+
+    def export_state(self) -> Dict[str, Any]:
+        """Export all configurations and trade snapshots for persistent storage / recovery across restarts."""
+        with self._lock:
+            return {
+                "configs": {
+                    f"{u}:{a}": c.to_dict()
+                    for (u, a), c in self._configs.items()
+                },
+                "trade_snapshots": {
+                    s_id: snap.to_dict()
+                    for s_id, snap in self._trade_snapshots.items()
+                },
+            }
+
+    def load_state(self, state: Dict[str, Any]) -> None:
+        """Load state from persistent storage, restoring versioned configs and historical trade snapshots."""
+        with self._lock:
+            for key_str, c_dict in state.get("configs", {}).items():
+                config = AlgoConfiguration.from_dict(c_dict)
+                self._configs[(config.user_id, config.account_id)] = config
+            for s_id, snap_dict in state.get("trade_snapshots", {}).items():
+                self._trade_snapshots[s_id] = AlgoConfigurationSnapshot.from_dict(snap_dict)
