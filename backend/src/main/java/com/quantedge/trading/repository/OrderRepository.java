@@ -20,5 +20,7 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     List<Order> findByTradingAccountIdAndStatusIn(String tradingAccountId, Collection<String> statuses);
 
+    List<Order> findByTradingAccountIdOrderByPlacedAtDesc(String tradingAccountId);
+
     int countByTradingAccountIdAndStatusIn(String tradingAccountId, Collection<String> statuses);
 }

@@ -445,6 +445,92 @@ public class OrderExecutionService {
         }
     }
 
+    public record ControlResponse(
+            boolean success,
+            boolean killSwitchActive,
+            boolean algoEnabled,
+            String message,
+            Instant timestamp
+    ) {}
+
+    @Transactional
+    public ControlResponse activateKillSwitch(String userId, String accountId, String reason) {
+        TradingAccount account = resolveAuthorizedAccount(userId, accountId);
+        account.setKillSwitchActive(true);
+        account.setAlgoEnabled(false);
+        tradingAccountRepository.save(account);
+
+        recordAuditLog(account, "KILL_SWITCH_ACTIVATED", "TradingAccount", account.getId(),
+                "Emergency kill switch activated: " + (reason != null ? reason : "Operator action"));
+
+        log.warn("Emergency kill switch ACTIVATED for account {} by user {}", account.getId(), userId);
+
+        return new ControlResponse(true, true, false, "Emergency kill switch activated. All new trading halted.", Instant.now());
+    }
+
+    @Transactional
+    public ControlResponse resetKillSwitch(String userId, String accountId) {
+        TradingAccount account = resolveAuthorizedAccount(userId, accountId);
+        account.setKillSwitchActive(false);
+        tradingAccountRepository.save(account);
+
+        recordAuditLog(account, "KILL_SWITCH_RESET", "TradingAccount", account.getId(), "Kill switch reset by authorized user");
+
+        log.info("Kill switch RESET for account {} by user {}", account.getId(), userId);
+
+        return new ControlResponse(true, false, account.getAlgoEnabled(), "Emergency kill switch reset. Trading safety disarmed.", Instant.now());
+    }
+
+    @Transactional
+    public ControlResponse setAlgoEnabled(String userId, String accountId, boolean enabled) {
+        TradingAccount account = resolveAuthorizedAccount(userId, accountId);
+        if (enabled && Boolean.TRUE.equals(account.getKillSwitchActive())) {
+            return new ControlResponse(false, true, false, "Cannot enable algorithmic trading while emergency kill switch is active.", Instant.now());
+        }
+
+        account.setAlgoEnabled(enabled);
+        tradingAccountRepository.save(account);
+
+        recordAuditLog(account, enabled ? "ALGO_ENABLED" : "ALGO_DISABLED", "TradingAccount", account.getId(),
+                "Algorithmic execution state changed to " + enabled);
+
+        log.info("Algorithmic trading state set to {} for account {} by user {}", enabled, account.getId(), userId);
+
+        return new ControlResponse(true, account.getKillSwitchActive(), enabled,
+                "Algorithmic trading state updated to " + enabled, Instant.now());
+    }
+
+    @Transactional(readOnly = true)
+    public List<Order> getActiveOrders(String userId, String accountId) {
+        TradingAccount account = resolveAuthorizedAccount(userId, accountId);
+        return orderRepository.findByTradingAccountIdAndStatusIn(account.getId(), List.of("PENDING", "OPEN", "PARTIALLY_FILLED", "SUBMITTED"));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Order> getOrderHistory(String userId, String accountId) {
+        TradingAccount account = resolveAuthorizedAccount(userId, accountId);
+        return orderRepository.findByTradingAccountIdOrderByPlacedAtDesc(account.getId());
+    }
+
+    private TradingAccount resolveAuthorizedAccount(String userId, String accountId) {
+        if (accountId != null && !accountId.trim().isEmpty()) {
+            TradingAccount account = tradingAccountRepository.findById(accountId)
+                    .orElseThrow(() -> new IllegalArgumentException("Trading account not found: " + accountId));
+            if (userId != null && !account.getUser().getId().equals(userId)) {
+                throw new SecurityException("Unauthorized access to trading account");
+            }
+            return account;
+        }
+        if (userId == null) {
+            throw new SecurityException("User authentication required");
+        }
+        List<TradingAccount> accounts = tradingAccountRepository.findByUserId(userId);
+        if (accounts.isEmpty()) {
+            throw new IllegalStateException("No trading account configured for user");
+        }
+        return accounts.get(0);
+    }
+
     private int getProductIdForSymbol(String symbol) {
         return switch (symbol.toUpperCase()) {
             case "ETHUSD", "ETHUSD.P" -> 1399;

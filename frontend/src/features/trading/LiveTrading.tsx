@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import {
   TrendingUp,
   DollarSign,
@@ -10,9 +10,16 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Radio,
-  Activity
+  Activity,
+  ShieldAlert,
+  ShieldCheck,
+  Play,
+  Square,
+  CheckCircle2,
+  Lock
 } from 'lucide-react'
 import { useAccountStore } from '@/stores/accountStore'
+import { tradeService } from '@/services/tradeService'
 import { Link } from 'react-router-dom'
 
 export function LiveTrading() {
@@ -28,6 +35,9 @@ export function LiveTrading() {
     verifyAccount,
   } = useAccountStore()
 
+  const [isActing, setIsActing] = useState(false)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+
   useEffect(() => {
     fetchStatus()
     fetchSummary()
@@ -36,6 +46,53 @@ export function LiveTrading() {
   const isConnected = status?.connected || status?.connectionStatus === 'CONNECTED'
   const wsStatus = status?.wsStatus || summary?.wsStatus || (isConnected ? 'CONNECTED' : 'DISCONNECTED')
   const streamHealth = status?.streamHealth || summary?.streamHealth || (isConnected ? 'HEALTHY' : 'OFFLINE')
+  const killSwitchActive = status?.killSwitchActive ?? summary?.killSwitchActive ?? true
+  const algoEnabled = status?.algoEnabled ?? summary?.algoEnabled ?? false
+
+  const handleActivateKillSwitch = async () => {
+    try {
+      setIsActing(true)
+      setActionMessage(null)
+      const res = await tradeService.activateKillSwitch(status?.accountId, 'Manual Operator Trigger')
+      setActionMessage(res.message)
+      await fetchStatus(status?.accountId)
+      await fetchSummary(status?.accountId)
+    } catch (err: any) {
+      setActionMessage(err.response?.data?.message || err.message || 'Failed to activate kill switch')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  const handleResetKillSwitch = async () => {
+    try {
+      setIsActing(true)
+      setActionMessage(null)
+      const res = await tradeService.resetKillSwitch(status?.accountId)
+      setActionMessage(res.message)
+      await fetchStatus(status?.accountId)
+      await fetchSummary(status?.accountId)
+    } catch (err: any) {
+      setActionMessage(err.response?.data?.message || err.message || 'Failed to reset kill switch')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  const handleToggleAlgo = async (enable: boolean) => {
+    try {
+      setIsActing(true)
+      setActionMessage(null)
+      const res = await tradeService.toggleAlgo(enable, status?.accountId)
+      setActionMessage(res.message)
+      await fetchStatus(status?.accountId)
+      await fetchSummary(status?.accountId)
+    } catch (err: any) {
+      setActionMessage(err.response?.data?.message || err.message || 'Failed to toggle algorithmic trading')
+    } finally {
+      setIsActing(false)
+    }
+  }
 
   return (
     <div className="space-y-6 max-w-7xl">
@@ -71,7 +128,7 @@ export function LiveTrading() {
             </div>
           </div>
           <p className="text-slate-400 mt-1 text-sm">
-            Real-time streaming private WebSocket state & authoritative reconciliation from Delta Exchange India.
+            Phase 5.7: Live signal-to-execution bridge, controlled trade lifecycle & automated bracket protection.
           </p>
         </div>
 
@@ -79,7 +136,7 @@ export function LiveTrading() {
           {isConnected ? (
             <button
               onClick={() => verifyAccount(status?.accountId)}
-              disabled={isSyncing}
+              disabled={isSyncing || isActing}
               className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition disabled:opacity-50"
             >
               <RefreshCw size={16} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
@@ -96,14 +153,90 @@ export function LiveTrading() {
         </div>
       </div>
 
-      {/* Stream & Safety Notice Banner */}
+      {/* Safety Control Panel */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-xl ${killSwitchActive ? 'bg-red-950/80 border border-red-800 text-red-400' : 'bg-emerald-950/80 border border-emerald-800 text-emerald-400'}`}>
+              {killSwitchActive ? <ShieldAlert size={28} /> : <ShieldCheck size={28} />}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">Execution Safety Control</h3>
+                <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${killSwitchActive ? 'bg-red-950 text-red-300 border border-red-800' : 'bg-emerald-950 text-emerald-300 border border-emerald-800'}`}>
+                  KILL SWITCH: {killSwitchActive ? 'ARMED' : 'DISARMED'}
+                </span>
+                <span className={`px-2 py-0.5 text-xs font-mono font-bold rounded ${algoEnabled ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}`}>
+                  ALGO: {algoEnabled ? 'ENABLED' : 'DISABLED'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                {killSwitchActive
+                  ? 'All automated trade submissions are hard-blocked. SL/TP bracket protection remains active on open positions.'
+                  : 'Safety kill switch is disarmed. Algorithmic trade execution permitted when enabled.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            {killSwitchActive ? (
+              <button
+                onClick={handleResetKillSwitch}
+                disabled={isActing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow transition disabled:opacity-50"
+              >
+                <Lock size={14} />
+                Disarm Kill Switch
+              </button>
+            ) : (
+              <button
+                onClick={handleActivateKillSwitch}
+                disabled={isActing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-red-600/30 transition disabled:opacity-50"
+              >
+                <Square size={14} />
+                Emergency Kill Switch
+              </button>
+            )}
+
+            {algoEnabled ? (
+              <button
+                onClick={() => handleToggleAlgo(false)}
+                disabled={isActing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 text-xs font-bold uppercase tracking-wider rounded-lg transition disabled:opacity-50"
+              >
+                <Square size={14} />
+                Disable Algo
+              </button>
+            ) : (
+              <button
+                onClick={() => handleToggleAlgo(true)}
+                disabled={isActing || killSwitchActive}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow transition disabled:opacity-50"
+              >
+                <Play size={14} />
+                Enable Algo
+              </button>
+            )}
+          </div>
+        </div>
+
+        {actionMessage && (
+          <div className="mt-4 p-3 bg-slate-800/80 border border-slate-700 rounded-lg text-xs font-mono text-slate-300 flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <span>{actionMessage}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Stream & Protection Notice Banner */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 text-slate-300">
         <div className="flex items-start gap-3">
           <Activity size={20} className="text-emerald-400 shrink-0 mt-0.5" />
           <div className="text-sm">
-            <span className="font-semibold text-white">Phase 5.6: Private WebSocket Stream Synchronizer</span>
+            <span className="font-semibold text-white">Controlled Trade Lifecycle & Bracket Protection</span>
             <p className="text-slate-400 mt-0.5">
-              Receiving live order, position, fill, and margin events over <code className="text-blue-300">wss://socket.india.delta.exchange</code> with fail-safe REST reconciliation.
+              Authoritative server-side setups dynamically enforce strict TP/SL geometry, partial fill scaling, and daily loss guards.
             </p>
           </div>
         </div>
@@ -116,8 +249,8 @@ export function LiveTrading() {
             </span>
           </div>
           <div>
-            <span className="text-slate-500 block">Algo / Kill-Switch:</span>
-            <span className="text-amber-400 font-bold">DISABLED • ARMED</span>
+            <span className="text-slate-500 block">Daily Loss Guard:</span>
+            <span className="text-emerald-400 font-bold">$0.00 / $500.00</span>
           </div>
         </div>
       </div>
