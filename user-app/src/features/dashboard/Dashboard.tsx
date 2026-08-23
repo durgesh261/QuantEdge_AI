@@ -13,13 +13,13 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { useMarketStore } from '../../stores/marketStore'
 import { apiClient } from '../../services/apiClient'
-import { TradingSystemStatus, AccountSummary } from '../../types/trading'
+import { TradingSystemStatusDto, AccountSummaryDto } from '../../types/trading'
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuthStore()
   const { tickers, fetchTicker } = useMarketStore()
-  const [tradingStatus, setTradingStatus] = useState<TradingSystemStatus | null>(null)
-  const [accountSummary, setAccountSummary] = useState<AccountSummary | null>(null)
+  const [tradingStatus, setTradingStatus] = useState<TradingSystemStatusDto | null>(null)
+  const [accountSummary, setAccountSummary] = useState<AccountSummaryDto | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -29,8 +29,8 @@ export const Dashboard: React.FC = () => {
       try {
         setIsLoading(true)
         const [statusRes, summaryRes] = await Promise.allSettled([
-          apiClient.get<TradingSystemStatus>('/api/v1/trade/status'),
-          apiClient.get<AccountSummary>('/api/v1/account/summary'),
+          apiClient.get<TradingSystemStatusDto>('/api/v1/trade/status'),
+          apiClient.get<AccountSummaryDto>('/api/v1/account/summary'),
         ])
 
         if (statusRes.status === 'fulfilled') {
@@ -198,7 +198,7 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Live Mark Price:</span>
-                <span className="text-white">${btc?.price?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '65,000.00'}</span>
+                <span className="text-white">${(btc?.markPrice ?? btc?.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '65,000.00'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Order Authority Invariant:</span>

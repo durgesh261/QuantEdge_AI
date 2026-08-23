@@ -1,25 +1,5 @@
-export interface Product {
-  symbol: string
-  displayName: string
-  quoteCurrency: string
-  contractSize: string
-  tickSize: string
-  state: string
-}
-
-export interface Ticker {
-  symbol: string
-  price: number
-  bid: number
-  ask: number
-  volume24h: number
-  change24h: number
-  markPrice: number
-  timestamp: string
-}
-
-export interface Candle {
-  time: number // Unix timestamp (seconds)
+export interface CandleDto {
+  timestamp: number
   open: number
   high: number
   low: number
@@ -27,17 +7,43 @@ export interface Candle {
   volume: number
 }
 
-export interface ChartCandlesResponse {
+export interface ChartCandlesResponseDto {
   symbol: string
+  exchange: string
   interval: string
-  candles: Candle[]
-  source: string
+  candles: CandleDto[]
 }
 
-export interface MarketStatus {
+export interface TickerDto {
   symbol: string
-  connected: boolean
+  markPrice: number
   lastPrice: number
+  high24h: number
+  low24h: number
+  volume24h: number
+  turnover24h: number
+  priceChangePercent24h: number
   timestamp: string
-  streamHealth: string
+}
+
+export interface ProductDto {
+  productId: number
+  symbol: string
+  description: string
+  contractType: string
+  baseAsset: string
+  quoteAsset: string
+  settlementAsset: string
+  tickSize: number
+  lotSize: number
+  minOrderQty: number
+  active: boolean
+}
+
+export interface MarketStatusDto {
+  connected: boolean
+  exchange: string
+  primarySymbol: string
+  latencyMs: number
+  timestamp: string
 }

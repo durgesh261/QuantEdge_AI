@@ -1,12 +1,12 @@
 import { create } from 'zustand'
-import { Ticker, Product } from '../types/market'
+import { TickerDto, ProductDto } from '../types/market'
 import { marketService } from '../services/marketService'
 
 interface MarketState {
   activeSymbol: string
   activeInterval: string
-  products: Product[]
-  tickers: Record<string, Ticker>
+  products: ProductDto[]
+  tickers: Record<string, TickerDto>
   isLoading: boolean
   setActiveSymbol: (symbol: string) => void
   setActiveInterval: (interval: string) => void

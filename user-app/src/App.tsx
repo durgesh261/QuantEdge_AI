@@ -4,6 +4,7 @@ import { PrivateRoute, PublicRoute } from './components/common/PrivateRoute'
 import { Login } from './features/auth/Login'
 import { Signup } from './features/auth/Signup'
 import { Dashboard } from './features/dashboard/Dashboard'
+import { TradingTerminal } from './features/terminal/TradingTerminal'
 
 export function App() {
   return (
@@ -34,8 +35,7 @@ export function App() {
             <Layout>
               <Routes>
                 <Route path="" element={<Dashboard />} />
-                {/* Subsequent Step Placeholders redirecting gracefully to Dashboard */}
-                <Route path="terminal" element={<Dashboard />} />
+                <Route path="terminal" element={<TradingTerminal />} />
                 <Route path="signals" element={<Dashboard />} />
                 <Route path="intelligence" element={<Dashboard />} />
                 <Route path="orders" element={<Dashboard />} />

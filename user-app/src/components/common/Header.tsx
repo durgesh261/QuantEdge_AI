@@ -62,9 +62,9 @@ export const Header: React.FC = () => {
         {btc && (
           <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
             <span className="text-slate-400 font-semibold">BTC/USD</span>
-            <span className="text-white font-bold">${btc.price?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${btc.change24h >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {btc.change24h >= 0 ? '+' : ''}{btc.change24h?.toFixed(2)}%
+            <span className="text-white font-bold">${(btc.markPrice ?? btc.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className={`flex items-center ${(btc.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+              {(btc.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{btc.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
             </span>
           </div>
         )}
@@ -72,9 +72,9 @@ export const Header: React.FC = () => {
         {eth && (
           <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
             <span className="text-slate-400 font-semibold">ETH/USD</span>
-            <span className="text-white font-bold">${eth.price?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${eth.change24h >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {eth.change24h >= 0 ? '+' : ''}{eth.change24h?.toFixed(2)}%
+            <span className="text-white font-bold">${(eth.markPrice ?? eth.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className={`flex items-center ${(eth.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+              {(eth.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{eth.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
             </span>
           </div>
         )}
@@ -82,9 +82,9 @@ export const Header: React.FC = () => {
         {sol && (
           <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
             <span className="text-slate-400 font-semibold">SOL/USD</span>
-            <span className="text-white font-bold">${sol.price?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${sol.change24h >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {sol.change24h >= 0 ? '+' : ''}{sol.change24h?.toFixed(2)}%
+            <span className="text-white font-bold">${(sol.markPrice ?? sol.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className={`flex items-center ${(sol.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+              {(sol.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{sol.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
             </span>
           </div>
         )}
