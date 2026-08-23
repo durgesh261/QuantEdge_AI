@@ -9,13 +9,9 @@ dependencies = [
     "numpy>=1.26.0",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.3.0",
-    "ta-lib>=0.4.28",
-    "ccxt>=4.2.0",
-    "asyncio-throttle>=1.0.2",
     "httpx>=0.27.0",
+    "websockets>=12.0",
     "python-dotenv>=1.0.0",
-    "loguru>=0.7.2",
-    "pyyaml>=6.0.1",
 ]
 
 [project.optional-dependencies]
@@ -29,16 +25,6 @@ dev = [
     "black>=24.3.0",
     "isort>=5.13.0",
     "pre-commit>=3.7.0",
-]
-backtest = [
-    "vectorbtpro>=0.28.0",
-    "empyrical>=0.5.5",
-]
-research = [
-    "jupyter>=1.0.0",
-    "matplotlib>=3.8.0",
-    "seaborn>=0.13.0",
-    "plotly>=5.20.0",
 ]
 
 [build-system]

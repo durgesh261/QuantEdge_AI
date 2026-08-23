@@ -57,7 +57,12 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletResponse response) {
+    public ResponseEntity<Void> logout(
+            @CookieValue(name = "refresh_token", required = false) String refreshToken,
+            HttpServletResponse response) {
+        // Server-side revocation: the refresh session can never be used again,
+        // even if the raw token was captured before logout.
+        userService.logout(refreshToken);
         clearAuthCookies(response);
         return ResponseEntity.ok().build();
     }

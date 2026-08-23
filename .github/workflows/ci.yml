@@ -12,14 +12,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+
+      - name: Make Maven wrapper executable
+        working-directory: ./backend
+        run: chmod +x mvnw
 
       - name: Run backend tests
         working-directory: ./backend
@@ -30,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
@@ -42,21 +46,21 @@ jobs:
         working-directory: ./engine
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[test]
+          pip install -e .[dev]
 
       - name: Run engine tests
         working-directory: ./engine
-        run: pytest -q
+        run: python -m pytest -q
 
   user-app-build:
     name: User App Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -75,10 +79,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'
@@ -97,14 +101,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify frozen SMC file hashes
         run: |
           echo "Verifying frozen SMC files..."
-          sha256sum engine/src/quantedge/smc/structure.py
-          sha256sum engine/src/quantedge/smc/order_blocks.py
-          sha256sum engine/src/quantedge/smc/volatility.py
           # Expected hashes (update if baseline changes intentionally)
           EXPECTED_STRUCTURE="0bc3dd39296a06972e28e773865631f6165f717ba1937a5aecdf9f765425f3bf"
           EXPECTED_ORDER_BLOCKS="b7d35962d2af7cd1015f41beeeeb50b1a4fca520feef4131bcdcf655a9f6cc45"
@@ -142,7 +143,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -196,23 +197,23 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build backend image
         run: |
-          docker build -f docker/Dockerfile.backend -t quantifiedge-backend:test ./backend
+          docker build -f docker/Dockerfile.backend -t quantifiedge-backend:test .
 
       - name: Build engine image
         run: |
-          docker build -f docker/Dockerfile.engine -t quantifiedge-engine:test ./engine
+          docker build -f docker/Dockerfile.engine -t quantifiedge-engine:test .
 
       - name: Build user-app image
         run: |
-          docker build -f docker/Dockerfile.user-app -t quantifiedge-user-app:test ./user-app
+          docker build -f docker/Dockerfile.user-app -t quantifiedge-user-app:test .
 
       - name: Build developer-app image
         run: |
-          docker build -f docker/Dockerfile.developer-app -t quantifiedge-developer-app:test ./developer-app
+          docker build -f docker/Dockerfile.developer-app -t quantifiedge-developer-app:test .

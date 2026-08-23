@@ -19,8 +19,8 @@ QuantEdge AI V2
 - **Trader Web Terminal (`user-app`)**: React 18 + TypeScript + Vite + Tailwind CSS + Lightweight Charts (Port 3100)
 - **Operator Console (`developer-app`)**: React 18 + TypeScript + Vite + Tailwind CSS (Port 3101)
 - **Backend API Gateway**: Java 21 + Spring Boot 3.x + Spring Security + PostgreSQL JPA (Port 8080)
-- **Trading Engine**: Python 3.11+ + Poetry/UV + pandas/numpy (Port 8000)
-- **Database**: PostgreSQL 16+ + Redis 7+
+- **Trading Engine**: Python 3.11+ (setuptools/pip) + pandas/numpy/httpx/websockets (Port 8000)
+- **Database**: PostgreSQL 16+ (Flyway migrations, authoritative persistence)
 - **Exchange Gateway**: Delta Exchange India REST / WebSocket (Server-Side only)
 
 ## Quick Start
@@ -40,14 +40,16 @@ QuantEdge AI V2
 # PYTHON_ENGINE_API_KEY before starting Compose.
 cp .env.example .env
 
-# Start infrastructure
-docker compose up -d postgres redis
+# Start infrastructure (PostgreSQL)
+docker compose up -d postgres
 
 # Backend (Spring Boot)
 cd backend && ./mvnw spring-boot:run
 
 # Python Engine
-cd engine && uv run python -m quantedge
+cd engine
+python -m pip install -e .[dev]
+python -m quantedge
 
 # Trader Application (Port 3100)
 cd user-app && npm ci && npm run dev
