@@ -27,39 +27,32 @@ export const useAuthStore = create<AuthState>((set) => ({
       const role = (res.user.role || '').toUpperCase()
       const isDevOrAdmin = role === 'DEVELOPER' || role === 'ADMIN'
 
+      if (!isDevOrAdmin) {
+        // Backend authenticated the user, but they lack the required role
+        set({ isLoading: false, error: null })
+        throw new Error('Access denied. This account does not have developer console privileges.')
+      }
+
       set({
         user: res.user,
         isAuthenticated: true,
-        isDeveloperOrAdmin: isDevOrAdmin,
+        isDeveloperOrAdmin: true,
         isLoading: false,
         error: null,
       })
     } catch (err: any) {
-      // Allow developer operator master key authorization
-      if (
-        (email.trim().toLowerCase() === 'developer@quantedge.internal' ||
-         email.trim().toLowerCase() === 'operator@quantedge.internal' ||
-         email.trim().toLowerCase() === 'admin@quantedge.internal') &&
-        (password === 'Admin@QuantEdge2026!' || password === 'Password123' || password === 'dev-key-quantedge-2026')
-      ) {
-        const devUser: User = {
-          id: 'dev-operator-001',
-          email: email.trim().toLowerCase(),
-          name: 'QuantEdge System Developer / Operator',
-          role: email.includes('admin') ? 'ADMIN' : 'DEVELOPER',
-          isActive: true,
-        }
-        set({
-          user: devUser,
-          isAuthenticated: true,
-          isDeveloperOrAdmin: true,
-          isLoading: false,
-          error: null,
-        })
-        return
+      const status = err.response?.status
+      let msg: string
+
+      if (status === 401 || status === 403 || status === 422) {
+        msg = 'Invalid developer credentials. Access denied.'
+      } else if (err.message && !err.response) {
+        // Re-thrown role error from above
+        msg = err.message
+      } else {
+        msg = err.response?.data?.message || 'Authentication failed. Please verify your credentials.'
       }
 
-      const msg = err.response?.data?.message || 'Authentication failed. Please verify developer credentials.'
       set({ error: msg, isLoading: false })
       throw new Error(msg)
     }
@@ -96,7 +89,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         isLoading: false,
         error: null,
       })
-    } catch (err) {
+    } catch {
       set({
         user: null,
         isAuthenticated: false,

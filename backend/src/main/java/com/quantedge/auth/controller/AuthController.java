@@ -1,5 +1,6 @@
 package com.quantedge.auth.controller;
 
+import com.quantedge.auth.entity.User;
 import com.quantedge.auth.service.UserService;
 import com.quantedge.common.config.JwtTokenProvider;
 import jakarta.servlet.http.Cookie;
@@ -9,10 +10,21 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * Authentication REST controller.
+ *
+ * With server.servlet.context-path=/api, the controller mapping "/v1/auth" produces
+ * the effective public URL: http://host:8080/api/v1/auth/**
+ *
+ * Frontend Vite proxy rewrites /api/* → http://localhost:8080/api/*, so frontend
+ * calls POST /api/v1/auth/signup → backend receives POST /v1/auth/signup (relative
+ * to context-path /api). This is consistent.
+ */
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/v1/auth")
 public class AuthController {
 
     private final UserService userService;
@@ -27,14 +39,14 @@ public class AuthController {
     public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest request, HttpServletResponse response) {
         UserService.AuthResult result = userService.signup(request.name(), request.email(), request.password());
         setAuthCookies(response, result.accessToken(), result.refreshToken());
-        return ResponseEntity.ok(new AuthResponse(result.user(), result.accessToken()));
+        return ResponseEntity.ok(new AuthResponse(result.user(), null));
     }
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request, HttpServletResponse response) {
         UserService.AuthResult result = userService.login(request.email(), request.password());
         setAuthCookies(response, result.accessToken(), result.refreshToken());
-        return ResponseEntity.ok(new AuthResponse(result.user(), result.accessToken()));
+        return ResponseEntity.ok(new AuthResponse(result.user(), null));
     }
 
     @PostMapping("/logout")
@@ -44,55 +56,68 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@CookieValue(name = "refresh_token", required = false) String refreshToken,
-                                                HttpServletResponse response) {
-        if (refreshToken == null) {
+    public ResponseEntity<AuthResponse> refresh(
+            @CookieValue(name = "refresh_token", required = false) String refreshToken,
+            HttpServletResponse response) {
+        if (refreshToken == null || refreshToken.isBlank()) {
             return ResponseEntity.status(401).build();
         }
-
         UserService.AuthResult result = userService.refreshToken(refreshToken);
         setAuthCookies(response, result.accessToken(), result.refreshToken());
-        return ResponseEntity.ok(new AuthResponse(result.user(), result.accessToken()));
+        return ResponseEntity.ok(new AuthResponse(result.user(), null));
     }
 
+    /**
+     * Returns the currently authenticated user.
+     * Relies entirely on Spring Security context populated by JwtAuthenticationFilter.
+     * No @RequestAttribute — that pattern requires a separate filter that was missing.
+     */
     @GetMapping("/me")
-    public ResponseEntity<AuthResponse> me(@RequestAttribute("currentUser") com.quantedge.auth.entity.User user) {
+    public ResponseEntity<AuthResponse> me(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(401).build();
+        }
+        User user = (User) authentication.getPrincipal();
         return ResponseEntity.ok(new AuthResponse(user, null));
     }
 
-    private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
-        Cookie accessCookie = new Cookie("access_token", accessToken);
-        accessCookie.setHttpOnly(true);
-        accessCookie.setSecure(false);
-        accessCookie.setPath("/");
-        accessCookie.setMaxAge(24 * 60 * 60);
-        accessCookie.setAttribute("SameSite", "Lax");
-        response.addCookie(accessCookie);
+    @PostMapping("/forgot-password")
+    public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        // Always return the same generic message regardless of whether the email exists
+        userService.initiatePasswordReset(request.email());
+        return ResponseEntity.ok(new MessageResponse(
+                "If an account exists for this email, a password reset link has been sent."));
+    }
 
-        Cookie refreshCookie = new Cookie("refresh_token", refreshToken);
-        refreshCookie.setHttpOnly(true);
-        refreshCookie.setSecure(false);
-        refreshCookie.setPath("/");
-        refreshCookie.setMaxAge(7 * 24 * 60 * 60);
-        refreshCookie.setAttribute("SameSite", "Lax");
-        response.addCookie(refreshCookie);
+    @PostMapping("/reset-password")
+    public ResponseEntity<MessageResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        userService.resetPassword(request.token(), request.newPassword());
+        return ResponseEntity.ok(new MessageResponse("Password has been reset. You may now sign in with your new password."));
+    }
+
+    // ─── Cookie helpers ────────────────────────────────────────────────────────
+
+    private void setAuthCookies(HttpServletResponse response, String accessToken, String refreshToken) {
+        response.addCookie(buildCookie("access_token", accessToken, 24 * 60 * 60));
+        response.addCookie(buildCookie("refresh_token", refreshToken, 7 * 24 * 60 * 60));
     }
 
     private void clearAuthCookies(HttpServletResponse response) {
-        Cookie accessCookie = new Cookie("access_token", "");
-        accessCookie.setHttpOnly(true);
-        accessCookie.setSecure(false);
-        accessCookie.setPath("/");
-        accessCookie.setMaxAge(0);
-        response.addCookie(accessCookie);
-
-        Cookie refreshCookie = new Cookie("refresh_token", "");
-        refreshCookie.setHttpOnly(true);
-        refreshCookie.setSecure(false);
-        refreshCookie.setPath("/");
-        refreshCookie.setMaxAge(0);
-        response.addCookie(refreshCookie);
+        response.addCookie(buildCookie("access_token", "", 0));
+        response.addCookie(buildCookie("refresh_token", "", 0));
     }
+
+    private Cookie buildCookie(String name, String value, int maxAge) {
+        Cookie cookie = new Cookie(name, value);
+        cookie.setHttpOnly(true);
+        cookie.setSecure(false);   // set true behind HTTPS reverse proxy in production
+        cookie.setPath("/");
+        cookie.setMaxAge(maxAge);
+        cookie.setAttribute("SameSite", "Lax");
+        return cookie;
+    }
+
+    // ─── Request / Response Records ───────────────────────────────────────────
 
     public record SignupRequest(
             @NotBlank @Size(min = 2, max = 100) String name,
@@ -105,20 +130,22 @@ public class AuthController {
             @NotBlank String password
     ) {}
 
-    public record AuthResponse(
-            UserDto user,
-            String accessToken
-    ) {
-        public AuthResponse(com.quantedge.auth.entity.User user, String accessToken) {
+    public record ForgotPasswordRequest(
+            @NotBlank @Email String email
+    ) {}
+
+    public record ResetPasswordRequest(
+            @NotBlank String token,
+            @NotBlank @Size(min = 8, max = 128) String newPassword
+    ) {}
+
+    public record AuthResponse(UserDto user, String accessToken) {
+        public AuthResponse(User user, String accessToken) {
             this(new UserDto(user.getId(), user.getName(), user.getEmail(), user.getRole(), user.getIsActive()), accessToken);
         }
     }
 
-    public record UserDto(
-            String id,
-            String name,
-            String email,
-            String role,
-            Boolean isActive
-    ) {}
+    public record UserDto(String id, String name, String email, String role, Boolean isActive) {}
+
+    public record MessageResponse(String message) {}
 }

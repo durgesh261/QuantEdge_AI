@@ -37,6 +37,19 @@ spring:
       max-file-size: 10MB
       max-request-size: 10MB
 
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    from: ${MAIL_FROM:noreply@quantedge.ai}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS:true}
+
 server:
   port: 8080
   servlet:
@@ -95,6 +108,13 @@ quantedge:
   python-engine:
     base-url: ${PYTHON_ENGINE_URL:http://localhost:8000}
     api-key: ${PYTHON_ENGINE_API_KEY:}
+  mail:
+    dev-log-enabled: ${MAIL_DEV_LOG_ENABLED:false}
+  password-reset:
+    base-url: ${PASSWORD_RESET_BASE_URL:http://localhost:3100}
+  developer:
+    email: ${DEVELOPER_EMAIL:}
+    initial-password: ${DEVELOPER_INITIAL_PASSWORD:}
 
 ---
 # Test profile

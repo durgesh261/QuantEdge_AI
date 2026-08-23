@@ -6,6 +6,8 @@ import { PrivateRoute, PublicRoute } from './components/common/PrivateRoute'
 // Lazy-loaded route components for optimal production bundle splitting
 const Login = lazy(() => import('./features/auth/Login').then((m) => ({ default: m.Login })))
 const Signup = lazy(() => import('./features/auth/Signup').then((m) => ({ default: m.Signup })))
+const ForgotPassword = lazy(() => import('./features/auth/ForgotPassword').then((m) => ({ default: m.ForgotPassword })))
+const ResetPassword = lazy(() => import('./features/auth/ResetPassword').then((m) => ({ default: m.ResetPassword })))
 const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })))
 const TradingTerminal = lazy(() => import('./features/terminal/TradingTerminal').then((m) => ({ default: m.TradingTerminal })))
 const SignalsRadar = lazy(() => import('./features/signals/SignalsRadar').then((m) => ({ default: m.SignalsRadar })))
@@ -46,6 +48,10 @@ export function App() {
             </PublicRoute>
           }
         />
+
+        {/* Password Reset — always public, even when authenticated */}
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Protected Production Trading Routes */}
         <Route

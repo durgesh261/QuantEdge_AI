@@ -12,8 +12,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.beans.factory.annotation.Value;
 
+/**
+ * Spring Security configuration.
+ *
+ * With server.servlet.context-path=/api, Spring Security path matchers are relative to that
+ * context path. So "/v1/auth/**" in a requestMatcher effectively means the actual URL
+ * http://host:8080/api/v1/auth/**.
+ */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
@@ -31,10 +37,15 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/v1/auth/**").permitAll()
-                        .requestMatchers("/actuator/health/**").permitAll()
-                        .requestMatchers("/api/engine/**").permitAll()
-                        .requestMatchers("/api/v1/developer/**").hasAnyRole("DEVELOPER", "ADMIN")
+                        // Auth endpoints — must NOT include the context-path prefix
+                        .requestMatchers("/v1/auth/**").permitAll()
+                        // Actuator health
+                        .requestMatchers("/actuator/health/**", "/actuator/health").permitAll()
+                        // Python engine proxy (public for diagnostics)
+                        .requestMatchers("/engine/**").permitAll()
+                        // Developer console — ROLE_DEVELOPER or ROLE_ADMIN only
+                        .requestMatchers("/v1/developer/**").hasAnyRole("DEVELOPER", "ADMIN")
+                        // All other endpoints require authentication
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
