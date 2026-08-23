@@ -6,6 +6,8 @@ import com.quantedge.audit.entity.AuditLog;
 import com.quantedge.audit.repository.AuditLogRepository;
 import com.quantedge.trading.entity.ActiveTradeLock;
 import com.quantedge.trading.entity.TradeRecord;
+import com.quantedge.trading.position.Position;
+import com.quantedge.trading.position.PositionRepository;
 import com.quantedge.trading.repository.ActiveTradeLockRepository;
 import com.quantedge.trading.repository.TradeRecordRepository;
 import org.slf4j.Logger;
@@ -15,17 +17,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
- * Authoritative service for all trade persistence operations.
+ * Authoritative service for all trade and position persistence operations.
  *
  * <h3>Atomic operation pairs (each wrapped in a single transaction):</h3>
  * <ul>
  *   <li>Trade OPEN: {acquire DB lock} + {persist TradeRecord}</li>
+ *   <li>Position OPEN: {persist or update Position record with fill data}</li>
  *   <li>Trade CLOSE: {update TradeRecord P&amp;L} + {update account balance}
- *       + {release DB lock}</li>
+ *       + {close Position} + {release DB lock}</li>
  * </ul>
  *
  * <p>A partial database failure within any of these pairs will roll back
@@ -46,17 +51,20 @@ public class TradePersistenceService {
     private final ActiveTradeLockRepository lockRepository;
     private final TradeRecordRepository tradeRecordRepository;
     private final TradingAccountRepository accountRepository;
+    private final PositionRepository positionRepository;
     private final AuditLogRepository auditLogRepository;
 
     public TradePersistenceService(
             ActiveTradeLockRepository lockRepository,
             TradeRecordRepository tradeRecordRepository,
             TradingAccountRepository accountRepository,
+            PositionRepository positionRepository,
             AuditLogRepository auditLogRepository
     ) {
         this.lockRepository = lockRepository;
         this.tradeRecordRepository = tradeRecordRepository;
         this.accountRepository = accountRepository;
+        this.positionRepository = positionRepository;
         this.auditLogRepository = auditLogRepository;
     }
 
@@ -110,6 +118,40 @@ public class TradePersistenceService {
             String error
     ) {}
 
+    public record PositionOpenRequest(
+            String accountId,
+            String setupId,
+            String entryOrderId,
+            String symbol,
+            String side,
+            BigDecimal entryPrice,
+            BigDecimal quantity,
+            Integer leverage,
+            BigDecimal stopLossPrice,
+            BigDecimal takeProfitPrice
+    ) {}
+
+    public record PositionCloseRequest(
+            String accountId,
+            String symbol,
+            String closeOrderId,
+            BigDecimal realizedPnl,
+            Instant closedAt
+    ) {}
+
+    public record PositionReconciliationData(
+            String symbol,
+            String side,
+            BigDecimal size,
+            BigDecimal entryPrice,
+            BigDecimal markPrice,
+            BigDecimal unrealizedPnl,
+            BigDecimal realizedPnl,
+            Integer leverage,
+            BigDecimal margin,
+            BigDecimal liquidationPrice
+    ) {}
+
     public record AccountStateSnapshot(
             String accountId,
             boolean hasActiveTrade,
@@ -139,7 +181,7 @@ public class TradePersistenceService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Core Operations
+    // Core Trade Operations
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
@@ -158,8 +200,7 @@ public class TradePersistenceService {
         TradingAccount account = accountRepository.findById(req.accountId())
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.accountId()));
 
-        // Fast safety re-checks (these are also enforced by OrderExecutionService,
-        // but we double-check in the persistence layer for defense-in-depth).
+        // Fast safety re-checks
         if (Boolean.TRUE.equals(account.getKillSwitchActive())) {
             return new TradeOpenResult(false, null, null, "KILL_SWITCH_ACTIVE");
         }
@@ -230,11 +271,9 @@ public class TradePersistenceService {
      * Atomically on trade close:
      * 1. Loads and updates the TradeRecord with authoritative P&amp;L.
      * 2. Updates the TradingAccount.currentBalance to post_trade_balance.
-     * 3. Releases the ActiveTradeLock (sets released_at = now).
-     * 4. Marks the lock's lifecycle_state to POSITION_CLOSED.
-     *
-     * All four writes are in one transaction.
-     * If any write fails, the entire transaction rolls back — no partial state.
+     * 3. Closes any associated Position.
+     * 4. Releases the ActiveTradeLock (sets released_at = now).
+     * 5. Marks the lock's lifecycle_state to POSITION_CLOSED.
      */
     @Transactional
     public TradeCloseResult closeTrade(TradeCloseRequest req) {
@@ -263,6 +302,16 @@ public class TradePersistenceService {
         account.setAvailableBalance(record.getPostTradeBalance());
         accountRepository.saveAndFlush(account);
 
+        // Close associated open position if found
+        positionRepository.findOpenByAccountIdAndSymbol(req.accountId(), record.getSymbol())
+                .ifPresent(pos -> {
+                    pos.markClosed(record.getNetPnl(), Instant.now());
+                    if (req.exitOrderId() != null) {
+                        pos.setCloseOrderId(req.exitOrderId());
+                    }
+                    positionRepository.saveAndFlush(pos);
+                });
+
         // Release trade lock
         Optional<ActiveTradeLock> lockOpt = lockRepository.findActiveLockByAccountId(req.accountId());
         if (lockOpt.isPresent()) {
@@ -289,10 +338,120 @@ public class TradePersistenceService {
         return new TradeCloseResult(true, record.getNetPnl(), record.getPostTradeBalance(), null);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Position Lifecycle Operations
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Updates the lifecycle state of the active lock (e.g. from ENTRY_SUBMITTED
-     * to POSITION_OPEN after fill confirmation, or to PROTECTED_POSITION after
-     * SL/TP placement).
+     * Records or updates an open position upon order fill execution.
+     */
+    @Transactional
+    public Position openPosition(PositionOpenRequest req) {
+        TradingAccount account = accountRepository.findById(req.accountId())
+                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + req.accountId()));
+
+        Optional<Position> existingOpt = positionRepository.findOpenByAccountIdAndSymbol(req.accountId(), req.symbol());
+        Position position;
+        if (existingOpt.isPresent()) {
+            position = existingOpt.get();
+            // In case of incremental fills, recalculate weighted average entry price
+            BigDecimal totalQty = position.getQuantity().add(req.quantity());
+            if (totalQty.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal totalCost = position.getQuantity().multiply(position.getEntryPrice())
+                        .add(req.quantity().multiply(req.entryPrice()));
+                position.setEntryPrice(totalCost.divide(totalQty, 8, RoundingMode.HALF_UP));
+            }
+            position.setQuantity(totalQty);
+            position.setLeverage(req.leverage());
+        } else {
+            position = new Position(account, req.symbol(), req.side(), req.entryPrice(), req.quantity(), req.leverage());
+            position.setSetupId(req.setupId());
+            position.setEntryOrderId(req.entryOrderId());
+            position.setStopLossPrice(req.stopLossPrice());
+            position.setTakeProfitPrice(req.takeProfitPrice());
+        }
+        position.setReconciliationState("AUTHORITATIVE");
+        position.setLastReconciledAt(Instant.now());
+        return positionRepository.saveAndFlush(position);
+    }
+
+    /**
+     * Closes an existing position for the given account and symbol.
+     */
+    @Transactional
+    public void closePosition(PositionCloseRequest req) {
+        Optional<Position> posOpt = positionRepository.findOpenByAccountIdAndSymbol(req.accountId(), req.symbol());
+        posOpt.ifPresent(pos -> {
+            pos.markClosed(req.realizedPnl(), req.closedAt());
+            if (req.closeOrderId() != null) {
+                pos.setCloseOrderId(req.closeOrderId());
+            }
+            positionRepository.saveAndFlush(pos);
+            log.info("Position closed: account={} symbol={} pnl={}", req.accountId(), req.symbol(), req.realizedPnl());
+        });
+    }
+
+    /**
+     * Reconciles local position state with authoritative exchange snapshot.
+     */
+    @Transactional
+    public void reconcilePositions(String accountId, List<PositionReconciliationData> exchangePositions) {
+        TradingAccount account = accountRepository.findById(accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
+
+        List<Position> localOpenPositions = positionRepository.findAllOpenByAccountId(accountId);
+
+        // 1. Update or create positions present on exchange
+        for (PositionReconciliationData exPos : exchangePositions) {
+            Optional<Position> matchingLocal = localOpenPositions.stream()
+                    .filter(p -> p.getSymbol().equalsIgnoreCase(exPos.symbol()))
+                    .findFirst();
+
+            if (matchingLocal.isPresent()) {
+                Position local = matchingLocal.get();
+                local.setQuantity(exPos.size());
+                local.setEntryPrice(exPos.entryPrice());
+                local.setCurrentPrice(exPos.markPrice());
+                local.setUnrealizedPnl(exPos.unrealizedPnl());
+                local.setRealizedPnl(exPos.realizedPnl());
+                local.setLeverage(exPos.leverage());
+                local.setMarginUsed(exPos.margin());
+                local.setLiquidationPrice(exPos.liquidationPrice());
+                local.setReconciliationState("AUTHORITATIVE");
+                local.setLastReconciledAt(Instant.now());
+                positionRepository.saveAndFlush(local);
+            } else if (exPos.size().compareTo(BigDecimal.ZERO) > 0) {
+                // Discrepancy: Position exists on exchange but was missing locally
+                log.warn("Discrepancy resolved: Found exchange position not in local DB. Creating position for {} on account {}",
+                        exPos.symbol(), accountId);
+                Position newPos = new Position(account, exPos.symbol(), exPos.side(), exPos.entryPrice(), exPos.size(), exPos.leverage());
+                newPos.setCurrentPrice(exPos.markPrice());
+                newPos.setUnrealizedPnl(exPos.unrealizedPnl());
+                newPos.setRealizedPnl(exPos.realizedPnl());
+                newPos.setMarginUsed(exPos.margin());
+                newPos.setLiquidationPrice(exPos.liquidationPrice());
+                newPos.setReconciliationState("RECONCILED");
+                newPos.setLastReconciledAt(Instant.now());
+                positionRepository.saveAndFlush(newPos);
+            }
+        }
+
+        // 2. Mark local positions as CLOSED if no longer open on exchange
+        for (Position local : localOpenPositions) {
+            boolean stillOpenOnExchange = exchangePositions.stream()
+                    .anyMatch(ep -> ep.symbol().equalsIgnoreCase(local.getSymbol()) && ep.size().compareTo(BigDecimal.ZERO) > 0);
+
+            if (!stillOpenOnExchange) {
+                log.info("Reconciliation: Local position {} is closed on exchange. Marking as CLOSED.", local.getSymbol());
+                local.markClosed(BigDecimal.ZERO, Instant.now());
+                local.setReconciliationState("RECONCILED");
+                positionRepository.saveAndFlush(local);
+            }
+        }
+    }
+
+    /**
+     * Updates the lifecycle state of the active lock.
      */
     @Transactional
     public void updateLockState(String accountId, String newState) {
@@ -304,7 +463,6 @@ public class TradePersistenceService {
 
     /**
      * Force-releases a stuck lock after confirmed reconciliation with Delta.
-     * Use ONLY when Delta confirms no open position and no pending orders exist.
      */
     @Transactional
     public void forceReleaseLock(String accountId, String reason) {
@@ -334,10 +492,6 @@ public class TradePersistenceService {
     // Query Methods
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Returns a complete persistence state snapshot for the given account.
-     * Used by the Python engine on startup to restore state from the DB.
-     */
     @Transactional(readOnly = true)
     public AccountStateSnapshot getAccountStateSnapshot(String accountId) {
         TradingAccount account = accountRepository.findById(accountId)
@@ -366,21 +520,25 @@ public class TradePersistenceService {
         );
     }
 
-    /**
-     * Returns the authoritative capital for the next trade (100% allocation).
-     * Priority: post_trade_balance of latest closed trade > current_balance on account.
-     */
     @Transactional(readOnly = true)
     public BigDecimal getNextTradeCapital(String accountId) {
-        // Prefer the last authoritative post-trade balance
         Optional<BigDecimal> lastBalance = tradeRecordRepository.findLatestPostTradeBalance(accountId);
         if (lastBalance.isPresent() && lastBalance.get().compareTo(BigDecimal.ZERO) > 0) {
             return lastBalance.get();
         }
-        // Fall back to account's current_balance (set by account sync from Delta)
         TradingAccount account = accountRepository.findById(accountId)
                 .orElseThrow(() -> new IllegalArgumentException("Account not found: " + accountId));
         return account.getCurrentBalance();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<Position> getOpenPosition(String accountId, String symbol) {
+        return positionRepository.findOpenByAccountIdAndSymbol(accountId, symbol);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Position> getOpenPositions(String accountId) {
+        return positionRepository.findAllOpenByAccountId(accountId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -395,7 +553,6 @@ public class TradePersistenceService {
             log.setResourceType("TRADE");
             auditLogRepository.save(log);
         } catch (Exception e) {
-            // Never let audit logging failure abort a trade transaction
             TradePersistenceService.log.error("Audit log failed (non-fatal): action={} detail={}", action, detail, e);
         }
     }

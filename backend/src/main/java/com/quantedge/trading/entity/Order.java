@@ -2,6 +2,7 @@ package com.quantedge.trading.entity;
 
 import com.quantedge.account.entity.TradingAccount;
 import com.quantedge.common.entity.BaseEntity;
+import com.quantedge.trading.order.OrderStatus;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;
@@ -38,8 +39,13 @@ public class Order extends BaseEntity {
     @Column(name = "order_type", nullable = false, length = 20)
     private String orderType;
 
-    @Column(name = "status", nullable = false, length = 20)
-    private String status = "PENDING";
+    /**
+     * Order status string — always one of the {@link OrderStatus} enum values.
+     * Use {@link #transitionStatus(OrderStatus)} to change status safely;
+     * direct setStatus() is allowed only for initial seeding from tests/migrations.
+     */
+    @Column(name = "status", nullable = false, length = 30)
+    private String status = OrderStatus.SUBMISSION_PENDING.name();
 
     @Column(name = "price", precision = 20, scale = 8)
     private BigDecimal price;
@@ -74,11 +80,23 @@ public class Order extends BaseEntity {
     @Column(name = "placed_at", nullable = false)
     private Instant placedAt = Instant.now();
 
+    /** Timestamp when Delta Exchange confirmed the order was accepted (HTTP 200). */
+    @Column(name = "submitted_at")
+    private Instant submittedAt;
+
     @Column(name = "filled_at")
     private Instant filledAt;
 
     @Column(name = "cancelled_at")
     private Instant cancelledAt;
+
+    /**
+     * Reconciliation state — tracks whether this order's DB state has been
+     * confirmed against the exchange after a network ambiguity or restart.
+     * Values: NONE | RECONCILIATION_REQUIRED | RECONCILED | RECONCILIATION_FAILED
+     */
+    @Column(name = "reconciliation_state", nullable = false, length = 30)
+    private String reconciliationState = "NONE";
 
     public Order() {}
 
@@ -115,7 +133,33 @@ public class Order extends BaseEntity {
     public void setOrderType(String orderType) { this.orderType = orderType; }
 
     public String getStatus() { return status; }
+
+    /**
+     * Raw setter — use only for initial test construction or JPA hydration.
+     * For production state changes, prefer {@link #transitionStatus(OrderStatus)}.
+     */
     public void setStatus(String status) { this.status = status; }
+
+    /**
+     * Enforces the {@link OrderStatus} state machine before changing status.
+     * Throws {@link IllegalStateException} if the transition is not permitted
+     * (e.g. CANCELLED → FILLED, FAILED → FILLED).
+     *
+     * @param newStatus the target state
+     * @throws IllegalStateException if the transition is invalid
+     */
+    public void transitionStatus(OrderStatus newStatus) {
+        OrderStatus current = OrderStatus.fromString(this.status);
+        current.transitionTo(newStatus);
+        this.status = newStatus.name();
+    }
+
+    /**
+     * Convenience — returns the current status as an {@link OrderStatus} enum.
+     */
+    public OrderStatus getStatusEnum() {
+        return OrderStatus.fromString(this.status);
+    }
 
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
@@ -150,9 +194,15 @@ public class Order extends BaseEntity {
     public Instant getPlacedAt() { return placedAt; }
     public void setPlacedAt(Instant placedAt) { this.placedAt = placedAt; }
 
+    public Instant getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
+
     public Instant getFilledAt() { return filledAt; }
     public void setFilledAt(Instant filledAt) { this.filledAt = filledAt; }
 
     public Instant getCancelledAt() { return cancelledAt; }
     public void setCancelledAt(Instant cancelledAt) { this.cancelledAt = cancelledAt; }
+
+    public String getReconciliationState() { return reconciliationState; }
+    public void setReconciliationState(String reconciliationState) { this.reconciliationState = reconciliationState; }
 }

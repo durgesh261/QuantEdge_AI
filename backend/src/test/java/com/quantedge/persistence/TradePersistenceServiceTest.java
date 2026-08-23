@@ -36,6 +36,7 @@ class TradePersistenceServiceTest {
     @Mock private ActiveTradeLockRepository lockRepository;
     @Mock private TradeRecordRepository tradeRecordRepository;
     @Mock private TradingAccountRepository accountRepository;
+    @Mock private com.quantedge.trading.position.PositionRepository positionRepository;
     @Mock private AuditLogRepository auditLogRepository;
 
     private TradePersistenceService service;
@@ -48,6 +49,7 @@ class TradePersistenceServiceTest {
                 lockRepository,
                 tradeRecordRepository,
                 accountRepository,
+                positionRepository,
                 auditLogRepository
         );
 
