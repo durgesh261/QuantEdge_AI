@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { 
   Bell, 
@@ -9,25 +9,37 @@ import {
 import { useAuthStore } from '../../stores/authStore'
 import { useMarketStore } from '../../stores/marketStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useNotificationStore } from '../../stores/notificationStore'
+import { NotificationDropdown } from '../notifications/NotificationDropdown'
 
 export const Header: React.FC = () => {
   const { user, logout } = useAuthStore()
   const { tickers, fetchTicker } = useMarketStore()
   const { toggleSidebar } = useUIStore()
+  const { unreadCount, fetchNotifications } = useNotificationStore()
+  const [notifDropdownOpen, setNotifDropdownOpen] = useState(false)
 
   useEffect(() => {
     fetchTicker('BTCUSD')
     fetchTicker('ETHUSD')
     fetchTicker('SOLUSD')
+    fetchNotifications()
 
-    const interval = setInterval(() => {
+    const tickerInterval = setInterval(() => {
       fetchTicker('BTCUSD')
       fetchTicker('ETHUSD')
       fetchTicker('SOLUSD')
     }, 5000)
 
-    return () => clearInterval(interval)
-  }, [fetchTicker])
+    const notifInterval = setInterval(() => {
+      fetchNotifications()
+    }, 15000)
+
+    return () => {
+      clearInterval(tickerInterval)
+      clearInterval(notifInterval)
+    }
+  }, [fetchTicker, fetchNotifications])
 
   const btc = tickers['BTCUSD']
   const eth = tickers['ETHUSD']
@@ -98,11 +110,28 @@ export const Header: React.FC = () => {
           <span>1H SMC LIVE</span>
         </div>
 
-        {/* Notifications Icon */}
-        <button className="p-1.5 rounded-md hover:bg-background-elevated text-slate-400 hover:text-white transition-colors relative">
-          <Bell className="w-4 h-4" />
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-cyan"></span>
-        </button>
+        {/* Notifications Icon & Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setNotifDropdownOpen((prev) => !prev)}
+            className={`p-1.5 rounded-md hover:bg-background-elevated transition-colors relative ${
+              notifDropdownOpen ? 'bg-background-elevated text-brand-cyan' : 'text-slate-400 hover:text-white'
+            }`}
+            title="Notifications"
+          >
+            <Bell className="w-4 h-4" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 px-1 py-0.2 min-w-[16px] h-4 rounded-full bg-brand-cyan text-background text-[9px] font-bold font-mono flex items-center justify-center animate-pulse">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+
+          <NotificationDropdown
+            isOpen={notifDropdownOpen}
+            onClose={() => setNotifDropdownOpen(false)}
+          />
+        </div>
 
         {/* User Menu & Settings */}
         <div className="flex items-center gap-2 pl-2 border-l border-terminal-border">

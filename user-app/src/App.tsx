@@ -10,6 +10,7 @@ import { MarketIntelligence } from './features/intelligence/MarketIntelligence'
 import { OrdersPage } from './features/orders/OrdersPage'
 import { PositionsPage } from './features/positions/PositionsPage'
 import { RiskAlgoPage } from './features/risk/RiskAlgoPage'
+import { ActivityCenter } from './features/activity/ActivityCenter'
 import { SettingsPage } from './features/settings/SettingsPage'
 
 export function App() {
@@ -47,6 +48,7 @@ export function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="positions" element={<PositionsPage />} />
                 <Route path="risk-algo" element={<RiskAlgoPage />} />
+                <Route path="activity" element={<ActivityCenter />} />
                 <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

@@ -8,13 +8,16 @@ import {
   BookOpen,
   Layers,
   ShieldCheck,
+  Activity,
   Settings,
   HelpCircle,
 } from 'lucide-react'
 import { useUIStore } from '../../stores/uiStore'
+import { useNotificationStore } from '../../stores/notificationStore'
 
 export const Sidebar: React.FC = () => {
   const { sidebarOpen } = useUIStore()
+  const { unreadCount } = useNotificationStore()
 
   const navItems = [
     { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -24,6 +27,7 @@ export const Sidebar: React.FC = () => {
     { to: '/orders', label: 'Orders & Fills', icon: BookOpen },
     { to: '/positions', label: 'Positions & P&L', icon: Layers },
     { to: '/risk-algo', label: 'Risk & Algo Controls', icon: ShieldCheck },
+    { to: '/activity', label: 'Activity & Audit', icon: Activity, badge: unreadCount },
     { to: '/settings', label: 'Settings & Keys', icon: Settings },
   ]
 
@@ -40,7 +44,7 @@ export const Sidebar: React.FC = () => {
             to={item.to}
             end={item.end}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2.5 rounded-md text-xs font-medium transition-all ${
+              `flex items-center justify-between px-3 py-2.5 rounded-md text-xs font-medium transition-all ${
                 isActive
                   ? 'bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 font-semibold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-background-elevated'
@@ -48,8 +52,20 @@ export const Sidebar: React.FC = () => {
             }
             title={!sidebarOpen ? item.label : undefined}
           >
-            <item.icon className="w-4 h-4 shrink-0" />
-            {sidebarOpen && <span className="truncate">{item.label}</span>}
+            <div className="flex items-center gap-3">
+              <item.icon className="w-4 h-4 shrink-0" />
+              {sidebarOpen && <span className="truncate">{item.label}</span>}
+            </div>
+
+            {item.badge && item.badge > 0 ? (
+              sidebarOpen ? (
+                <span className="px-1.5 py-0.2 rounded-full bg-brand-cyan text-background text-[10px] font-bold font-mono">
+                  {item.badge}
+                </span>
+              ) : (
+                <span className="w-2 h-2 rounded-full bg-brand-cyan animate-pulse"></span>
+              )
+            ) : null}
           </NavLink>
         ))}
       </div>
