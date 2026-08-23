@@ -156,6 +156,12 @@
                 <version>3.1.2</version>
                 <configuration>
                     <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                    <environmentVariables>
+                        <SPRING_PROFILES_ACTIVE>dev</SPRING_PROFILES_ACTIVE>
+                        <SPRING_DATASOURCE_URL>jdbc:postgresql://localhost:5432/quantedge</SPRING_DATASOURCE_URL>
+                        <SPRING_DATASOURCE_USERNAME>quantifiedge</SPRING_DATASOURCE_USERNAME>
+                        <SPRING_DATASOURCE_PASSWORD>quantifiedge_dev</SPRING_DATASOURCE_PASSWORD>
+                    </environmentVariables>
                 </configuration>
             </plugin>
             <plugin>
