@@ -18,4 +18,15 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-charts': ['lightweight-charts'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
 })
