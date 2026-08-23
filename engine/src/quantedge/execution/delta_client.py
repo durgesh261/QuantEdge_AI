@@ -78,6 +78,20 @@ class DeltaResponseError(DeltaClientError):
     pass
 
 
+class DeltaExecutionAuthorityError(DeltaClientError):
+    """Raised when an unauthorized direct production order execution or cancellation is attempted from Python."""
+    pass
+
+
+def is_test_or_simulation_mode() -> bool:
+    """Return True if executing within an authorized test runner or simulation context."""
+    return bool(
+        os.environ.get("PYTEST_CURRENT_TEST")
+        or os.environ.get("QUANTEDGE_TESTING") == "1"
+        or os.environ.get("QUANTEDGE_ENV") in ("test", "simulation")
+    )
+
+
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
 
@@ -150,6 +164,7 @@ class DeltaIndiaClient:
         base_url: str = DELTA_INDIA_PRODUCTION_URL,
         timeout_seconds: float = 10.0,
         http_client: Optional[httpx.AsyncClient] = None,
+        allow_direct_execution: Optional[bool] = None,
     ):
         self._api_key = api_key
         self._api_secret = api_secret
@@ -158,9 +173,18 @@ class DeltaIndiaClient:
         self._custom_http_client = http_client
         self._owned_http_client: Optional[httpx.AsyncClient] = None
         self._connection_state: ConnectionState = ConnectionState.UNKNOWN
+        if allow_direct_execution is None:
+            self._allow_direct_execution = is_test_or_simulation_mode()
+        else:
+            self._allow_direct_execution = allow_direct_execution
 
     @classmethod
-    def from_env(cls, base_url: Optional[str] = None, timeout_seconds: float = 10.0) -> "DeltaIndiaClient":
+    def from_env(
+        cls,
+        base_url: Optional[str] = None,
+        timeout_seconds: float = 10.0,
+        allow_direct_execution: Optional[bool] = None,
+    ) -> "DeltaIndiaClient":
         """Instantiate client securely from environment variables, loading .env if present."""
         load_project_env()
         api_key = os.getenv("DELTA_API_KEY", "").strip()
@@ -168,7 +192,13 @@ class DeltaIndiaClient:
         url = base_url or os.getenv("DELTA_BASE_URL", DELTA_INDIA_PRODUCTION_URL).strip()
         if not api_key or not api_secret:
             raise ValueError("DELTA_API_KEY and DELTA_API_SECRET environment variables must be set.")
-        return cls(api_key=api_key, api_secret=api_secret, base_url=url, timeout_seconds=timeout_seconds)
+        return cls(
+            api_key=api_key,
+            api_secret=api_secret,
+            base_url=url,
+            timeout_seconds=timeout_seconds,
+            allow_direct_execution=allow_direct_execution,
+        )
 
     @property
     def connection_state(self) -> ConnectionState:
@@ -422,12 +452,20 @@ class DeltaIndiaClient:
         return None
 
     async def create_order(self, request: DeltaOrderRequest) -> DeltaOrderResponse:
-        """Submit a real order to Delta Exchange India with client_order_id idempotency.
+        """Submit an order to Delta Exchange India with client_order_id idempotency.
 
         Guarantees:
+        - Structural Authority Protection: Direct production order execution from Python is prohibited.
+        - OrderExecutionService in Java Spring Boot is the sole authoritative production execution authority.
         - Automatically supplies a client_order_id if not provided.
         - Validates parameters before submission.
         """
+        if not self._allow_direct_execution and not is_test_or_simulation_mode():
+            raise DeltaExecutionAuthorityError(
+                "Direct order submission from Python engine is disabled in production. "
+                "OrderExecutionService in Java Spring Boot is the sole authoritative production execution authority."
+            )
+
         if request.client_order_id is None:
             request.client_order_id = generate_client_order_id()
 
@@ -443,12 +481,22 @@ class DeltaIndiaClient:
 
     async def cancel_order(self, order_id: Union[int, str], product_id: int) -> bool:
         """Cancel an open order by exchange order ID."""
+        if not self._allow_direct_execution and not is_test_or_simulation_mode():
+            raise DeltaExecutionAuthorityError(
+                "Direct order cancellation from Python engine is disabled in production. "
+                "OrderExecutionService in Java Spring Boot is the sole authoritative production execution authority."
+            )
         payload = {"product_id": product_id}
         data = await self.request("DELETE", f"/v2/orders/{order_id}", json_body=payload, authenticated=True)
         return bool(data.get("success", False))
 
     async def cancel_order_by_client_id(self, client_order_id: str, product_id: int) -> bool:
         """Cancel an open order by client order ID."""
+        if not self._allow_direct_execution and not is_test_or_simulation_mode():
+            raise DeltaExecutionAuthorityError(
+                "Direct order cancellation from Python engine is disabled in production. "
+                "OrderExecutionService in Java Spring Boot is the sole authoritative production execution authority."
+            )
         payload = {"product_id": product_id, "client_order_id": client_order_id}
         data = await self.request("DELETE", "/v2/orders", json_body=payload, authenticated=True)
         return bool(data.get("success", False))

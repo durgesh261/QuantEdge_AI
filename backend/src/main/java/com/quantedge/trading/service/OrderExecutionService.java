@@ -141,7 +141,7 @@ public class OrderExecutionService {
             return ExecutionResult.rejected(clientOrderId, command.setupId(), null, "ACCOUNT_NOT_FOUND", "Trading account not found.");
         }
         TradingAccount account = accountOpt.get();
-        if (command.userId() != null && account.getUser() != null && !account.getUser().getId().equals(command.userId())) {
+        if (command.userId() == null || account.getUser() == null || !account.getUser().getId().equals(command.userId())) {
             log.warn("Unauthorized execution attempt on account {} by user {}", command.accountId(), command.userId());
             return ExecutionResult.rejected(clientOrderId, command.setupId(), null, "FORBIDDEN", "User is not authorized for this trading account.");
         }
