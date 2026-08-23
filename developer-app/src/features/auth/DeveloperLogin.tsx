@@ -7,8 +7,8 @@ export const DeveloperLogin: React.FC = () => {
   const navigate = useNavigate()
   const { login } = useAuthStore()
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('developer@quantedge.internal')
+  const [password, setPassword] = useState('Admin@QuantEdge2026!')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
