@@ -64,7 +64,9 @@ build/
 
 # Java/Maven
 target/
-.mvn/
+# .mvn/ wrapper is REQUIRED for mvnw to work from fresh clone
+# Only ignore the wrapper jar, not the properties file
+.mvn/wrapper/maven-wrapper.jar
 *.class
 *.jar
 *.war

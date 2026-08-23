@@ -20,11 +20,18 @@ QuantEdge AI V2 is a clean architecture implementation separating concerns acros
 
 ## Component Responsibilities
 
-### React Frontend (`/frontend`)
-- **Only** user interface and presentation
-- Communicates exclusively with Spring Boot REST API
+### User Application (`/user-app`)
+- **Only** user interface and presentation for traders
+- React + TypeScript + Vite on port 3100
+- Communicates exclusively with Spring Boot REST API via /api proxy
 - No business logic, no trading logic, no market data processing
 - State management for UI only (not authoritative)
+
+### Developer Application (`/developer-app`)
+- Developer/Operator console for system diagnostics
+- React + TypeScript + Vite on port 3101
+- RBAC-restricted: requires ROLE_DEVELOPER or ROLE_ADMIN
+- Engine sandbox, log viewer, execution monitor, market diagnostics
 
 ### Spring Boot Backend (`/backend`)
 - **Authoritative** application layer
@@ -127,23 +134,35 @@ No shared/trading state across users.
 ## Deployment
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   React     │────▶│ Spring Boot │────▶│ PostgreSQL  │
-│  (Nginx)    │     │  (Java 21)  │     │   (16+)     │
-└─────────────┘     └──────┬──────┘     └─────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │   Python    │
-                    │  Engine     │
-                    │  (3.11+)    │
-                    └─────────────┘
+┌─────────────────┐     ┌─────────────┐     ┌─────────────┐
+│  User App       │────▶│ Spring Boot │────▶│ PostgreSQL  │
+│  (Nginx :3100)  │     │  (Java 21)  │     │   (16+)     │
+└─────────────────┘     └──────┬──────┘     └─────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+       ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+       │   Python    │  │  Developer  │  │    Redis    │
+       │  Engine     │  │   App       │  │  (optional) │
+       │  (:8000)    │  │  (:3101)    │  │  (:6379)    │
+       └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
-Local development: `docker-compose up -d` (PostgreSQL + Redis)
-- PostgreSQL starts empty
-- Spring Boot starts
-- Flyway applies V1__initial_schema.sql exactly once
-- Python Engine starts (no Delta credentials)
-- Frontend starts
+Local development: `docker-compose up -d`
+- PostgreSQL starts empty (port 5432)
+- Spring Boot backend starts (port 8080)
+- Flyway applies migrations exactly once
+- Python Engine starts on port 8000 (no Delta credentials)
+- User App starts on port 3100
+- Developer App starts on port 3101
+- Redis starts on port 6379 (if enabled)
+
+Ports:
+- 3100 — User App (React)
+- 3101 — Developer App (React)
+- 8000 — Python Engine (FastAPI)
+- 8080 — Spring Boot Backend
+- 5432 — PostgreSQL
+- 6379 — Redis (optional)
 
 Production: Kubernetes/GKE with Cloud SQL

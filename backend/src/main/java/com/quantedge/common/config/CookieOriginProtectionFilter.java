@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -19,6 +21,9 @@ import java.util.stream.Collectors;
  * Rejects cross-origin unsafe browser requests that carry an authentication cookie.
  * Engine-to-backend requests do not carry browser cookies and are authenticated
  * independently with X-Engine-Api-Key.
+ *
+ * Uses proper URI parsing for Origin/Referer validation to prevent prefix-matching
+ * bypasses (e.g., https://localhost:3100.attacker.com must NOT match https://localhost:3100).
  */
 @Component
 public class CookieOriginProtectionFilter extends OncePerRequestFilter {
@@ -39,13 +44,30 @@ public class CookieOriginProtectionFilter extends OncePerRequestFilter {
             String origin = request.getHeader("Origin");
             String referer = request.getHeader("Referer");
             boolean validOrigin = origin != null && allowedOrigins.contains(origin);
-            boolean validReferer = referer != null && allowedOrigins.stream().anyMatch(referer::startsWith);
+            boolean validReferer = referer != null && isValidReferer(referer);
             if (!validOrigin && !validReferer) {
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "Cross-origin cookie request rejected");
                 return;
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * Validates that the referer URL's origin exactly matches an allowed origin.
+     * Uses URI parsing to extract the origin (scheme + host + port) and compares
+     * against the configured allowed origins set. This prevents prefix-matching
+     * bypasses like https://localhost:3100.attacker.com matching https://localhost:3100.
+     */
+    private boolean isValidReferer(String referer) {
+        try {
+            URI uri = new URI(referer);
+            String refererOrigin = uri.getScheme() + "://" + uri.getHost()
+                    + (uri.getPort() != -1 ? ":" + uri.getPort() : "");
+            return allowedOrigins.contains(refererOrigin);
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     private boolean isUnsafe(String method) {

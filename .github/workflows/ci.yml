@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-test:
+    name: Backend Tests (Java 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run backend tests
+        working-directory: ./backend
+        run: ./mvnw test -B
+
+  engine-test:
+    name: Engine Tests (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install engine dependencies
+        working-directory: ./engine
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[test]
+
+      - name: Run engine tests
+        working-directory: ./engine
+        run: pytest -q
+
+  user-app-build:
+    name: User App Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: user-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./user-app
+        run: npm ci
+
+      - name: Build user app
+        working-directory: ./user-app
+        run: npm run build
+
+  developer-app-build:
+    name: Developer App Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: developer-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./developer-app
+        run: npm ci
+
+      - name: Build developer app
+        working-directory: ./developer-app
+        run: npm run build
+
+  frozen-smc-verify:
+    name: Frozen SMC Files Verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify frozen SMC file hashes
+        run: |
+          echo "Verifying frozen SMC files..."
+          sha256sum engine/src/quantedge/smc/structure.py
+          sha256sum engine/src/quantedge/smc/order_blocks.py
+          sha256sum engine/src/quantedge/smc/volatility.py
+          # Expected hashes (update if baseline changes intentionally)
+          EXPECTED_STRUCTURE="0bc3dd39296a06972e28e773865631f6165f717ba1937a5aecdf9f765425f3bf"
+          EXPECTED_ORDER_BLOCKS="b7d35962d2af7cd1015f41beeeeb50b1a4fca520feef4131bcdcf655a9f6cc45"
+          EXPECTED_VOLATILITY="880ccc5d6c6c68fc647e94b6f7c702309097749c0493ce74b0bcc2d3b707bd01"
+
+          ACTUAL_STRUCTURE=$(sha256sum engine/src/quantedge/smc/structure.py | cut -d' ' -f1)
+          ACTUAL_ORDER_BLOCKS=$(sha256sum engine/src/quantedge/smc/order_blocks.py | cut -d' ' -f1)
+          ACTUAL_VOLATILITY=$(sha256sum engine/src/quantedge/smc/volatility.py | cut -d' ' -f1)
+
+          if [ "$ACTUAL_STRUCTURE" != "$EXPECTED_STRUCTURE" ]; then
+            echo "ERROR: structure.py hash mismatch!"
+            echo "Expected: $EXPECTED_STRUCTURE"
+            echo "Actual:   $ACTUAL_STRUCTURE"
+            exit 1
+          fi
+
+          if [ "$ACTUAL_ORDER_BLOCKS" != "$EXPECTED_ORDER_BLOCKS" ]; then
+            echo "ERROR: order_blocks.py hash mismatch!"
+            echo "Expected: $EXPECTED_ORDER_BLOCKS"
+            echo "Actual:   $ACTUAL_ORDER_BLOCKS"
+            exit 1
+          fi
+
+          if [ "$ACTUAL_VOLATILITY" != "$EXPECTED_VOLATILITY" ]; then
+            echo "ERROR: volatility.py hash mismatch!"
+            echo "Expected: $EXPECTED_VOLATILITY"
+            echo "Actual:   $ACTUAL_VOLATILITY"
+            exit 1
+          fi
+
+          echo "All frozen SMC files verified successfully."
+
+  repo-hygiene:
+    name: Repository Hygiene Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for legacy frontend references
+        run: |
+          echo "Checking for legacy frontend/ directory..."
+          if [ -d "frontend" ]; then
+            echo "ERROR: Legacy frontend/ directory exists!"
+            exit 1
+          fi
+
+      - name: Check for obsolete ports in active config
+        run: |
+          echo "Checking for obsolete ports (3000, 3001, 3002) in active configuration..."
+          # Check active config files (exclude docs, tests, historical files)
+          if grep -r "3000\|3001\|3002" --include="*.yml" --include="*.yaml" --include="*.json" --include="*.ts" --include="*.tsx" --include="*.java" . \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=target \
+            --exclude-dir=dist \
+            --exclude-dir=docs \
+            --exclude-dir=.github \
+            | grep -v "test" | grep -v "Test" | grep -v ".md"; then
+            echo "WARNING: Found references to obsolete ports in active config"
+          fi
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for potential secrets..."
+          if grep -r "PASSWORD=\|SECRET=\|API_KEY=\|TOKEN=" --include="*.java" --include="*.ts" --include="*.tsx" --include="*.yml" --include="*.yaml" --include="*.json" . \
+            --exclude-dir=.git \
+            --exclude-dir=node_modules \
+            --exclude-dir=target \
+            --exclude-dir=dist \
+            --exclude-dir=docs \
+            --exclude-dir=.github \
+            | grep -v "test" | grep -v "Test" | grep -v ".example" | grep -v "SYNTHETIC" | grep -v "dev-secret" | grep -v "test-secret" | grep -v "PLACEHOLDER"; then
+            echo "WARNING: Potential hardcoded secrets found"
+          fi
+
+      - name: Validate docker-compose
+        run: |
+          echo "Validating docker-compose configuration..."
+          PYTHON_ENGINE_API_KEY=test-key docker compose config > /dev/null
+          echo "docker-compose config validation passed"
+
+  docker-build:
+    name: Docker Build Validation
+    runs-on: ubuntu-latest
+    needs: [backend-test, engine-test, user-app-build, developer-app-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: |
+          docker build -f docker/Dockerfile.backend -t quantifiedge-backend:test ./backend
+
+      - name: Build engine image
+        run: |
+          docker build -f docker/Dockerfile.engine -t quantifiedge-engine:test ./engine
+
+      - name: Build user-app image
+        run: |
+          docker build -f docker/Dockerfile.user-app -t quantifiedge-user-app:test ./user-app
+
+      - name: Build developer-app image
+        run: |
+          docker build -f docker/Dockerfile.developer-app -t quantifiedge-developer-app:test ./developer-app
