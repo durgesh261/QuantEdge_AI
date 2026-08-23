@@ -43,10 +43,21 @@ jobs:
         run: |
           for i in {1..30}; do
             if pg_isready -h localhost -p 5432 -U quantifiedge -d quantedge; then
-              echo "PostgreSQL is ready"
+              echo "PostgreSQL is accepting connections"
               break
             fi
             echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+
+      - name: Verify database is fully initialized
+        run: |
+          for i in {1..30}; do
+            if psql -h localhost -p 5432 -U quantifiedge -d quantedge -c "SELECT 1" > /dev/null 2>&1; then
+              echo "Database is fully initialized and accessible"
+              break
+            fi
+            echo "Waiting for database initialization... ($i/30)"
             sleep 2
           done
 
