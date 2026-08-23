@@ -10,6 +10,7 @@ import { MarketIntelligence } from './features/intelligence/MarketIntelligence'
 import { OrdersPage } from './features/orders/OrdersPage'
 import { PositionsPage } from './features/positions/PositionsPage'
 import { RiskAlgoPage } from './features/risk/RiskAlgoPage'
+import { SettingsPage } from './features/settings/SettingsPage'
 
 export function App() {
   return (
@@ -46,7 +47,7 @@ export function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="positions" element={<PositionsPage />} />
                 <Route path="risk-algo" element={<RiskAlgoPage />} />
-                <Route path="settings" element={<Dashboard />} />
+                <Route path="settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

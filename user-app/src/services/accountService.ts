@@ -1,6 +1,7 @@
 import { apiClient } from './apiClient'
 import { AlgoConfigResponse, UpdateAlgoConfigRequest } from '../types/risk'
 import { AccountSummaryDto } from '../types/trading'
+import { AccountStatusResponse } from '../types/account'
 
 export const accountService = {
   async getAlgoConfig(accountId?: string): Promise<AlgoConfigResponse> {
@@ -17,6 +18,13 @@ export const accountService = {
 
   async getAccountSummary(accountId?: string): Promise<AccountSummaryDto> {
     const { data } = await apiClient.get<AccountSummaryDto>('/api/v1/account/summary', {
+      params: accountId ? { accountId } : {},
+    })
+    return data
+  },
+
+  async getAccountStatus(accountId?: string): Promise<AccountStatusResponse> {
+    const { data } = await apiClient.get<AccountStatusResponse>('/api/v1/account/status', {
       params: accountId ? { accountId } : {},
     })
     return data

@@ -104,12 +104,16 @@ export const Header: React.FC = () => {
           <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-brand-cyan"></span>
         </button>
 
-        {/* User Menu & Logout */}
+        {/* User Menu & Settings */}
         <div className="flex items-center gap-2 pl-2 border-l border-terminal-border">
-          <div className="hidden sm:block text-right">
+          <Link
+            to="/settings"
+            className="hidden sm:block text-right hover:opacity-80 transition-opacity"
+            title="Open Settings & Account"
+          >
             <div className="text-xs font-medium text-white">{user?.name || 'Trader'}</div>
-            <div className="text-[10px] font-mono text-slate-400">{user?.role || 'ROLE_USER'}</div>
-          </div>
+            <div className="text-[10px] font-mono text-brand-cyan">{user?.role || 'ROLE_USER'}</div>
+          </Link>
           <button
             onClick={() => logout()}
             className="p-1.5 rounded-md hover:bg-bearish/10 text-slate-400 hover:text-bearish transition-colors"
