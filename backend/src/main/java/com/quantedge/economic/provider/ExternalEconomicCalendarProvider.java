@@ -152,12 +152,28 @@ public class ExternalEconomicCalendarProvider implements EconomicCalendarProvide
                 String country = mapCountryCode(countryCodeOrCurrency);
                 String currency = mapCurrencyCode(countryCodeOrCurrency);
                 String category = classifyCategory(title);
+                // Extract actual release timestamp if provided by feed, fallback to authoritative scheduledAt
+                String actualDateStr = item.path("released_at").asText(null);
+                if (actualDateStr == null || actualDateStr.isBlank()) {
+                    actualDateStr = item.path("actual_date").asText(null);
+                }
+                Instant actualReleaseTime = (actualDateStr != null && !actualDateStr.isBlank())
+                        ? parseUtcTimestamp(actualDateStr)
+                        : scheduledAt;
+                if (actualReleaseTime == null) {
+                    actualReleaseTime = scheduledAt;
+                }
+
                 String providerEventId = generateProviderEventId(country, title, scheduledAt);
                 String source = "Global Economic Calendar";
                 String sourceUrl = "https://www.forexfactory.com/calendar";
 
-                // Strict 24-Hour Post-Event Retention
-                Instant expiresAt = "COMPLETED".equals(status) ? now.plus(24, ChronoUnit.HOURS) : scheduledAt.plus(24, ChronoUnit.HOURS);
+                // Strict 24-Hour Post-Event Retention:
+                // UPCOMING / IN_PROGRESS: scheduled_at + 24 hours
+                // COMPLETED: actual_release_time + 24 hours (authoritative provider timestamp, never sync time)
+                Instant expiresAt = "COMPLETED".equals(status)
+                        ? actualReleaseTime.plus(24, ChronoUnit.HOURS)
+                        : scheduledAt.plus(24, ChronoUnit.HOURS);
 
                 EconomicEvent event = new EconomicEvent(
                         title.trim(),

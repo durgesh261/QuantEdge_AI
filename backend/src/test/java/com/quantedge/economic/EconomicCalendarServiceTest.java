@@ -118,4 +118,18 @@ class EconomicCalendarServiceTest {
         assertThat(deleted).isEqualTo(3);
         verify(eventRepository).deleteExpiredEvents(any(Instant.class));
     }
+
+    @Test
+    @DisplayName("Status: Exposes provider health and sync metadata without credentials")
+    void exposesProviderStatus() {
+        when(calendarProvider.getProviderName()).thenReturn("LiveMacroEconomicCalendarProvider");
+
+        java.util.Map<String, Object> status = calendarService.getProviderStatus();
+
+        assertThat(status).isNotNull();
+        assertThat(status.get("providerName")).isEqualTo("LiveMacroEconomicCalendarProvider");
+        assertThat(status.get("enabled")).isEqualTo(true);
+        assertThat(status).doesNotContainKey("apiKey");
+        assertThat(status).doesNotContainKey("apiSecret");
+    }
 }

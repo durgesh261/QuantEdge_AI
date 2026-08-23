@@ -75,9 +75,12 @@ public class EconomicCalendarService {
                     existing.setStatus(event.getStatus());
                     existing.setScheduledAt(event.getScheduledAt());
 
-                    // If event completed, enforce 24-hour post-completion retention
-                    if ("COMPLETED".equalsIgnoreCase(event.getStatus())) {
-                        existing.setExpiresAt(now.plus(24, ChronoUnit.HOURS));
+                    // Strict 24-Hour Post-Event Retention based on authoritative event release/scheduled time
+                    if (event.getExpiresAt() != null) {
+                        existing.setExpiresAt(event.getExpiresAt());
+                    } else if ("COMPLETED".equalsIgnoreCase(event.getStatus())) {
+                        Instant releaseTime = event.getScheduledAt() != null ? event.getScheduledAt() : existing.getScheduledAt();
+                        existing.setExpiresAt(releaseTime.plus(24, ChronoUnit.HOURS));
                     } else {
                         existing.setExpiresAt(event.getScheduledAt().plus(24, ChronoUnit.HOURS));
                     }

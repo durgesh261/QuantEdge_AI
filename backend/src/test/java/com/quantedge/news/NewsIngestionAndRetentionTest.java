@@ -110,4 +110,18 @@ class NewsIngestionAndRetentionTest {
         assertThat(deleted).isEqualTo(5);
         verify(newsRepository).deleteExpiredArticles(any(Instant.class));
     }
+
+    @Test
+    @DisplayName("Status: Exposes provider health and sync metadata without credentials")
+    void exposesProviderStatus() {
+        when(newsProvider.getProviderName()).thenReturn("LiveFinancialNewsProvider");
+
+        java.util.Map<String, Object> status = newsIngestionService.getProviderStatus();
+
+        assertThat(status).isNotNull();
+        assertThat(status.get("providerName")).isEqualTo("LiveFinancialNewsProvider");
+        assertThat(status.get("enabled")).isEqualTo(true);
+        assertThat(status).doesNotContainKey("apiKey");
+        assertThat(status).doesNotContainKey("apiSecret");
+    }
 }

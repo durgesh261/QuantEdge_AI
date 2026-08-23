@@ -97,11 +97,44 @@ class ExternalEconomicCalendarProviderTest {
         assertThat(ecb.getCategory()).isEqualTo("CENTRAL_BANK");
         assertThat(ecb.getStatus()).isEqualTo("COMPLETED");
         assertThat(ecb.getActualValue()).isEqualTo("4.00%");
+        // Completed event retention uses authoritative release time (scheduledAt) + 24h
+        assertThat(ecb.getExpiresAt()).isEqualTo(ecb.getScheduledAt().plus(24, ChronoUnit.HOURS));
 
         EconomicEvent rbi = events.get(2);
         assertThat(rbi.getEventName()).isEqualTo("RBI Repo Rate");
         assertThat(rbi.getCountry()).isEqualTo("IN");
         assertThat(rbi.getCurrency()).isEqualTo("INR");
+    }
+
+    @Test
+    @DisplayName("Retention: Completed event with explicit released_at field uses released_at + 24h")
+    void testCompletedEventWithExplicitReleasedAt() {
+        String json = """
+                [
+                    {
+                        "title": "US Non-Farm Payrolls",
+                        "country": "USD",
+                        "date": "2026-08-25T08:30:00-04:00",
+                        "released_at": "2026-08-25T08:31:15-04:00",
+                        "impact": "High",
+                        "forecast": "165K",
+                        "previous": "175K",
+                        "actual": "180K"
+                    }
+                ]
+                """;
+
+        when(restTemplate.getForEntity(anyString(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(json, HttpStatus.OK));
+
+        List<EconomicEvent> events = provider.fetchUpcomingEvents(null, null);
+
+        assertThat(events).hasSize(1);
+        EconomicEvent nfp = events.get(0);
+        assertThat(nfp.getStatus()).isEqualTo("COMPLETED");
+
+        Instant expectedReleasedAt = Instant.parse("2026-08-25T12:31:15Z");
+        assertThat(nfp.getExpiresAt()).isEqualTo(expectedReleasedAt.plus(24, ChronoUnit.HOURS));
     }
 
     @Test
