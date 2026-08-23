@@ -1,13 +1,9 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 
 export const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore()
-
-  useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+  const { isAuthenticated, isLoading } = useAuthStore()
 
   if (isLoading) {
     return (
@@ -24,11 +20,7 @@ export const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children
 }
 
 export const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading, checkAuth } = useAuthStore()
-
-  useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+  const { isAuthenticated, isLoading } = useAuthStore()
 
   if (isLoading) {
     return (

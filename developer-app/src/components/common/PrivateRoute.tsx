@@ -1,14 +1,10 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/authStore'
 import { ShieldAlert, LogOut } from 'lucide-react'
 
 export const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isDeveloperOrAdmin, isLoading, user, checkAuth, logout } = useAuthStore()
-
-  useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+  const { isAuthenticated, isDeveloperOrAdmin, isLoading, user, logout } = useAuthStore()
 
   if (isLoading) {
     return (
@@ -49,7 +45,7 @@ export const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children
           <div className="pt-3 border-t border-terminal-border flex justify-center">
             <button
               onClick={logout}
-              className="px-4 py-2 rounded bg-background border border-terminal-border text-xs font-mono text-slate-300 hover:text-white hover:bg-background-elevated transition-colors flex items-center gap-2"
+              className="px-4 py-2 rounded bg-background border border-terminal-border text-xs font-mono text-slate-300 hover:text-white hover:bg-background-elevated transition-colors flex items-center gap-2 cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out & Switch Account</span>
@@ -64,11 +60,7 @@ export const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children
 }
 
 export const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isDeveloperOrAdmin, isLoading, checkAuth } = useAuthStore()
-
-  useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+  const { isAuthenticated, isDeveloperOrAdmin, isLoading } = useAuthStore()
 
   if (isLoading) {
     return (

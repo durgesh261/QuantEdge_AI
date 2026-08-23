@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/common/Layout'
 import { PrivateRoute, PublicRoute } from './components/common/PrivateRoute'
+import { useAuthStore } from './stores/authStore'
 
 // Lazy-loaded route components for optimal production bundle splitting
 const Login = lazy(() => import('./features/auth/Login').then((m) => ({ default: m.Login })))
@@ -28,6 +29,12 @@ const RouteFallback = () => (
 )
 
 export function App() {
+  const checkAuth = useAuthStore((s) => s.checkAuth)
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>

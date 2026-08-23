@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/common/Layout'
 import { PrivateRoute, PublicRoute } from './components/common/PrivateRoute'
+import { useAuthStore } from './stores/authStore'
 
 // Lazy-loaded developer console routes
 const DeveloperLogin = lazy(() => import('./features/auth/DeveloperLogin').then((m) => ({ default: m.DeveloperLogin })))
@@ -23,6 +24,12 @@ const RouteFallback = () => (
 )
 
 export function App() {
+  const checkAuth = useAuthStore((s) => s.checkAuth)
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
   return (
     <Suspense fallback={<RouteFallback />}>
       <Routes>
