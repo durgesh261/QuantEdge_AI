@@ -5,6 +5,8 @@ import { Login } from './features/auth/Login'
 import { Signup } from './features/auth/Signup'
 import { Dashboard } from './features/dashboard/Dashboard'
 import { TradingTerminal } from './features/terminal/TradingTerminal'
+import { SignalsRadar } from './features/signals/SignalsRadar'
+import { MarketIntelligence } from './features/intelligence/MarketIntelligence'
 
 export function App() {
   return (
@@ -36,8 +38,8 @@ export function App() {
               <Routes>
                 <Route path="" element={<Dashboard />} />
                 <Route path="terminal" element={<TradingTerminal />} />
-                <Route path="signals" element={<Dashboard />} />
-                <Route path="intelligence" element={<Dashboard />} />
+                <Route path="signals" element={<SignalsRadar />} />
+                <Route path="intelligence" element={<MarketIntelligence />} />
                 <Route path="orders" element={<Dashboard />} />
                 <Route path="positions" element={<Dashboard />} />
                 <Route path="risk-algo" element={<Dashboard />} />
