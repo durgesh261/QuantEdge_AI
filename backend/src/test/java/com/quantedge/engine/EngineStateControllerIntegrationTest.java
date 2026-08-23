@@ -50,6 +50,14 @@ class EngineStateControllerIntegrationTest {
     @MockBean
     private UserDetailsService userDetailsService;
 
+    @Autowired
+    private EngineStateController engineStateController;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "");
+    }
+
     @Test
     @DisplayName("GET /api/engine/state/{accountId} - returns complete state snapshot")
     void testGetAccountState() throws Exception {
@@ -188,5 +196,53 @@ class EngineStateControllerIntegrationTest {
                 .andExpect(jsonPath("$.success").value(true));
 
         verify(persistenceService, times(1)).forceReleaseLock("acct-100", "DELTA_RECONCILED");
+    }
+
+    @Test
+    @DisplayName("Engine Bridge Auth: Rejects request with 401 when invalid X-Engine-Api-Key is provided")
+    void testEngineBridgeRejectsInvalidApiKey() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
+
+        mockMvc.perform(get("/api/engine/capital/acct-100")
+                        .header("X-Engine-Api-Key", "wrong-api-key")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error").value("UNAUTHORIZED"));
+
+        // Reset
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "");
+    }
+
+    @Test
+    @DisplayName("Engine Bridge Auth: Rejects request with 401 when X-Engine-Api-Key is missing")
+    void testEngineBridgeRejectsMissingApiKey() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
+
+        mockMvc.perform(get("/api/engine/capital/acct-100")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error").value("UNAUTHORIZED"));
+
+        // Reset
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "");
+    }
+
+    @Test
+    @DisplayName("Engine Bridge Auth: Accepts request with 200 when valid X-Engine-Api-Key is provided")
+    void testEngineBridgeAcceptsValidApiKey() throws Exception {
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
+        when(persistenceService.getNextTradeCapital("acct-100")).thenReturn(new BigDecimal("10520.00"));
+
+        mockMvc.perform(get("/api/engine/capital/acct-100")
+                        .header("X-Engine-Api-Key", "secret-engine-key-12345")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data").value(10520.00));
+
+        // Reset
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "");
     }
 }

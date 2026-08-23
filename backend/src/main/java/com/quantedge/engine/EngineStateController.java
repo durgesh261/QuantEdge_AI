@@ -57,7 +57,13 @@ public class EngineStateController {
         if (configuredApiKey == null || configuredApiKey.trim().isEmpty()) {
             return true;
         }
-        return configuredApiKey.equals(apiKey);
+        if (apiKey == null || apiKey.trim().isEmpty()) {
+            return false;
+        }
+        return java.security.MessageDigest.isEqual(
+                configuredApiKey.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                apiKey.trim().getBytes(java.nio.charset.StandardCharsets.UTF_8)
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
