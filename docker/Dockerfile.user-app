@@ -16,7 +16,6 @@ RUN npm ci
 
 # Copy source
 COPY user-app/src ./src
-COPY user-app/public ./public
 
 # Build
 RUN npm run build

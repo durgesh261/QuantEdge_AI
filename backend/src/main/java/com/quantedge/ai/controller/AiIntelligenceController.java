@@ -25,7 +25,7 @@ public class AiIntelligenceController {
     /**
      * Retrieves AI intelligence enrichment for a specific setup ID.
      */
-    @GetMapping({"/api/v1/trade/signals/{setupId}/intelligence", "/api/v1/ai/enrichments/{setupId}"})
+    @GetMapping({"/v1/trade/signals/{setupId}/intelligence", "/v1/ai/enrichments/{setupId}"})
     public ResponseEntity<AiEnrichmentDto> getSetupIntelligence(
             @AuthenticationPrincipal User user,
             @RequestAttribute(value = "currentUser", required = false) User requestUser,
@@ -40,7 +40,7 @@ public class AiIntelligenceController {
     /**
      * Retrieves recent AI signal enrichments for an account.
      */
-    @GetMapping("/api/v1/ai/enrichments")
+    @GetMapping("/v1/ai/enrichments")
     public ResponseEntity<List<AiEnrichmentDto>> getEnrichments(
             @AuthenticationPrincipal User user,
             @RequestAttribute(value = "currentUser", required = false) User requestUser,

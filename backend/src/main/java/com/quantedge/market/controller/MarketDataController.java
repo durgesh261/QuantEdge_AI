@@ -11,7 +11,7 @@ import java.util.List;
  * REST API Controller for Real Delta Exchange India (DELTAIN) Market Data & Charts.
  */
 @RestController
-@RequestMapping("/api/v1/market")
+@RequestMapping("/v1/market")
 public class MarketDataController {
 
     private final MarketDataService marketDataService;

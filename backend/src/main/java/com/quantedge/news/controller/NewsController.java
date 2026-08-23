@@ -12,7 +12,7 @@ import java.util.Map;
  * REST API Controller for Financial & Crypto News.
  */
 @RestController
-@RequestMapping("/api/v1/news")
+@RequestMapping("/v1/news")
 public class NewsController {
 
     private final NewsIngestionService newsService;

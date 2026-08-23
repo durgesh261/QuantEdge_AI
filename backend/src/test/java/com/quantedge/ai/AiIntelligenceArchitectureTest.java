@@ -101,7 +101,7 @@ class AiIntelligenceArchitectureTest {
             when(enrichmentService.getEnrichmentBySetupId(any(), eq("setup-det-100"), eq("acct-1")))
                     .thenReturn(dto);
 
-            mockMvc.perform(get("/api/v1/trade/signals/setup-det-100/intelligence")
+            mockMvc.perform(get("/v1/trade/signals/setup-det-100/intelligence")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -117,7 +117,7 @@ class AiIntelligenceArchitectureTest {
             when(enrichmentService.getEnrichmentBySetupId(any(), eq("setup-det-100"), eq("acct-attacker")))
                     .thenThrow(new AccessDeniedException("Access denied: You do not own trading account acct-attacker"));
 
-            mockMvc.perform(get("/api/v1/trade/signals/setup-det-100/intelligence")
+            mockMvc.perform(get("/v1/trade/signals/setup-det-100/intelligence")
                             .param("accountId", "acct-attacker")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -137,7 +137,7 @@ class AiIntelligenceArchitectureTest {
             when(enrichmentService.getEnrichmentBySetupId(any(), any(), any()))
                     .thenReturn(dto);
 
-            mockMvc.perform(get("/api/v1/trade/signals/setup-det-100/intelligence")
+            mockMvc.perform(get("/v1/trade/signals/setup-det-100/intelligence")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
                     .andExpect(status().isOk())

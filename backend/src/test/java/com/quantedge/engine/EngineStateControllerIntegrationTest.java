@@ -55,7 +55,7 @@ class EngineStateControllerIntegrationTest {
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
-        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "");
+        org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "test-engine-key");
     }
 
     @Test
@@ -80,7 +80,8 @@ class EngineStateControllerIntegrationTest {
         when(persistenceService.getAccountStateSnapshot("acct-100")).thenReturn(snapshot);
         when(persistenceService.getNextTradeCapital("acct-100")).thenReturn(new BigDecimal("10000.00"));
 
-        mockMvc.perform(get("/api/engine/state/acct-100")
+        mockMvc.perform(get("/engine/state/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountId").value("acct-100"))
@@ -109,7 +110,8 @@ class EngineStateControllerIntegrationTest {
                 1, new BigDecimal("35.00"), new BigDecimal("60.00")
         );
 
-        mockMvc.perform(post("/api/engine/trade/open/acct-100")
+        mockMvc.perform(post("/engine/trade/open/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -132,7 +134,8 @@ class EngineStateControllerIntegrationTest {
                 1, new BigDecimal("35.00"), new BigDecimal("60.00")
         );
 
-        mockMvc.perform(post("/api/engine/trade/open/acct-100")
+        mockMvc.perform(post("/engine/trade/open/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isConflict())
@@ -163,7 +166,8 @@ class EngineStateControllerIntegrationTest {
                 "tp-100"
         );
 
-        mockMvc.perform(post("/api/engine/trade/close/acct-100")
+        mockMvc.perform(post("/engine/trade/close/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
@@ -177,7 +181,8 @@ class EngineStateControllerIntegrationTest {
     void testGetNextTradeCapital() throws Exception {
         when(persistenceService.getNextTradeCapital("acct-100")).thenReturn(new BigDecimal("10520.00"));
 
-        mockMvc.perform(get("/api/engine/capital/acct-100")
+        mockMvc.perform(get("/engine/capital/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -189,7 +194,8 @@ class EngineStateControllerIntegrationTest {
     void testForceReleaseLock() throws Exception {
         doNothing().when(persistenceService).forceReleaseLock("acct-100", "DELTA_RECONCILED");
 
-        mockMvc.perform(post("/api/engine/trade/force-release/acct-100")
+        mockMvc.perform(post("/engine/trade/force-release/acct-100")
+                        .header("X-Engine-Api-Key", "test-engine-key")
                         .param("reason", "DELTA_RECONCILED")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -203,7 +209,7 @@ class EngineStateControllerIntegrationTest {
     void testEngineBridgeRejectsInvalidApiKey() throws Exception {
         org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
 
-        mockMvc.perform(get("/api/engine/capital/acct-100")
+        mockMvc.perform(get("/engine/capital/acct-100")
                         .header("X-Engine-Api-Key", "wrong-api-key")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized())
@@ -219,7 +225,7 @@ class EngineStateControllerIntegrationTest {
     void testEngineBridgeRejectsMissingApiKey() throws Exception {
         org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
 
-        mockMvc.perform(get("/api/engine/capital/acct-100")
+        mockMvc.perform(get("/engine/capital/acct-100")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false))
@@ -235,7 +241,7 @@ class EngineStateControllerIntegrationTest {
         org.springframework.test.util.ReflectionTestUtils.setField(engineStateController, "configuredApiKey", "secret-engine-key-12345");
         when(persistenceService.getNextTradeCapital("acct-100")).thenReturn(new BigDecimal("10520.00"));
 
-        mockMvc.perform(get("/api/engine/capital/acct-100")
+        mockMvc.perform(get("/engine/capital/acct-100")
                         .header("X-Engine-Api-Key", "secret-engine-key-12345")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())

@@ -36,8 +36,12 @@ QuantEdge AI V2
 ### Development Setup
 
 ```bash
+# Configure required secrets and local ports. At minimum, replace
+# PYTHON_ENGINE_API_KEY before starting Compose.
+cp .env.example .env
+
 # Start infrastructure
-docker-compose up -d postgres redis
+docker compose up -d postgres redis
 
 # Backend (Spring Boot)
 cd backend && ./mvnw spring-boot:run
@@ -46,11 +50,21 @@ cd backend && ./mvnw spring-boot:run
 cd engine && uv run python -m quantedge
 
 # Trader Application (Port 3100)
-cd user-app && npm install && npm run dev
+cd user-app && npm ci && npm run dev
 
 # Developer / Operator Console (Port 3101)
-cd developer-app && npm install && npm run dev
+cd developer-app && npm ci && npm run dev
 ```
+
+The public API is served under `http://localhost:8080/api`. Both browser
+applications proxy `/api/*` to that backend during development and expose it
+through Nginx in Compose. The engine health endpoint is
+`http://localhost:8000/health`.
+
+For production, set `SPRING_PROFILES_ACTIVE=production`, provide unique
+`JWT_SECRET`, `ENCRYPTION_KEY`, and `PYTHON_ENGINE_API_KEY` values, and set
+`COOKIE_SECURE=true` behind HTTPS. The backend refuses to start with missing
+production secrets or insecure authentication cookies.
 
 ## Documentation
 

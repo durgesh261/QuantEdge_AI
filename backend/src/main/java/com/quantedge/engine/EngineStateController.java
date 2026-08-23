@@ -34,7 +34,7 @@ import java.time.Instant;
  * This endpoint family is NOT exposed to the public internet.
  */
 @RestController
-@RequestMapping("/api/engine")
+@RequestMapping("/engine")
 public class EngineStateController {
 
     private static final Logger log = LoggerFactory.getLogger(EngineStateController.class);
@@ -55,7 +55,8 @@ public class EngineStateController {
 
     private boolean isAuthorized(String apiKey) {
         if (configuredApiKey == null || configuredApiKey.trim().isEmpty()) {
-            return true;
+            log.error("Engine API key is not configured; rejecting internal engine request.");
+            return false;
         }
         if (apiKey == null || apiKey.trim().isEmpty()) {
             return false;

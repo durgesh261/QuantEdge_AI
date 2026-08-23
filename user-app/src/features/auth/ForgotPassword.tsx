@@ -15,7 +15,7 @@ export const ForgotPassword: React.FC = () => {
     setIsSubmitting(true)
 
     try {
-      await apiClient.post('/v1/auth/forgot-password', { email: email.trim().toLowerCase() })
+      await apiClient.post('/api/v1/auth/forgot-password', { email: email.trim().toLowerCase() })
       setSubmitted(true)
     } catch (err: any) {
       const status = err.response?.status

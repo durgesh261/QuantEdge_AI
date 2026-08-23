@@ -69,7 +69,7 @@ class TradingApiControllerTest {
             );
             when(queryService.getTradingSystemStatus(any(), eq("acct-1"))).thenReturn(status);
 
-            mockMvc.perform(get("/api/v1/trade/status")
+            mockMvc.perform(get("/v1/trade/status")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -98,7 +98,7 @@ class TradingApiControllerTest {
             when(queryService.getOrders(any(), eq("acct-1"), isNull(), isNull(), eq(100)))
                     .thenReturn(List.of(o1));
 
-            mockMvc.perform(get("/api/v1/trade/orders")
+            mockMvc.perform(get("/v1/trade/orders")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -121,7 +121,7 @@ class TradingApiControllerTest {
             );
             when(queryService.getOrderById(any(), eq("acct-1"), eq("ord-1"))).thenReturn(o1);
 
-            mockMvc.perform(get("/api/v1/trade/orders/ord-1")
+            mockMvc.perform(get("/v1/trade/orders/ord-1")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -147,7 +147,7 @@ class TradingApiControllerTest {
             );
             when(queryService.getPositions(any(), eq("acct-1"), eq("OPEN"))).thenReturn(List.of(pos));
 
-            mockMvc.perform(get("/api/v1/trade/positions")
+            mockMvc.perform(get("/v1/trade/positions")
                             .param("accountId", "acct-1")
                             .param("status", "OPEN")
                             .requestAttr("currentUser", testUser)
@@ -169,7 +169,7 @@ class TradingApiControllerTest {
             when(queryService.getFills(any(), eq("acct-1"), isNull(), isNull(), eq(100)))
                     .thenReturn(List.of(fill));
 
-            mockMvc.perform(get("/api/v1/trade/fills")
+            mockMvc.perform(get("/v1/trade/fills")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -190,7 +190,7 @@ class TradingApiControllerTest {
             );
             when(queryService.getTradeHistory(any(), eq("acct-1"), eq(100))).thenReturn(List.of(trade));
 
-            mockMvc.perform(get("/api/v1/trade/history")
+            mockMvc.perform(get("/v1/trade/history")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -212,7 +212,7 @@ class TradingApiControllerTest {
             when(queryService.getSignals(any(), eq("acct-1"), isNull(), isNull(), eq(100)))
                     .thenReturn(List.of(sig));
 
-            mockMvc.perform(get("/api/v1/trade/signals")
+            mockMvc.perform(get("/v1/trade/signals")
                             .param("accountId", "acct-1")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -232,7 +232,7 @@ class TradingApiControllerTest {
             when(queryService.getOrders(any(), eq("acct-attacker"), any(), any(), any()))
                     .thenThrow(new AccessDeniedException("Access denied: You do not own trading account acct-attacker"));
 
-            mockMvc.perform(get("/api/v1/trade/orders")
+            mockMvc.perform(get("/v1/trade/orders")
                             .param("accountId", "acct-attacker")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
@@ -250,7 +250,7 @@ class TradingApiControllerTest {
             );
             when(queryService.getTradingSystemStatus(any(), any())).thenReturn(status);
 
-            mockMvc.perform(get("/api/v1/trade/status")
+            mockMvc.perform(get("/v1/trade/status")
                             .requestAttr("currentUser", testUser)
                             .accept(MediaType.APPLICATION_JSON))
                     .andExpect(status().isOk())

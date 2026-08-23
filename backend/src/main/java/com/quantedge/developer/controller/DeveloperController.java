@@ -18,7 +18,7 @@ import java.util.List;
  * receive HTTP 403 Forbidden.
  */
 @RestController
-@RequestMapping("/api/v1/developer")
+@RequestMapping("/v1/developer")
 @PreAuthorize("hasAnyRole('DEVELOPER', 'ADMIN')")
 public class DeveloperController {
 

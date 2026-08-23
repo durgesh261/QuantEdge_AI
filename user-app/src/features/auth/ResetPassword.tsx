@@ -40,7 +40,7 @@ export const ResetPassword: React.FC = () => {
     setIsSubmitting(true)
 
     try {
-      await apiClient.post('/v1/auth/reset-password', { token, newPassword: password })
+      await apiClient.post('/api/v1/auth/reset-password', { token, newPassword: password })
       setSuccess(true)
 
       // Auto-redirect to login with success message after 3 seconds

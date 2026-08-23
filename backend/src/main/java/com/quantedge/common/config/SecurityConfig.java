@@ -26,9 +26,14 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final CookieOriginProtectionFilter cookieOriginProtectionFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            CookieOriginProtectionFilter cookieOriginProtectionFilter
+    ) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.cookieOriginProtectionFilter = cookieOriginProtectionFilter;
     }
 
     @Bean
@@ -48,7 +53,8 @@ public class SecurityConfig {
                         // All other endpoints require authentication
                         .anyRequest().authenticated()
                 )
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(cookieOriginProtectionFilter, JwtAuthenticationFilter.class);
 
         return http.build();
     }

@@ -14,7 +14,7 @@ import java.util.Map;
  * REST API Controller for Macroeconomic Calendar & Events.
  */
 @RestController
-@RequestMapping("/api/v1/economic-events")
+@RequestMapping("/v1/economic-events")
 public class EconomicCalendarController {
 
     private final EconomicCalendarService calendarService;

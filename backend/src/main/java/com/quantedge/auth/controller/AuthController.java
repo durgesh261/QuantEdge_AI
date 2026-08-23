@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +30,12 @@ public class AuthController {
 
     private final UserService userService;
     private final JwtTokenProvider jwtTokenProvider;
+
+    @Value("${quantedge.auth.cookie-secure:false}")
+    private boolean cookieSecure;
+
+    @Value("${quantedge.auth.cookie-same-site:Lax}")
+    private String cookieSameSite;
 
     public AuthController(UserService userService, JwtTokenProvider jwtTokenProvider) {
         this.userService = userService;
@@ -110,10 +117,10 @@ public class AuthController {
     private Cookie buildCookie(String name, String value, int maxAge) {
         Cookie cookie = new Cookie(name, value);
         cookie.setHttpOnly(true);
-        cookie.setSecure(false);   // set true behind HTTPS reverse proxy in production
+        cookie.setSecure(cookieSecure);
         cookie.setPath("/");
         cookie.setMaxAge(maxAge);
-        cookie.setAttribute("SameSite", "Lax");
+        cookie.setAttribute("SameSite", cookieSameSite);
         return cookie;
     }
 

@@ -14,7 +14,7 @@ import java.util.Map;
  * REST API Controller for In-App Notifications.
  */
 @RestController
-@RequestMapping("/api/v1/notifications")
+@RequestMapping("/v1/notifications")
 public class NotificationController {
 
     private final NotificationService notificationService;

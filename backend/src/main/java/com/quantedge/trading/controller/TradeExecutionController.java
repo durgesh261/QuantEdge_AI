@@ -22,7 +22,7 @@ import java.util.List;
  * </ul>
  */
 @RestController
-@RequestMapping("/api/v1/trade")
+@RequestMapping("/v1/trade")
 public class TradeExecutionController {
 
     private final OrderExecutionService executionService;
