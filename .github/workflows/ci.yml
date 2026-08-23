@@ -42,7 +42,7 @@ jobs:
         working-directory: ./engine
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[test]
+          pip install -e .[dev]
 
       - name: Run engine tests
         working-directory: ./engine
@@ -203,16 +203,16 @@ jobs:
 
       - name: Build backend image
         run: |
-          docker build -f docker/Dockerfile.backend -t quantifiedge-backend:test ./backend
+          docker build -f docker/Dockerfile.backend -t quantifiedge-backend:test .
 
       - name: Build engine image
         run: |
-          docker build -f docker/Dockerfile.engine -t quantifiedge-engine:test ./engine
+          docker build -f docker/Dockerfile.engine -t quantifiedge-engine:test .
 
       - name: Build user-app image
         run: |
-          docker build -f docker/Dockerfile.user-app -t quantifiedge-user-app:test ./user-app
+          docker build -f docker/Dockerfile.user-app -t quantifiedge-user-app:test .
 
       - name: Build developer-app image
         run: |
-          docker build -f docker/Dockerfile.developer-app -t quantifiedge-developer-app:test ./developer-app
+          docker build -f docker/Dockerfile.developer-app -t quantifiedge-developer-app:test .

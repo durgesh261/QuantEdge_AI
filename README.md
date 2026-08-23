@@ -20,7 +20,7 @@ QuantEdge AI V2
 - **Operator Console (`developer-app`)**: React 18 + TypeScript + Vite + Tailwind CSS (Port 3101)
 - **Backend API Gateway**: Java 21 + Spring Boot 3.x + Spring Security + PostgreSQL JPA (Port 8080)
 - **Trading Engine**: Python 3.11+ + Poetry/UV + pandas/numpy (Port 8000)
-- **Database**: PostgreSQL 16+ + Redis 7+
+- **Database**: PostgreSQL 16+
 - **Exchange Gateway**: Delta Exchange India REST / WebSocket (Server-Side only)
 
 ## Quick Start
@@ -41,7 +41,7 @@ QuantEdge AI V2
 cp .env.example .env
 
 # Start infrastructure
-docker compose up -d postgres redis
+docker compose up -d postgres
 
 # Backend (Spring Boot)
 cd backend && ./mvnw spring-boot:run
