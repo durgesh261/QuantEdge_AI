@@ -69,6 +69,8 @@ jobs:
 
       - name: Run engine tests
         working-directory: ./engine
+        env:
+          PYTHONPATH: "${{ github.workspace }}/engine/src:${{ github.workspace }}/engine"
         run: python -m pytest -q
 
   user-app-build:

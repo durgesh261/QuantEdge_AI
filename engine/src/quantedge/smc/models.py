@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from quantedge.market_data.models import Candle
 
 
