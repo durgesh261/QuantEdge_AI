@@ -99,7 +99,7 @@ export function Dashboard() {
         <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <h2 className="text-lg font-bold text-white">Active Positions Overview</h2>
-            <Link to="/trading" className="text-xs text-blue-400 hover:text-blue-300 font-semibold">
+            <Link to="/live-trading" className="text-xs text-blue-400 hover:text-blue-300 font-semibold">
               View All →
             </Link>
           </div>
@@ -140,7 +140,7 @@ export function Dashboard() {
           <h2 className="text-lg font-bold text-white border-b border-slate-800 pb-4">Quick Navigation</h2>
           <div className="grid grid-cols-1 gap-3">
             <Link
-              to="/trading"
+              to="/live-trading"
               className="p-4 bg-slate-950/70 border border-slate-800 hover:border-blue-500 hover:bg-slate-800/50 rounded-xl transition flex items-center gap-3.5 group"
             >
               <div className="p-2.5 rounded-lg bg-blue-600/20 text-blue-400 group-hover:bg-blue-600/30">
@@ -148,7 +148,7 @@ export function Dashboard() {
               </div>
               <div>
                 <p className="font-semibold text-white text-sm">Live Trading Monitor</p>
-                <p className="text-xs text-slate-400">Read-only account state & positions</p>
+                <p className="text-xs text-slate-400">Real-time account state & positions</p>
               </div>
             </Link>
 
@@ -165,15 +165,18 @@ export function Dashboard() {
               </div>
             </Link>
 
-            <div className="p-4 bg-slate-950/40 border border-slate-800/60 rounded-xl flex items-center gap-3.5 text-slate-400">
-              <div className="p-2.5 rounded-lg bg-purple-600/10 text-purple-400">
+            <Link
+              to="/analytics"
+              className="p-4 bg-slate-950/70 border border-slate-800 hover:border-purple-500 hover:bg-slate-800/50 rounded-xl transition flex items-center gap-3.5 group"
+            >
+              <div className="p-2.5 rounded-lg bg-purple-600/20 text-purple-400 group-hover:bg-purple-600/30">
                 <BarChart3 size={20} />
               </div>
               <div>
-                <p className="font-semibold text-slate-300 text-sm">Phase 5.5 Active</p>
-                <p className="text-xs text-slate-500">Read-Only Live Verification</p>
+                <p className="font-semibold text-white text-sm">Performance Analytics</p>
+                <p className="text-xs text-slate-400">Trade history & metrics</p>
               </div>
-            </div>
+            </Link>
           </div>
         </div>
       </div>

@@ -47,7 +47,7 @@ export function Settings() {
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  // Live Order Test State (Phase 5.17)
+  // Live Order Test State
   const [testSymbol, setTestSymbol] = useState('ETHUSD')
   const [isPreparingTest, setIsPreparingTest] = useState(false)
   const [isConfirmingTest, setIsConfirmingTest] = useState(false)
@@ -342,7 +342,7 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Algorithm Trading Configuration Panel (Phase 5.7) */}
+      {/* Algorithm Trading Configuration Panel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
           <div className="flex items-center gap-3">
@@ -491,13 +491,13 @@ export function Settings() {
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-blue-600/20 transition disabled:opacity-50"
             >
               <Save size={15} />
-              {isSavingConfig ? 'Saving Version...' : 'Save Configuration (Increments Version)'}
+              {isSavingConfig ? 'Saving Version...' : 'Save Configuration'}
             </button>
           </div>
         </form>
       </div>
 
-      {/* Live Order Test Panel (Phase 5.17) */}
+      {/* Live Order Test Panel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
           <div className="flex items-center gap-3">
@@ -508,7 +508,7 @@ export function Settings() {
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-white">Explicit Live Order Test</h2>
                 <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-amber-950 text-amber-300 border border-amber-800">
-                  Phase 5.17
+                  Verification Gate
                 </span>
               </div>
               <p className="text-xs text-slate-400 mt-0.5">
@@ -667,10 +667,10 @@ export function Settings() {
         <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
           <div className="flex items-center gap-3 text-indigo-400 mb-3">
             <Activity size={20} />
-            <h3 className="font-semibold text-white">Phase 5.17 Explicit Live Execution</h3>
+            <h3 className="font-semibold text-white">Explicit Live Execution Verification</h3>
           </div>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Phase 5.17 allows you to explicitly test order placement on Delta Exchange India with the smallest valid contract lot, protective SL/TP brackets, and verified closure.
+            The Live Execution Test allows you to explicitly verify order placement on Delta Exchange India with the smallest valid contract lot, protective SL/TP brackets, and verified position closure.
           </p>
           <a
             href="https://india.delta.exchange"

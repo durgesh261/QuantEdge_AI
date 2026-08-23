@@ -128,7 +128,7 @@ export function LiveTrading() {
             </div>
           </div>
           <p className="text-slate-400 mt-1 text-sm">
-            Phase 5.13: Delta Exchange Production Execution, Authoritative OB-Edge SL, 35% Max Loss Dynamic Leverage, 60% ROE TP & Continuous Reconciliation.
+            Delta Exchange India Production Execution, Authoritative Order Block SL/TP Brackets, Dynamic Risk Management & Continuous Reconciliation.
           </p>
         </div>
 
