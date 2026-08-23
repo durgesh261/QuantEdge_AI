@@ -1,33 +1,27 @@
 # QuantEdge AI V2
 
-Clean architecture implementation for QuantEdge AI trading platform.
+Clean architecture implementation for QuantEdge AI institutional crypto trading platform.
 
 ## Architecture
 
 ```
 QuantEdge AI V2
-├── frontend/          # React + TypeScript (UI only)
-├── backend/           # Java + Spring Boot (Authoritative backend)
-├── engine/            # Python (Market intelligence & strategy research)
-├── database/          # PostgreSQL migrations
-├── tests/             # Integration & E2E tests
-├── docs/              # Architecture & specification documents
-└── docker/            # Docker configuration
+├── backend/           # Java 21 + Spring Boot 3.2 (Authoritative execution gateway)
+├── engine/            # Python 3.11+ (SMC market intelligence & strategy research)
+├── user-app/          # React 18 + TypeScript (Trader / End-User web terminal — Port 3000)
+├── developer-app/     # React 18 + TypeScript (Operator / Admin / Dev console — Port 3001)
+├── docker/            # Multi-service container orchestration
+└── docs/              # Specifications and architectural blueprints
 ```
 
 ## Technology Stack
 
-- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS
-- **Backend**: Java 21 + Spring Boot 3.x + PostgreSQL
-- **Engine**: Python 3.11+ + Poetry/UV + pandas/numpy/ta-lib
-- **Database**: PostgreSQL 16+
-- **Exchange**: Delta Exchange API
-
-## Legacy Reference
-
-The previous implementation (Node.js/Express/Prisma) is preserved in:
-- Git tag: `quantedge-v1-legacy`
-- Directory: `legacy/`
+- **Trader Web Terminal (`user-app`)**: React 18 + TypeScript + Vite + Tailwind CSS + Lightweight Charts (Port 3000)
+- **Operator Console (`developer-app`)**: React 18 + TypeScript + Vite + Tailwind CSS (Port 3001)
+- **Backend API Gateway**: Java 21 + Spring Boot 3.x + Spring Security + PostgreSQL JPA (Port 8080)
+- **Trading Engine**: Python 3.11+ + Poetry/UV + pandas/numpy (Port 8000)
+- **Database**: PostgreSQL 16+ + Redis 7+
+- **Exchange Gateway**: Delta Exchange India REST / WebSocket (Server-Side only)
 
 ## Quick Start
 
@@ -43,7 +37,7 @@ The previous implementation (Node.js/Express/Prisma) is preserved in:
 
 ```bash
 # Start infrastructure
-docker-compose up -d postgres
+docker-compose up -d postgres redis
 
 # Backend (Spring Boot)
 cd backend && ./mvnw spring-boot:run
@@ -51,8 +45,11 @@ cd backend && ./mvnw spring-boot:run
 # Python Engine
 cd engine && uv run python -m quantedge
 
-# Frontend
-cd frontend && npm install && npm run dev
+# Trader Application (Port 3000)
+cd user-app && npm install && npm run dev
+
+# Developer / Operator Console (Port 3001)
+cd developer-app && npm install && npm run dev
 ```
 
 ## Documentation
