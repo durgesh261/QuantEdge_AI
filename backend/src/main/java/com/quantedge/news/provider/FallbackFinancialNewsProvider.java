@@ -14,24 +14,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Curated Financial & Crypto News Provider.
- * Retained for testing and curated demonstration mode.
+ * Fallback / Offline Development Financial & Crypto News Provider.
+ * Used when quantedge.news.provider-mode=fallback or when external connectivity is unavailable.
  */
-@Component("financialNewsProvider")
-@ConditionalOnProperty(name = "quantedge.news.provider-mode", havingValue = "curated")
-public class FinancialNewsProvider implements NewsProvider {
+@Component("fallbackFinancialNewsProvider")
+@ConditionalOnProperty(name = "quantedge.news.provider-mode", havingValue = "fallback")
+public class FallbackFinancialNewsProvider implements NewsProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(FinancialNewsProvider.class);
-    private static final String PROVIDER_NAME = "QuantEdgeFinancialNewsFeed";
+    private static final Logger log = LoggerFactory.getLogger(FallbackFinancialNewsProvider.class);
+    private static final String PROVIDER_NAME = "QuantEdgeFinancialNewsFallback";
 
     @Override
     public String getProviderName() {
         return PROVIDER_NAME;
     }
 
-    /**
-     * Generates a deterministic SHA-256 fingerprint for deduplication.
-     */
     public static String computeFingerprint(String title, String source, String sourceUrl) {
         try {
             String norm = (title != null ? title.trim().toLowerCase() : "") + "|" +
@@ -56,7 +53,6 @@ public class FinancialNewsProvider implements NewsProvider {
         List<NewsArticle> articles = new ArrayList<>();
         Instant now = Instant.now();
 
-        // Standardized curated financial news feed items covering crypto, central banks, markets, and macro
         record RawItem(String title, String summary, String source, String url, String category, String importance, String symbols, String sentiment, long minutesAgo) {}
 
         List<RawItem> feed = List.of(
@@ -130,7 +126,7 @@ public class FinancialNewsProvider implements NewsProvider {
 
         for (RawItem item : feed) {
             Instant publishedAt = now.minus(item.minutesAgo(), ChronoUnit.MINUTES);
-            Instant expiresAt = publishedAt.plus(7, ChronoUnit.DAYS); // Strict 7-Day Retention
+            Instant expiresAt = publishedAt.plus(7, ChronoUnit.DAYS);
             String fp = computeFingerprint(item.title(), item.source(), item.url());
 
             NewsArticle article = new NewsArticle(

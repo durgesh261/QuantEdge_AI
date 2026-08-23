@@ -40,13 +40,20 @@ public class EconomicCalendarService {
         this.notificationService = notificationService;
     }
 
+    private volatile Instant lastAttemptedSync = null;
+    private volatile Instant lastSuccessfulSync = null;
+    private volatile Instant lastErrorTimestamp = null;
+    private volatile String lastErrorMessage = null;
+    private volatile long totalEventsSynchronized = 0;
+
     /**
      * Scheduled synchronization job (runs every 2 hours with 10s initial delay).
      */
     @Scheduled(initialDelay = 10000, fixedRateString = "${quantedge.economic.sync-rate-ms:7200000}")
     @Transactional
     public int syncEconomicCalendar() {
-        log.info("Synchronizing economic calendar from provider [{}]", calendarProvider.getProviderName());
+        log.info("ECONOMIC_PROVIDER_SYNC_STARTED: Synchronizing economic calendar from provider [{}]", calendarProvider.getProviderName());
+        lastAttemptedSync = Instant.now();
         Instant now = Instant.now();
         Instant windowEnd = now.plus(15, ChronoUnit.DAYS); // 15-Day upcoming window
         int updatedCount = 0;
@@ -77,6 +84,7 @@ public class EconomicCalendarService {
 
                     eventRepository.save(existing);
                     updatedCount++;
+                    totalEventsSynchronized++;
 
                     // Dispatch notification when actual value is released for high-impact events
                     if (hadNoActual && event.getActualValue() != null &&
@@ -96,6 +104,7 @@ public class EconomicCalendarService {
                     }
                     EconomicEvent saved = eventRepository.save(event);
                     updatedCount++;
+                    totalEventsSynchronized++;
 
                     // If critical upcoming within 24h, dispatch upcoming alert
                     if ("CRITICAL".equalsIgnoreCase(saved.getImportance()) &&
@@ -112,12 +121,31 @@ public class EconomicCalendarService {
                     }
                 }
             }
-            log.info("Completed economic calendar sync: {} events synchronized", updatedCount);
+            lastSuccessfulSync = Instant.now();
+            lastErrorMessage = null;
+            log.info("ECONOMIC_EVENTS_UPDATED: Completed economic calendar sync: {} events synchronized", updatedCount);
         } catch (Exception e) {
-            log.error("Error during economic calendar sync: {}", e.getMessage(), e);
+            lastErrorTimestamp = Instant.now();
+            lastErrorMessage = e.getMessage();
+            log.error("ECONOMIC_PROVIDER_SYNC_FAILED: Error during economic calendar sync: {}", e.getMessage(), e);
         }
 
         return updatedCount;
+    }
+
+    /**
+     * Returns provider status and health metadata.
+     */
+    public java.util.Map<String, Object> getProviderStatus() {
+        java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
+        status.put("providerName", calendarProvider.getProviderName());
+        status.put("enabled", true);
+        status.put("lastAttemptedSync", lastAttemptedSync);
+        status.put("lastSuccessfulSync", lastSuccessfulSync);
+        status.put("lastErrorTimestamp", lastErrorTimestamp);
+        status.put("lastErrorMessage", lastErrorMessage);
+        status.put("totalEventsSynchronized", totalEventsSynchronized);
+        return status;
     }
 
     /**

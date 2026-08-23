@@ -12,15 +12,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Curated Macroeconomic Calendar Provider.
- * Retained for testing and curated demonstration mode.
+ * Fallback / Offline Development Macroeconomic Calendar Provider.
+ * Used when quantedge.economic.provider-mode=fallback.
  */
-@Component("macroEconomicCalendarProvider")
-@ConditionalOnProperty(name = "quantedge.economic.provider-mode", havingValue = "curated")
-public class MacroEconomicCalendarProvider implements EconomicCalendarProvider {
+@Component("fallbackEconomicCalendarProvider")
+@ConditionalOnProperty(name = "quantedge.economic.provider-mode", havingValue = "fallback")
+public class FallbackEconomicCalendarProvider implements EconomicCalendarProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(MacroEconomicCalendarProvider.class);
-    private static final String PROVIDER_NAME = "QuantEdgeGlobalMacroEconomicFeed";
+    private static final Logger log = LoggerFactory.getLogger(FallbackEconomicCalendarProvider.class);
+    private static final String PROVIDER_NAME = "QuantEdgeMacroEconomicFallback";
 
     @Override
     public String getProviderName() {
@@ -82,7 +82,6 @@ public class MacroEconomicCalendarProvider implements EconomicCalendarProvider {
 
         for (RawEvent e : calendar) {
             Instant scheduledAt = now.plus(e.hoursOffset(), ChronoUnit.HOURS);
-            // Strict 24-Hour Post-Event Retention: expires_at = scheduled_at + 24 hours
             Instant expiresAt = scheduledAt.plus(24, ChronoUnit.HOURS);
 
             EconomicEvent event = new EconomicEvent(

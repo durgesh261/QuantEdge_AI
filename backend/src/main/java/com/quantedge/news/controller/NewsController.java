@@ -38,6 +38,11 @@ public class NewsController {
         return ResponseEntity.ok(dto);
     }
 
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getNewsStatus() {
+        return ResponseEntity.ok(newsService.getProviderStatus());
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<Map<String, Object>> refreshNews() {
         int count = newsService.ingestNews();

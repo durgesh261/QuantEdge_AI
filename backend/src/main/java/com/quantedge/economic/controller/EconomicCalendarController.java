@@ -50,6 +50,11 @@ public class EconomicCalendarController {
         return ResponseEntity.ok(dto);
     }
 
+    @GetMapping("/status")
+    public ResponseEntity<Map<String, Object>> getEconomicEventsStatus() {
+        return ResponseEntity.ok(calendarService.getProviderStatus());
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<Map<String, Object>> refreshEconomicCalendar() {
         int count = calendarService.syncEconomicCalendar();

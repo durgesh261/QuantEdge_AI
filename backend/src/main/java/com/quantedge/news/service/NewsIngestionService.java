@@ -38,20 +38,27 @@ public class NewsIngestionService {
         this.notificationService = notificationService;
     }
 
+    private volatile java.time.Instant lastAttemptedSync = null;
+    private volatile java.time.Instant lastSuccessfulSync = null;
+    private volatile java.time.Instant lastErrorTimestamp = null;
+    private volatile String lastErrorMessage = null;
+    private volatile long totalArticlesIngested = 0;
+
     /**
      * Scheduled news ingestion job (runs every 30 minutes with 5s initial delay).
      */
     @Scheduled(initialDelay = 5000, fixedRateString = "${quantedge.news.ingest-rate-ms:1800000}")
     @Transactional
     public int ingestNews() {
-        log.info("Starting financial news ingestion from provider [{}]", newsProvider.getProviderName());
+        log.info("NEWS_PROVIDER_SYNC_STARTED: Ingesting news from provider [{}]", newsProvider.getProviderName());
+        lastAttemptedSync = java.time.Instant.now();
         int newArticlesCount = 0;
 
         try {
             List<NewsArticle> fetched = newsProvider.fetchLatestNews();
             for (NewsArticle article : fetched) {
                 if (newsRepository.existsByFingerprint(article.getFingerprint())) {
-                    log.debug("Skipping duplicate news article: {}", article.getTitle());
+                    log.debug("NEWS_DUPLICATE_SKIPPED: Skipping duplicate article: {}", article.getTitle());
                     continue;
                 }
 
@@ -62,6 +69,7 @@ public class NewsIngestionService {
 
                 NewsArticle saved = newsRepository.save(article);
                 newArticlesCount++;
+                totalArticlesIngested++;
 
                 // Dispatch notification for HIGH or CRITICAL news events
                 if ("HIGH".equalsIgnoreCase(saved.getImportance()) || "CRITICAL".equalsIgnoreCase(saved.getImportance())) {
@@ -75,12 +83,31 @@ public class NewsIngestionService {
                     );
                 }
             }
-            log.info("Completed news ingestion: {} new articles stored", newArticlesCount);
+            lastSuccessfulSync = java.time.Instant.now();
+            lastErrorMessage = null;
+            log.info("NEWS_ARTICLES_INGESTED: Completed news ingestion: {} new articles stored", newArticlesCount);
         } catch (Exception e) {
-            log.error("Error during financial news ingestion: {}", e.getMessage(), e);
+            lastErrorTimestamp = java.time.Instant.now();
+            lastErrorMessage = e.getMessage();
+            log.error("NEWS_PROVIDER_SYNC_FAILED: Error during financial news ingestion: {}", e.getMessage(), e);
         }
 
         return newArticlesCount;
+    }
+
+    /**
+     * Returns provider status and health metadata.
+     */
+    public java.util.Map<String, Object> getProviderStatus() {
+        java.util.Map<String, Object> status = new java.util.LinkedHashMap<>();
+        status.put("providerName", newsProvider.getProviderName());
+        status.put("enabled", true);
+        status.put("lastAttemptedSync", lastAttemptedSync);
+        status.put("lastSuccessfulSync", lastSuccessfulSync);
+        status.put("lastErrorTimestamp", lastErrorTimestamp);
+        status.put("lastErrorMessage", lastErrorMessage);
+        status.put("totalArticlesIngested", totalArticlesIngested);
+        return status;
     }
 
     /**

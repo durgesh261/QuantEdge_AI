@@ -78,9 +78,15 @@ quantedge:
   delta:
     api-base-url: ${DELTA_API_URL:https://api.india.delta.exchange}
   news:
+    provider-mode: ${NEWS_PROVIDER_MODE:external}
+    api-base-url: ${NEWS_PROVIDER_BASE_URL:https://min-api.cryptocompare.com/data/v2/news/?lang=EN}
+    api-key: ${NEWS_PROVIDER_API_KEY:}
     ingest-rate-ms: ${NEWS_INGEST_RATE_MS:1800000}
     retention-days: ${NEWS_RETENTION_DAYS:7}
   economic:
+    provider-mode: ${ECONOMIC_PROVIDER_MODE:external}
+    api-base-url: ${ECONOMIC_PROVIDER_BASE_URL:https://nfs.faireconomy.media/}
+    api-key: ${ECONOMIC_PROVIDER_API_KEY:}
     sync-rate-ms: ${ECONOMIC_SYNC_RATE_MS:7200000}
     retention-hours: ${ECONOMIC_RETENTION_HOURS:24}
   cleanup:
