@@ -26,11 +26,25 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/quantedge}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-quantifiedge}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-quantifiedge_dev}
-      QUANTEDGE_JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production-min-256-bits}
-      QUANTEDGE_CORS_ALLOWED_ORIGINS: http://localhost:3100,http://localhost:3101
-      QUANTEDGE_DELTA_API_URL: https://api.india.delta.exchange
-      QUANTEDGE_PYTHON_ENGINE_URL: http://engine:8000
-      QUANTEDGE_PYTHON_ENGINE_API_KEY: ${PYTHON_ENGINE_API_KEY:?PYTHON_ENGINE_API_KEY must be set}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-key-change-in-production-min-256-bits}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3100,http://localhost:3101}
+      DELTA_API_URL: ${DELTA_API_URL:-https://api.india.delta.exchange}
+      PYTHON_ENGINE_URL: http://engine:8000
+      PYTHON_ENGINE_API_KEY: ${PYTHON_ENGINE_API_KEY:?PYTHON_ENGINE_API_KEY must be set}
+      DEVELOPER_EMAIL: ${DEVELOPER_EMAIL:-}
+      DEVELOPER_INITIAL_PASSWORD: ${DEVELOPER_INITIAL_PASSWORD:-}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@quantedge.ai}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
+      MAIL_DEV_LOG_ENABLED: ${MAIL_DEV_LOG_ENABLED:-false}
+      PASSWORD_RESET_BASE_URL: ${PASSWORD_RESET_BASE_URL:-http://localhost:3100}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAME_SITE: ${COOKIE_SAME_SITE:-Lax}
     ports:
       - "8080:8080"
     depends_on:
