@@ -63,12 +63,7 @@ jobs:
 
       - name: Run backend tests
         working-directory: ./backend
-        env:
-          SPRING_PROFILES_ACTIVE: dev
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/quantedge
-          SPRING_DATASOURCE_USERNAME: quantifiedge
-          SPRING_DATASOURCE_PASSWORD: quantifiedge_dev
-        run: ./mvnw test -B
+        run: ./mvnw test -B -Dspring.profiles.active=dev -Dspring.datasource.url=jdbc:postgresql://localhost:5432/quantedge -Dspring.datasource.username=quantifiedge -Dspring.datasource.password=quantifiedge_dev
 
   engine-test:
     name: Engine Tests (Python 3.11)
