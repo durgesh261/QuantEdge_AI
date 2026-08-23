@@ -16,11 +16,21 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     boolean existsByClientOrderId(String clientOrderId);
 
+    Optional<Order> findByIdAndTradingAccountId(String id, String tradingAccountId);
+
+    Optional<Order> findByClientOrderIdAndTradingAccountId(String clientOrderId, String tradingAccountId);
+
     boolean existsBySetupIdAndStatusIn(String setupId, Collection<String> statuses);
 
     List<Order> findByTradingAccountIdAndStatusIn(String tradingAccountId, Collection<String> statuses);
 
     List<Order> findByTradingAccountIdOrderByPlacedAtDesc(String tradingAccountId);
+
+    List<Order> findByTradingAccountIdAndSymbolOrderByPlacedAtDesc(String tradingAccountId, String symbol);
+
+    List<Order> findByTradingAccountIdAndStatusOrderByPlacedAtDesc(String tradingAccountId, String status);
+
+    List<Order> findByTradingAccountIdAndSymbolAndStatusOrderByPlacedAtDesc(String tradingAccountId, String symbol, String status);
 
     int countByTradingAccountIdAndStatusIn(String tradingAccountId, Collection<String> statuses);
 }

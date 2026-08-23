@@ -71,6 +71,18 @@ public interface OrderFillRepository extends JpaRepository<OrderFill, String> {
     List<OrderFill> findByTradingAccountIdOrderByFilledAtDesc(@Param("accountId") String accountId);
 
     /**
+     * Returns fills for a trading account filtered by symbol.
+     */
+    @Query("SELECT f FROM OrderFill f WHERE f.tradingAccount.id = :accountId AND f.symbol = :symbol ORDER BY f.filledAt DESC")
+    List<OrderFill> findByTradingAccountIdAndSymbolOrderByFilledAtDesc(@Param("accountId") String accountId, @Param("symbol") String symbol);
+
+    /**
+     * Returns a specific fill by ID with tenant isolation check.
+     */
+    @Query("SELECT f FROM OrderFill f WHERE f.id = :id AND f.tradingAccount.id = :accountId")
+    Optional<OrderFill> findByIdAndTradingAccountId(@Param("id") String id, @Param("accountId") String accountId);
+
+    /**
      * Count of fill records per order.
      */
     @Query("SELECT COUNT(f) FROM OrderFill f WHERE f.order.id = :orderId")

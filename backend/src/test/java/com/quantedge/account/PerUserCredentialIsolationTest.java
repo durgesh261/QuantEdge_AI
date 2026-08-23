@@ -9,7 +9,7 @@ import com.quantedge.auth.entity.User;
 import com.quantedge.exchange.entity.DeltaConnection;
 import com.quantedge.exchange.repository.DeltaConnectionRepository;
 import com.quantedge.exchange.service.DeltaCredentialService;
-import com.quantedge.portfolio.repository.PositionRepository;
+import com.quantedge.trading.position.PositionRepository;
 import com.quantedge.risk.repository.RiskConfigurationRepository;
 import com.quantedge.strategy.repository.StrategySetupRepository;
 import com.quantedge.trading.repository.OrderRepository;

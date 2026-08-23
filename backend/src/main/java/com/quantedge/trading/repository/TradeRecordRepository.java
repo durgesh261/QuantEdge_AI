@@ -24,6 +24,12 @@ public interface TradeRecordRepository extends JpaRepository<TradeRecord, String
     List<TradeRecord> findByAccountIdOrderByOpenedAtDesc(@Param("accountId") String accountId);
 
     /**
+     * Returns a specific trade record ensuring tenant ownership.
+     */
+    @Query("SELECT t FROM TradeRecord t WHERE t.id = :id AND t.tradingAccount.id = :accountId")
+    Optional<TradeRecord> findByIdAndTradingAccountId(@Param("id") String id, @Param("accountId") String accountId);
+
+    /**
      * Returns the most recent CLOSED trade record to obtain the authoritative
      * compounded balance for the next trade's capital allocation.
      */

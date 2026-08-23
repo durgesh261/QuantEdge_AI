@@ -39,6 +39,24 @@ public interface PositionRepository extends JpaRepository<Position, String> {
     List<Position> findAllByAccountIdOrderByOpenedAtDesc(@Param("accountId") String accountId);
 
     /**
+     * Returns positions for a trading account filtered by status ordered by open time DESC.
+     */
+    @Query("SELECT p FROM Position p WHERE p.tradingAccount.id = :accountId AND p.status = :status ORDER BY p.openedAt DESC")
+    List<Position> findByTradingAccountIdAndStatusOrderByOpenedAtDesc(@Param("accountId") String accountId, @Param("status") String status);
+
+    @Query("SELECT p FROM Position p WHERE p.tradingAccount.id = :accountId AND p.status = :status")
+    List<Position> findByTradingAccountIdAndStatus(@Param("accountId") String accountId, @Param("status") String status);
+
+    @Query("SELECT p FROM Position p WHERE p.tradingAccount.id = :accountId AND p.symbol = :symbol AND p.status = :status")
+    Optional<Position> findByTradingAccountIdAndSymbolAndStatus(@Param("accountId") String accountId, @Param("symbol") String symbol, @Param("status") String status);
+
+    /**
+     * Returns a specific position by ID ensuring tenant ownership.
+     */
+    @Query("SELECT p FROM Position p WHERE p.id = :id AND p.tradingAccount.id = :accountId")
+    Optional<Position> findByIdAndTradingAccountId(@Param("id") String id, @Param("accountId") String accountId);
+
+    /**
      * Returns the position opened by a specific strategy setup.
      */
     Optional<Position> findBySetupId(String setupId);
