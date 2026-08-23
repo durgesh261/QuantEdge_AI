@@ -77,6 +77,15 @@ quantedge:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
   delta:
     api-base-url: ${DELTA_API_URL:https://api.india.delta.exchange}
+  news:
+    ingest-rate-ms: ${NEWS_INGEST_RATE_MS:1800000}
+    retention-days: ${NEWS_RETENTION_DAYS:7}
+  economic:
+    sync-rate-ms: ${ECONOMIC_SYNC_RATE_MS:7200000}
+    retention-hours: ${ECONOMIC_RETENTION_HOURS:24}
+  cleanup:
+    news-retention-cron: ${NEWS_CLEANUP_CRON:0 0 * * * *}
+    economic-retention-cron: ${ECONOMIC_CLEANUP_CRON:0 0 * * * *}
   python-engine:
     base-url: ${PYTHON_ENGINE_URL:http://localhost:8000}
     api-key: ${PYTHON_ENGINE_API_KEY:}
