@@ -7,8 +7,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lock,
-  ExternalLink,
-  Activity,
   DollarSign,
   Sliders,
   Save,
@@ -17,13 +15,8 @@ import {
   AlertOctagon,
 } from 'lucide-react'
 import { useAccountStore } from '@/stores/accountStore'
-import {
-  accountService,
-  AlgoConfigResponse,
-  LiveTestPrepareResponse,
-  LiveTestConfirmResponse,
-  LiveTestCloseResponse,
-} from '@/services/accountService'
+import { accountService, AlgoConfigResponse } from '@/services/accountService'
+import { tradeService } from '@/services/tradeService'
 
 export function Settings() {
   const {
@@ -47,17 +40,6 @@ export function Settings() {
   const [showConnectModal, setShowConnectModal] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
 
-  // Live Order Test State
-  const [testSymbol, setTestSymbol] = useState('ETHUSD')
-  const [isPreparingTest, setIsPreparingTest] = useState(false)
-  const [isConfirmingTest, setIsConfirmingTest] = useState(false)
-  const [isClosingTest, setIsClosingTest] = useState(false)
-  const [liveTestPrepareData, setLiveTestPrepareData] = useState<LiveTestPrepareResponse | null>(null)
-  const [liveTestConfirmData, setLiveTestConfirmData] = useState<LiveTestConfirmResponse | null>(null)
-  const [liveTestCloseData, setLiveTestCloseData] = useState<LiveTestCloseResponse | null>(null)
-  const [liveTestError, setLiveTestError] = useState<string | null>(null)
-  const [showConfirmOrderModal, setShowConfirmOrderModal] = useState(false)
-
   // Algo Trading Configuration State
   const [algoConfig, setAlgoConfig] = useState<AlgoConfigResponse | null>(null)
   const [takeProfitPct, setTakeProfitPct] = useState<number>(2.0)
@@ -68,6 +50,8 @@ export function Settings() {
   const [isSavingConfig, setIsSavingConfig] = useState(false)
   const [configSuccessMsg, setConfigSuccessMsg] = useState<string | null>(null)
   const [configErrorMsg, setConfigErrorMsg] = useState<string | null>(null)
+  const [isTogglingAlgo, setIsTogglingAlgo] = useState(false)
+  const [isTogglingKillSwitch, setIsTogglingKillSwitch] = useState(false)
 
   useEffect(() => {
     fetchStatus()
@@ -120,69 +104,34 @@ export function Settings() {
     }
   }
 
-  const handlePrepareLiveTest = async () => {
-    setIsPreparingTest(true)
-    setLiveTestError(null)
-    setLiveTestConfirmData(null)
-    setLiveTestCloseData(null)
-
+  const handleToggleAlgo = async () => {
+    if (!status?.accountId) return
+    setIsTogglingAlgo(true)
     try {
-      const res = await accountService.prepareLiveTest(status?.accountId, testSymbol)
-      if (res.ready) {
-        setLiveTestPrepareData(res)
-        setShowConfirmOrderModal(true)
-      } else {
-        setLiveTestError(res.error || 'Live order test preparation failed')
-      }
+      const newEnabled = !status.algoEnabled
+      await tradeService.toggleAlgo(newEnabled, status.accountId)
+      await fetchStatus(status.accountId)
     } catch (err: any) {
-      setLiveTestError(err.response?.data?.error || err.message || 'Failed to prepare live order test')
+      setConfigErrorMsg(err.response?.data?.message || err.message || 'Failed to toggle algorithm trading')
     } finally {
-      setIsPreparingTest(false)
+      setIsTogglingAlgo(false)
     }
   }
 
-  const handleConfirmLiveTest = async () => {
-    if (!liveTestPrepareData?.confirmationToken) return
-
-    setIsConfirmingTest(true)
-    setLiveTestError(null)
-
+  const handleToggleKillSwitch = async () => {
+    if (!status?.accountId) return
+    setIsTogglingKillSwitch(true)
     try {
-      const res = await accountService.confirmLiveTest(
-        liveTestPrepareData.confirmationToken,
-        status?.accountId
-      )
-      setLiveTestConfirmData(res)
-      setShowConfirmOrderModal(false)
-      if (!res.success) {
-        setLiveTestError(res.error || res.message || 'Live order execution failed')
-      }
-      // Refresh summary
-      await fetchSummary(status?.accountId)
-    } catch (err: any) {
-      setLiveTestError(err.response?.data?.error || err.message || 'Failed to confirm live order')
-    } finally {
-      setIsConfirmingTest(false)
-    }
-  }
-
-  const handleCloseLiveTest = async () => {
-    setIsClosingTest(true)
-    setLiveTestError(null)
-
-    try {
-      const res = await accountService.closeLiveTest(status?.accountId, testSymbol)
-      setLiveTestCloseData(res)
-      if (res.success) {
-        // Refresh summary
-        await fetchSummary(status?.accountId)
+      if (status.killSwitchActive) {
+        await tradeService.resetKillSwitch(status.accountId)
       } else {
-        setLiveTestError(res.error || res.message || 'Failed to close live test position')
+        await tradeService.activateKillSwitch(status.accountId, 'Operator manually triggered emergency kill switch')
       }
+      await fetchStatus(status.accountId)
     } catch (err: any) {
-      setLiveTestError(err.response?.data?.error || err.message || 'Failed to close position')
+      setConfigErrorMsg(err.response?.data?.message || err.message || 'Failed to update kill switch state')
     } finally {
-      setIsClosingTest(false)
+      setIsTogglingKillSwitch(false)
     }
   }
 
@@ -202,656 +151,439 @@ export function Settings() {
     })
 
     if (success) {
+      setShowConnectModal(false)
       setApiKey('')
       setApiSecret('')
-      setShowConnectModal(false)
+      fetchAlgoConfig()
     }
   }
 
-  const isConnected = status?.connected || status?.connectionStatus === 'CONNECTED'
+  const handleDisconnect = async () => {
+    if (window.confirm('Are you sure you want to disconnect your Delta Exchange India account? Automated trading will be deactivated.')) {
+      await disconnectAccount(status?.accountId)
+      setAlgoConfig(null)
+    }
+  }
+
+  const isConnected = status?.connected ?? false
 
   return (
-    <div className="space-y-8 max-w-6xl">
+    <div className="space-y-8 max-w-5xl font-sans">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Account & Exchange Settings</h1>
-          <p className="text-slate-400 mt-1">
-            Manage your real-trading connection with Delta Exchange India.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {isConnected && (
-            <button
-              onClick={() => verifyAccount(status?.accountId)}
-              disabled={isSyncing}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg border border-slate-700 transition disabled:opacity-50"
-            >
-              <RefreshCw size={16} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
-              {isSyncing ? 'Synchronizing...' : 'Sync Live Account'}
-            </button>
-          )}
-          <button
-            onClick={() => setShowConnectModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg shadow-lg shadow-blue-600/20 transition"
-          >
-            <Key size={16} />
-            {isConnected ? 'Update Credentials' : 'Connect Delta Account'}
-          </button>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-white tracking-tight">Settings & Integration</h1>
+        <p className="text-slate-400 mt-1 text-sm">
+          Manage exchange connectivity, automated algorithm risk brackets, and emergency controls for Delta Exchange India.
+        </p>
       </div>
 
-      {/* Global Error Banner */}
-      {(error || status?.lastError) && (
-        <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-4 flex items-start justify-between gap-3 text-red-300">
-          <div className="flex items-start gap-3">
-            <AlertTriangle size={20} className="text-red-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-red-200">Exchange Error / Disconnection</p>
-              <p className="text-sm text-red-300 mt-0.5">{error || status?.lastError}</p>
-            </div>
+      {/* Global Errors */}
+      {error && (
+        <div className="p-4 rounded-xl bg-red-950/50 border border-red-800 text-red-300 flex items-center justify-between text-sm">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="text-red-400 shrink-0" size={18} />
+            <span>{error}</span>
           </div>
-          <button
-            onClick={clearError}
-            className="text-xs text-red-400 hover:text-red-200 uppercase font-bold tracking-wider px-2 py-1"
-          >
+          <button onClick={clearError} className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-wider">
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Connection Overview Card */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 sm:p-8 backdrop-blur-sm shadow-xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-slate-800">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600/20 to-indigo-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 shadow-inner">
-              <ShieldCheck size={32} />
+      {/* SECTION 1: Delta Exchange Connection */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-600/10 text-blue-400 border border-blue-500/20">
+              <Key size={22} />
             </div>
             <div>
-              <div className="flex items-center gap-3">
-                <h2 className="text-xl font-bold text-white">Delta Exchange India</h2>
-                <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider ${
-                    isConnected
-                      ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/80'
-                      : status?.connectionStatus === 'ERROR'
-                      ? 'bg-red-950/80 text-red-400 border border-red-800/80'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}
+              <h2 className="text-lg font-bold text-white">Delta Exchange India Connection</h2>
+              <p className="text-xs text-slate-400">REST & WebSocket API Integration</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {isConnected ? (
+              <>
+                <button
+                  onClick={() => verifyAccount(status?.accountId)}
+                  disabled={isSyncing}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-lg border border-slate-700 transition disabled:opacity-50"
                 >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isConnected ? 'bg-emerald-400 animate-pulse' : status?.connectionStatus === 'ERROR' ? 'bg-red-400' : 'bg-slate-500'
-                    }`}
-                  />
-                  {status?.connectionStatus || 'DISCONNECTED'}
-                </span>
+                  <RefreshCw size={13} className={isSyncing ? 'animate-spin text-blue-400' : ''} />
+                  {isSyncing ? 'Verifying...' : 'Re-verify'}
+                </button>
+                <button
+                  onClick={handleDisconnect}
+                  disabled={isLoading}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 bg-red-950/40 hover:bg-red-900/60 text-red-400 text-xs font-bold rounded-lg border border-red-800/80 transition disabled:opacity-50"
+                >
+                  <PowerOff size={13} />
+                  Disconnect
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setShowConnectModal(true)}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition"
+              >
+                <Key size={14} />
+                Connect Delta Account
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Connection Status Details */}
+        {isConnected ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Connection Status</span>
+                <div className="flex items-center gap-2 pt-1">
+                  <CheckCircle2 size={16} className="text-emerald-400" />
+                  <span className="text-sm font-bold text-emerald-400">Connected & Verified</span>
+                </div>
+                <p className="text-[11px] text-slate-500 font-mono">Account ID: {status?.accountId}</p>
               </div>
-              <p className="text-sm text-slate-400 font-mono mt-1">
-                Endpoint: <span className="text-slate-300">https://api.india.delta.exchange</span> (Production)
-              </p>
+
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active API Key</span>
+                <div className="flex items-center gap-2 pt-1">
+                  <Lock size={15} className="text-blue-400" />
+                  <span className="text-sm font-mono text-slate-200">{status?.maskedApiKey || '••••••••'}</span>
+                </div>
+                <p className="text-[11px] text-slate-500">Encrypted AES-256-GCM Server-Side</p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-1">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Collateral & Margin</span>
+                <div className="flex items-center gap-2 pt-1">
+                  <DollarSign size={16} className="text-purple-400" />
+                  <span className="text-sm font-mono font-bold text-white">
+                    ${summary?.totalEquity != null ? summary.totalEquity.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Avail: ${summary?.availableBalance != null ? summary.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-lg bg-blue-950/20 border border-blue-900/40 text-xs text-blue-300">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={16} className="text-blue-400 shrink-0" />
+                <span>Private credentials are encrypted and held in-memory server-side. Zero raw secret exposure.</span>
+              </div>
+              <span className="font-mono text-[10px] text-slate-400">TLS 1.3 Strict</span>
             </div>
           </div>
-
-          {isConnected && (
-            <button
-              onClick={() => disconnectAccount(status?.accountId)}
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-red-950/30 hover:bg-red-900/40 text-red-300 text-sm font-medium rounded-lg border border-red-800/50 transition self-start md:self-auto"
-            >
-              <PowerOff size={16} />
-              Disconnect
-            </button>
-          )}
-        </div>
-
-        {/* Credentials & Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
-            <p className="text-xs uppercase font-bold text-slate-500 tracking-wider">Masked API Key</p>
-            <div className="flex items-center gap-2 mt-2 font-mono text-sm text-slate-200">
-              <Key size={16} className="text-slate-400" />
-              <span>{status?.maskedApiKey || 'No Key Configured'}</span>
+        ) : (
+          <div className="py-8 text-center space-y-3">
+            <div className="inline-flex p-3 rounded-full bg-slate-800/80 text-slate-400 mb-1">
+              <Key size={24} />
             </div>
-            <p className="text-xs text-slate-500 mt-2">API Secret is stored securely encrypted with AES-256-GCM.</p>
-          </div>
-
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
-            <p className="text-xs uppercase font-bold text-slate-500 tracking-wider">Live Wallet Equity</p>
-            <div className="flex items-center gap-2 mt-2 font-mono text-xl font-bold text-emerald-400">
-              <DollarSign size={20} className="text-emerald-400" />
-              <span>{summary?.totalEquity != null ? `$${summary.totalEquity.toLocaleString()}` : '$0.00'}</span>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Available: ${summary?.availableBalance != null ? summary.availableBalance.toLocaleString() : '0.00'}
+            <h3 className="text-sm font-bold text-white">No Delta India Account Connected</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              Connect your Delta Exchange India API credentials to enable automated algorithmic trading and live risk reconciliation.
             </p>
+            <button
+              onClick={() => setShowConnectModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition"
+            >
+              Connect Account Now
+            </button>
           </div>
-
-          <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4">
-            <p className="text-xs uppercase font-bold text-slate-500 tracking-wider">Safety Status</p>
-            <div className="flex items-center gap-3 mt-2">
-              <span className="px-2 py-0.5 bg-yellow-950/60 border border-yellow-800/80 text-yellow-400 text-xs font-semibold rounded">
-                Algo: {status?.algoEnabled ? 'ENABLED' : 'DISABLED (Safe)'}
-              </span>
-              <span className="px-2 py-0.5 bg-red-950/60 border border-red-800/80 text-red-400 text-xs font-semibold rounded">
-                Kill Switch: {status?.killSwitchActive ? 'ACTIVE (Safe)' : 'INACTIVE'}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">Default safe flags prevent automated executions.</p>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Algorithm Trading Configuration Panel */}
+      {/* SECTION 2: Trading Controls (Algo Toggle & Kill Switch) */}
+      {isConnected && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Algo Trading State */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Zap size={20} className={status?.algoEnabled ? 'text-emerald-400' : 'text-slate-400'} />
+                <h3 className="text-sm font-bold text-white">Automated Algorithmic Execution</h3>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  status?.algoEnabled ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {status?.algoEnabled ? 'EXECUTION ENABLED' : 'ALGORITHM DISABLED'}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              When enabled, verified strategy signals meeting authoritative risk qualification will automatically execute on Delta Exchange India.
+            </p>
+
+            <button
+              onClick={handleToggleAlgo}
+              disabled={isTogglingAlgo}
+              className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+                status?.algoEnabled
+                  ? 'bg-amber-950/40 hover:bg-amber-900/60 text-amber-400 border border-amber-800/80'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20'
+              }`}
+            >
+              {isTogglingAlgo ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : status?.algoEnabled ? (
+                'Disable Automated Execution'
+              ) : (
+                'Enable Automated Execution'
+              )}
+            </button>
+          </div>
+
+          {/* Emergency Kill Switch */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <AlertOctagon size={20} className={status?.killSwitchActive ? 'text-red-400' : 'text-slate-400'} />
+                <h3 className="text-sm font-bold text-white">Emergency Kill Switch</h3>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  status?.killSwitchActive ? 'bg-red-950 text-red-400 border border-red-800' : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                }`}
+              >
+                {status?.killSwitchActive ? 'KILL SWITCH ACTIVE' : 'KILL SWITCH INACTIVE'}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              When activated, all real order execution is immediately blocked server-side regardless of strategy signals.
+            </p>
+
+            <button
+              onClick={handleToggleKillSwitch}
+              disabled={isTogglingKillSwitch}
+              className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
+                status?.killSwitchActive
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                  : 'bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80'
+              }`}
+            >
+              {isTogglingKillSwitch ? (
+                <RefreshCw size={14} className="animate-spin" />
+              ) : status?.killSwitchActive ? (
+                'Reset Kill Switch (Restore Trading)'
+              ) : (
+                'Activate Emergency Kill Switch'
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SECTION 3: Algorithm Risk & Bracket Configuration */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30">
+            <div className="p-2.5 rounded-xl bg-purple-600/10 text-purple-400 border border-purple-500/20">
               <Sliders size={22} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white">Algorithm Trading Configuration</h2>
-                <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
-                  Version {algoConfig?.version ?? 1}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Authoritative parameters for automated strategy order submission and bracket protection.
-              </p>
+              <h2 className="text-lg font-bold text-white">Algorithm Trading Configuration</h2>
+              <p className="text-xs text-slate-400">Authoritative Risk Parameters & Sizing</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-lg">
-            <Layers size={14} className="text-indigo-400" />
-            <span>Immutable Trade Snapshots: Active</span>
-          </div>
-        </div>
-
-        {/* Informational Guidance Notice */}
-        <div className="bg-blue-950/40 border border-blue-800/60 rounded-xl p-4 text-xs text-blue-200 flex items-start gap-3">
-          <CheckCircle2 size={16} className="text-blue-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-semibold text-blue-100">
-              These settings apply to new trades. Existing positions keep their original trade parameters.
-            </p>
-            <p className="text-slate-300">
-              When a trade signal is generated, an immutable snapshot of this version is locked to that trade. Updating parameters increments the version and only governs future orders.
-            </p>
-          </div>
+          {algoConfig && (
+            <span className="text-xs font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded-md border border-slate-700">
+              Config v{algoConfig.version}
+            </span>
+          )}
         </div>
 
         {configSuccessMsg && (
-          <div className="bg-emerald-950/40 border border-emerald-800/80 rounded-xl p-3.5 text-xs font-mono text-emerald-300 flex items-center gap-2">
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800 text-emerald-400 text-xs font-medium flex items-center gap-2">
+            <CheckCircle2 size={16} />
             <span>{configSuccessMsg}</span>
           </div>
         )}
 
         {configErrorMsg && (
-          <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-300 flex items-center gap-2">
-            <AlertTriangle size={16} className="text-red-400 shrink-0" />
+          <div className="p-3 rounded-lg bg-red-950/40 border border-red-800 text-red-400 text-xs font-medium flex items-center gap-2">
+            <AlertTriangle size={16} />
             <span>{configErrorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSaveAlgoConfig} className="space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Take Profit */}
-            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
-              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                Take Profit (TP %)
+        <form onSubmit={handleSaveAlgoConfig} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Risk Per Trade (% of Equity)</span>
+                <span className="text-purple-400 font-mono">{riskPerTradePct}%</span>
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="100"
-                  value={takeProfitPct}
-                  onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-emerald-400 focus:outline-none focus:border-blue-500"
-                  required
-                />
-                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
-              </div>
-              <p className="text-xs text-slate-500">Auto TP bracket distance from entry.</p>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="5.0"
+                value={riskPerTradePct}
+                onChange={(e) => setRiskPerTradePct(parseFloat(e.target.value) || 0)}
+                disabled={!isConnected}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
+              />
+              <p className="text-[11px] text-slate-500">Authoritative position sizing based on risk distance to OB-Edge.</p>
             </div>
 
-            {/* Stop Loss */}
-            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
-              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                Stop Loss (SL %)
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Max Leverage Limit</span>
+                <span className="text-purple-400 font-mono">{maxLeverage}x</span>
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="100"
-                  value={stopLossPct}
-                  onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-red-400 focus:outline-none focus:border-blue-500"
-                  required
-                />
-                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
-              </div>
-              <p className="text-xs text-slate-500">Auto SL bracket distance from entry.</p>
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="100"
+                value={maxLeverage}
+                onChange={(e) => setMaxLeverage(parseInt(e.target.value) || 1)}
+                disabled={!isConnected}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
+              />
+              <p className="text-[11px] text-slate-500">Hard leverage cap enforced during order calculation.</p>
             </div>
 
-            {/* Risk per Trade */}
-            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
-              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                Risk Per Trade (%)
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Authoritative Take Profit Ratio (% Target)</span>
+                <span className="text-purple-400 font-mono">{takeProfitPct}%</span>
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  max="100"
-                  value={riskPerTradePct}
-                  onChange={(e) => setRiskPerTradePct(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-blue-400 focus:outline-none focus:border-blue-500"
-                  required
-                />
-                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
-              </div>
-              <p className="text-xs text-slate-500">Fraction of account equity risked.</p>
+              <input
+                type="number"
+                step="0.1"
+                min="0.5"
+                max="50.0"
+                value={takeProfitPct}
+                onChange={(e) => setTakeProfitPct(parseFloat(e.target.value) || 0)}
+                disabled={!isConnected}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
+              />
+              <p className="text-[11px] text-slate-500">Calculates authoritative TP limit brackets.</p>
             </div>
 
-            {/* Max Daily Loss */}
-            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 space-y-2">
-              <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block">
-                Daily Loss Limit (%)
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Authoritative Stop Loss Threshold (% Max Loss)</span>
+                <span className="text-purple-400 font-mono">{stopLossPct}%</span>
               </label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  max="100"
-                  value={maxDailyLossPct}
-                  onChange={(e) => setMaxDailyLossPct(parseFloat(e.target.value) || 0)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono text-amber-400 focus:outline-none focus:border-blue-500"
-                  required
-                />
-                <span className="absolute right-3 top-2.5 text-xs font-mono text-slate-500">%</span>
-              </div>
-              <p className="text-xs text-slate-500">Blocks new entries if breached.</p>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="10.0"
+                value={stopLossPct}
+                onChange={(e) => setStopLossPct(parseFloat(e.target.value) || 0)}
+                disabled={!isConnected}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-purple-500 disabled:opacity-50"
+              />
+              <p className="text-[11px] text-slate-500">Calculates protective stop brackets at OB invalidation boundaries.</p>
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <div className="text-xs font-mono text-slate-400">
-              Risk/Reward Ratio: <span className="text-emerald-400 font-bold">1:{(takeProfitPct / (stopLossPct || 1)).toFixed(2)}</span>
+          <div className="flex items-center justify-between pt-4 border-t border-slate-800">
+            <div className="flex items-center gap-2 text-xs text-slate-400">
+              <Layers size={15} />
+              <span>Immutable versioned persistence in PostgreSQL backend.</span>
             </div>
+
             <button
               type="submit"
-              disabled={isSavingConfig}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-lg shadow-blue-600/20 transition disabled:opacity-50"
+              disabled={!isConnected || isSavingConfig}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/20 transition disabled:opacity-50"
             >
-              <Save size={15} />
-              {isSavingConfig ? 'Saving Version...' : 'Save Configuration'}
+              <Save size={14} />
+              {isSavingConfig ? 'Saving Parameters...' : 'Save Configuration'}
             </button>
           </div>
         </form>
       </div>
 
-      {/* Live Order Test Panel */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-600/20 text-amber-400 border border-amber-500/30">
-              <Zap size={22} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-lg font-bold text-white">Explicit Live Order Test</h2>
-                <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-amber-950 text-amber-300 border border-amber-800">
-                  Verification Gate
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Deliberate two-step test order with dynamic smallest lot sizing, live bracket protection, and position closure.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-400 bg-slate-950/60 border border-slate-800 px-3 py-1.5 rounded-lg">
-            <ShieldCheck size={14} className="text-emerald-400" />
-            <span>SMC Strategy Disconnected</span>
-          </div>
-        </div>
-
-        {/* Warning Banner */}
-        <div className="bg-amber-950/40 border border-amber-800/70 rounded-xl p-4 text-xs text-amber-200 flex items-start gap-3">
-          <AlertOctagon size={18} className="text-amber-400 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <p className="font-bold text-amber-100 uppercase tracking-wide">
-              WARNING: This will place a REAL order using your connected Delta Exchange account.
-            </p>
-            <p className="text-slate-300">
-              This workflow submits the smallest allowable live order, immediately establishes reduce-only Stop Loss and Take Profit orders, and provides verified position closure. Automated algorithms will NEVER trigger this test.
-            </p>
-          </div>
-        </div>
-
-        {liveTestError && (
-          <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-300 flex items-center gap-2">
-            <AlertTriangle size={16} className="text-red-400 shrink-0" />
-            <span>{liveTestError}</span>
-          </div>
-        )}
-
-        {liveTestConfirmData && (
-          <div className={`p-4 rounded-xl border space-y-3 ${
-            liveTestConfirmData.success
-              ? 'bg-emerald-950/30 border-emerald-800/60 text-emerald-300'
-              : 'bg-red-950/30 border-red-800/60 text-red-300'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {liveTestConfirmData.success ? (
-                  <CheckCircle2 size={18} className="text-emerald-400" />
-                ) : (
-                  <AlertTriangle size={18} className="text-red-400" />
-                )}
-                <span className="font-bold font-mono text-sm">
-                  {liveTestConfirmData.status}
-                </span>
-              </div>
-              <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
-                Position: {liveTestConfirmData.positionStatus}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono pt-2 border-t border-slate-800">
-              <div>
-                <span className="text-slate-500 block">Exchange Order ID</span>
-                <span className="text-slate-200 font-bold">{liveTestConfirmData.exchangeOrderId || 'N/A'}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">Filled Quantity</span>
-                <span className="text-slate-200 font-bold">{liveTestConfirmData.filledQuantity} Lot</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">Fill Price</span>
-                <span className="text-emerald-400 font-bold">${liveTestConfirmData.fillPrice}</span>
-              </div>
-              <div>
-                <span className="text-slate-500 block">Protective SL / TP</span>
-                <span className="text-slate-200">
-                  SL: ${liveTestConfirmData.stopLossPrice} | TP: ${liveTestConfirmData.takeProfitPrice}
-                </span>
-              </div>
-            </div>
-
-            {liveTestConfirmData.positionStatus === 'OPEN' && (
-              <div className="pt-2 flex justify-end">
-                <button
-                  onClick={handleCloseLiveTest}
-                  disabled={isClosingTest}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-600/20 transition disabled:opacity-50 flex items-center gap-2"
-                >
-                  <PowerOff size={14} />
-                  {isClosingTest ? 'Closing Test Position...' : 'Close Test Position (Flatten)'}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {liveTestCloseData && (
-          <div className="bg-blue-950/30 border border-blue-800/60 rounded-xl p-4 text-xs font-mono text-blue-200 space-y-2">
-            <div className="flex items-center gap-2 font-bold text-blue-100">
-              <CheckCircle2 size={16} className="text-blue-400" />
-              <span>{liveTestCloseData.status}: {liveTestCloseData.message}</span>
-            </div>
-            <p className="text-slate-400">
-              Final Position Size: <strong className="text-white">{liveTestCloseData.finalPosition ?? 0}</strong> | Available Balance: <strong className="text-emerald-400">${liveTestCloseData.finalAvailableBalance ?? 'N/A'}</strong>
-            </p>
-          </div>
-        )}
-
-        {/* Live Test Trigger Form */}
-        <div className="flex flex-col sm:flex-row items-end gap-4 pt-2">
-          <div className="w-full sm:w-64 space-y-1.5">
-            <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-              Test Contract Symbol
-            </label>
-            <select
-              value={testSymbol}
-              onChange={(e) => setTestSymbol(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2 text-sm text-white focus:outline-none focus:border-amber-500 font-mono"
-            >
-              <option value="ETHUSD">ETHUSD (Ethereum Perpetual)</option>
-              <option value="BTCUSD">BTCUSD (Bitcoin Perpetual)</option>
-            </select>
-          </div>
-
-          <button
-            onClick={handlePrepareLiveTest}
-            disabled={!isConnected || isPreparingTest}
-            className="w-full sm:w-auto px-6 py-2.5 bg-amber-600 hover:bg-amber-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-amber-600/20 transition disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            <Zap size={16} />
-            {isPreparingTest ? 'Inspecting Exchange...' : 'Prepare Live Test'}
-          </button>
-        </div>
-      </div>
-
-      {/* Security Architecture & Guide */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 text-blue-400 mb-3">
-            <Lock size={20} />
-            <h3 className="font-semibold text-white">Bank-Grade Credential Protection</h3>
-          </div>
-          <ul className="space-y-2.5 text-sm text-slate-400">
-            <li className="flex items-start gap-2">
-              <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-              <span>
-                API secrets are encrypted server-side with <strong className="text-slate-200">AES-256-GCM</strong>.
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-              <span>Decryption occurs solely in server memory at request dispatch time.</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-              <span>Frontend payloads never carry credentials; secrets are never logged.</span>
-            </li>
-          </ul>
-        </div>
-
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6">
-          <div className="flex items-center gap-3 text-indigo-400 mb-3">
-            <Activity size={20} />
-            <h3 className="font-semibold text-white">Explicit Live Execution Verification</h3>
-          </div>
-          <p className="text-sm text-slate-400 leading-relaxed">
-            The Live Execution Test allows you to explicitly verify order placement on Delta Exchange India with the smallest valid contract lot, protective SL/TP brackets, and verified position closure.
-          </p>
-          <a
-            href="https://india.delta.exchange"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-medium mt-4 transition"
-          >
-            Delta Exchange India Portal <ExternalLink size={12} />
-          </a>
-        </div>
-      </div>
-
-      {/* Explicit Order Confirmation Modal */}
-      {showConfirmOrderModal && liveTestPrepareData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-amber-600/60 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30">
-                  <AlertOctagon size={20} />
-                </div>
-                <h3 className="text-lg font-bold text-white">Confirm REAL Live Order</h3>
-              </div>
-              <button
-                onClick={() => setShowConfirmOrderModal(false)}
-                className="text-slate-500 hover:text-slate-300 text-sm font-bold p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="bg-red-950/40 border border-red-800/80 rounded-xl p-3.5 text-xs font-mono text-red-200">
-              <p className="font-bold uppercase tracking-wider mb-1">
-                ATTENTION: REAL FUNDS AT RISK
-              </p>
-              <p className="text-red-300">
-                {liveTestPrepareData.warning}
-              </p>
-            </div>
-
-            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5 text-xs font-mono">
-              <div className="flex justify-between text-slate-400">
-                <span>Exchange:</span>
-                <span className="text-white font-bold">{liveTestPrepareData.exchange}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Product & Side:</span>
-                <span className="text-amber-400 font-bold">{liveTestPrepareData.symbol} ({liveTestPrepareData.side})</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Minimum Quantity:</span>
-                <span className="text-white font-bold">{liveTestPrepareData.minimumQuantity} Lot</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Current Mark Price:</span>
-                <span className="text-emerald-400 font-bold">${liveTestPrepareData.markPrice}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Estimated Margin:</span>
-                <span className="text-white font-bold">${liveTestPrepareData.estimatedMargin}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Available Collateral:</span>
-                <span className="text-emerald-400 font-bold">${liveTestPrepareData.availableBalance}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>Risk & Margin Validation:</span>
-                <span className="text-emerald-400 font-bold">{liveTestPrepareData.riskCheck}</span>
-              </div>
-              <div className="flex justify-between text-slate-400 pt-2 border-t border-slate-800">
-                <span>Token Expiration:</span>
-                <span className="text-slate-400">{new Date(liveTestPrepareData.expiresAt || '').toLocaleTimeString()}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setShowConfirmOrderModal(false)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmLiveTest}
-                disabled={isConfirmingTest}
-                className="px-5 py-2.5 bg-gradient-to-r from-red-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white text-sm font-bold rounded-lg shadow-lg shadow-red-600/30 transition disabled:opacity-50 flex items-center gap-2"
-              >
-                <Zap size={16} />
-                {isConfirmingTest ? 'Submitting Real Order...' : 'Confirm REAL Order Now'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Connect Account Modal */}
+      {/* Connect Modal */}
       {showConnectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-600/20 text-blue-400 border border-blue-500/30">
+                <div className="p-2 rounded-lg bg-blue-600/20 text-blue-400">
                   <Key size={20} />
                 </div>
-                <h3 className="text-lg font-bold text-white">Connect Delta India Account</h3>
+                <h3 className="font-bold text-white text-base">Connect Delta Exchange India</h3>
               </div>
               <button
                 onClick={() => setShowConnectModal(false)}
-                className="text-slate-500 hover:text-slate-300 text-sm font-bold p-1"
+                className="text-slate-500 hover:text-white transition"
               >
                 ✕
               </button>
             </div>
 
             {formError && (
-              <div className="p-3 bg-red-950/60 border border-red-800 rounded-lg text-sm text-red-300">
-                {formError}
+              <div className="p-3 rounded-lg bg-red-950/40 border border-red-800 text-red-400 text-xs font-medium flex items-center gap-2">
+                <AlertTriangle size={15} />
+                <span>{formError}</span>
               </div>
             )}
 
             <form onSubmit={handleConnect} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
-                  Account Name
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">Account Label</label>
                 <input
                   type="text"
                   value={accountName}
                   onChange={(e) => setAccountName(e.target.value)}
                   placeholder="Delta Live Account"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
-                  API Key <span className="text-red-400">*</span>
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">API Key</label>
                 <input
                   type="text"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="Paste Delta India API Key"
+                  placeholder="Enter Delta Exchange API Key"
                   required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold uppercase text-slate-400 mb-1.5">
-                  API Secret <span className="text-red-400">*</span>
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-300">API Secret</label>
                 <input
                   type="password"
                   value={apiSecret}
                   onChange={(e) => setApiSecret(e.target.value)}
-                  placeholder="Paste Delta India API Secret"
+                  placeholder="Enter Delta Exchange API Secret"
                   required
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white font-mono text-sm focus:outline-none focus:border-blue-500"
                 />
-                <p className="text-xs text-slate-500 mt-1">
-                  Secret will be encrypted immediately and never returned or exposed.
-                </p>
+                <p className="text-[11px] text-slate-500">Encrypted with AES-256-GCM upon receipt. Never logged or exposed.</p>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="pt-2 flex items-center justify-end gap-3">
                 <button
                   type="button"
                   onClick={() => setShowConnectModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition"
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-lg transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isConnecting}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg shadow-lg shadow-blue-600/20 transition disabled:opacity-50"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-600/20 transition disabled:opacity-50"
                 >
-                  {isConnecting ? 'Verifying...' : 'Save & Verify'}
+                  {isConnecting ? 'Verifying...' : 'Save & Connect'}
                 </button>
               </div>
             </form>

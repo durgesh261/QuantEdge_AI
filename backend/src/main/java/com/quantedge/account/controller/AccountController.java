@@ -13,14 +13,9 @@ import org.springframework.web.bind.annotation.*;
 public class AccountController {
 
     private final AccountManagementService accountService;
-    private final com.quantedge.account.service.LiveOrderTestService liveOrderTestService;
 
-    public AccountController(
-            AccountManagementService accountService,
-            com.quantedge.account.service.LiveOrderTestService liveOrderTestService
-    ) {
+    public AccountController(AccountManagementService accountService) {
         this.accountService = accountService;
-        this.liveOrderTestService = liveOrderTestService;
     }
 
     public record ConnectRequest(
@@ -28,21 +23,6 @@ public class AccountController {
             String name,
             @NotBlank String apiKey,
             @NotBlank String apiSecret
-    ) {}
-
-    public record LiveTestPrepareRequest(
-            String accountId,
-            String symbol
-    ) {}
-
-    public record LiveTestConfirmRequest(
-            String accountId,
-            @NotBlank String confirmationToken
-    ) {}
-
-    public record LiveTestCloseRequest(
-            String accountId,
-            String symbol
     ) {}
 
     public record VerifyRequest(
@@ -187,59 +167,4 @@ public class AccountController {
             return ResponseEntity.badRequest().body(response);
         }
     }
-
-    @PostMapping("/live-test/prepare")
-    public ResponseEntity<com.quantedge.account.service.LiveOrderTestService.LiveTestPrepareResponse> prepareLiveTest(
-            @AuthenticationPrincipal User user,
-            @RequestAttribute(value = "currentUser", required = false) User requestUser,
-            @RequestBody(required = false) LiveTestPrepareRequest request
-    ) {
-        User effectiveUser = user != null ? user : requestUser;
-        String accountId = request != null ? request.accountId() : null;
-        String symbol = request != null ? request.symbol() : null;
-
-        com.quantedge.account.service.LiveOrderTestService.LiveTestPrepareResponse response =
-                liveOrderTestService.prepareLiveTest(effectiveUser, accountId, symbol);
-        if (response.ready()) {
-            return ResponseEntity.ok(response);
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-
-    @PostMapping("/live-test/confirm")
-    public ResponseEntity<com.quantedge.account.service.LiveOrderTestService.LiveTestConfirmResponse> confirmLiveTest(
-            @AuthenticationPrincipal User user,
-            @RequestAttribute(value = "currentUser", required = false) User requestUser,
-            @Valid @RequestBody LiveTestConfirmRequest request
-    ) {
-        User effectiveUser = user != null ? user : requestUser;
-        com.quantedge.account.service.LiveOrderTestService.LiveTestConfirmResponse response =
-                liveOrderTestService.confirmLiveTest(effectiveUser, request.accountId(), request.confirmationToken());
-        if (response.success()) {
-            return ResponseEntity.ok(response);
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
-
-    @PostMapping("/live-test/close")
-    public ResponseEntity<com.quantedge.account.service.LiveOrderTestService.LiveTestCloseResponse> closeLiveTest(
-            @AuthenticationPrincipal User user,
-            @RequestAttribute(value = "currentUser", required = false) User requestUser,
-            @RequestBody(required = false) LiveTestCloseRequest request
-    ) {
-        User effectiveUser = user != null ? user : requestUser;
-        String accountId = request != null ? request.accountId() : null;
-        String symbol = request != null ? request.symbol() : null;
-
-        com.quantedge.account.service.LiveOrderTestService.LiveTestCloseResponse response =
-                liveOrderTestService.closeLiveTest(effectiveUser, accountId, symbol);
-        if (response.success()) {
-            return ResponseEntity.ok(response);
-        } else {
-            return ResponseEntity.badRequest().body(response);
-        }
-    }
 }
-

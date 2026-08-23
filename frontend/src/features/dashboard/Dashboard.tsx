@@ -83,10 +83,14 @@ export function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs uppercase font-bold text-slate-400 tracking-wider">Safety Status</p>
-              <p className="text-lg font-bold text-amber-400 mt-1">Safe Mode</p>
-              <p className="text-xs text-slate-500 mt-1">Algo Disabled • Kill Switch Active</p>
+              <p className={`text-lg font-bold mt-1 ${status?.killSwitchActive ? 'text-red-400' : status?.algoEnabled ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {status?.killSwitchActive ? 'Kill Switch Active' : status?.algoEnabled ? 'Automated Trading' : 'Standby Mode'}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {status?.algoEnabled ? 'Algo Enabled' : 'Algo Disabled'} • {status?.killSwitchActive ? 'Execution Blocked' : 'Ready'}
+              </p>
             </div>
-            <div className="p-3 bg-amber-950/50 border border-amber-800/60 rounded-xl text-amber-400">
+            <div className={`p-3 rounded-xl ${status?.killSwitchActive ? 'bg-red-950/50 border border-red-800/60 text-red-400' : status?.algoEnabled ? 'bg-emerald-950/50 border border-emerald-800/60 text-emerald-400' : 'bg-amber-950/50 border border-amber-800/60 text-amber-400'}`}>
               <ShieldCheck size={24} />
             </div>
           </div>

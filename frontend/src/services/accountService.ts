@@ -156,55 +156,6 @@ export interface TradeConfigSnapshotResponse {
   message?: string
 }
 
-export interface LiveTestPrepareResponse {
-  ready: boolean
-  exchange: string
-  accountId: string
-  symbol: string
-  side: string
-  minimumQuantity: number
-  contractValue: number
-  markPrice: number
-  estimatedMargin: number
-  availableBalance: number
-  riskCheck: string
-  confirmationToken?: string
-  expiresAt?: string
-  confirmationRequired: boolean
-  warning?: string
-  error?: string
-}
-
-export interface LiveTestConfirmResponse {
-  success: boolean
-  status: string
-  accountId: string
-  symbol: string
-  side: string
-  exchangeOrderId?: string
-  filledQuantity: number
-  fillPrice: number
-  stopLossOrderId?: string
-  stopLossPrice?: number
-  takeProfitOrderId?: string
-  takeProfitPrice?: number
-  positionStatus: string
-  emergencyCloseAttempted: boolean
-  message?: string
-  error?: string
-}
-
-export interface LiveTestCloseResponse {
-  success: boolean
-  status: string
-  accountId: string
-  symbol: string
-  finalPosition?: number
-  finalAvailableBalance?: number
-  message?: string
-  error?: string
-}
-
 export const accountService = {
   async connectAccount(data: ConnectAccountRequest): Promise<ConnectAccountResponse> {
     const response = await api.post<ConnectAccountResponse>('/api/v1/account/connect', data)
@@ -232,30 +183,6 @@ export const accountService = {
 
   async disconnectAccount(accountId?: string): Promise<AccountStatusResponse> {
     const response = await api.post<AccountStatusResponse>('/api/v1/account/disconnect', { accountId })
-    return response.data
-  },
-
-  async prepareLiveTest(accountId?: string, symbol?: string): Promise<LiveTestPrepareResponse> {
-    const response = await api.post<LiveTestPrepareResponse>('/api/v1/account/live-test/prepare', {
-      accountId,
-      symbol,
-    })
-    return response.data
-  },
-
-  async confirmLiveTest(confirmationToken: string, accountId?: string): Promise<LiveTestConfirmResponse> {
-    const response = await api.post<LiveTestConfirmResponse>('/api/v1/account/live-test/confirm', {
-      accountId,
-      confirmationToken,
-    })
-    return response.data
-  },
-
-  async closeLiveTest(accountId?: string, symbol?: string): Promise<LiveTestCloseResponse> {
-    const response = await api.post<LiveTestCloseResponse>('/api/v1/account/live-test/close', {
-      accountId,
-      symbol,
-    })
     return response.data
   },
 

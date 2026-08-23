@@ -38,8 +38,8 @@ export function Analytics() {
             <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Win Rate</span>
             <Percent size={20} className="text-blue-400" />
           </div>
-          <p className="text-2xl font-bold font-mono text-white mt-2">0.0%</p>
-          <span className="text-xs text-slate-500 mt-1 block">Based on completed trades</span>
+          <p className="text-2xl font-bold font-mono text-white mt-2">—</p>
+          <span className="text-xs text-slate-500 mt-1 block">Awaiting completed executions</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm">
@@ -47,7 +47,7 @@ export function Analytics() {
             <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Profit Factor</span>
             <TrendingUp size={20} className="text-purple-400" />
           </div>
-          <p className="text-2xl font-bold font-mono text-white mt-2">--</p>
+          <p className="text-2xl font-bold font-mono text-white mt-2">—</p>
           <span className="text-xs text-slate-500 mt-1 block">Gross Profit / Gross Loss</span>
         </div>
 
@@ -56,7 +56,7 @@ export function Analytics() {
             <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">Max Drawdown</span>
             <ShieldCheck size={20} className="text-amber-400" />
           </div>
-          <p className="text-2xl font-bold font-mono text-emerald-400 mt-2">0.00%</p>
+          <p className="text-2xl font-bold font-mono text-slate-400 mt-2">—</p>
           <span className="text-xs text-slate-500 mt-1 block">Peak-to-trough decline</span>
         </div>
       </div>
