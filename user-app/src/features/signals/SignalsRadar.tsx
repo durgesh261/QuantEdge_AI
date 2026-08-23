@@ -4,6 +4,8 @@ import { tradingService } from '../../services/tradingService'
 import { useMarketStore } from '../../stores/marketStore'
 import { SignalSetupDto } from '../../types/trading'
 import { AiEnrichmentDto } from '../../types/ai'
+import { SkeletonCard } from '../../components/common/Skeleton'
+import { EmptyState } from '../../components/common/EmptyState'
 import {
   Radio,
   Filter,
@@ -231,9 +233,9 @@ export const SignalsRadar: React.FC = () => {
 
       {/* Signals Grid */}
       {isLoading && signals.length === 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-56 bg-background-surface rounded-lg"></div>
+            <SkeletonCard key={i} rows={4} />
           ))}
         </div>
       ) : filteredSignals.length > 0 ? (
@@ -333,12 +335,18 @@ export const SignalsRadar: React.FC = () => {
           })}
         </div>
       ) : (
-        <div className="glass-panel p-12 text-center rounded-lg space-y-3">
-          <Radio className="w-10 h-10 text-slate-600 mx-auto animate-pulse" />
-          <h3 className="text-sm font-bold text-white font-mono">No Matching SMC Setups Found</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto font-sans">
-            The 1H deterministic SMC engine is actively monitoring order blocks and structure breaks. Try adjusting your filter criteria above.
-          </p>
+        <div className="glass-panel rounded-lg">
+          <EmptyState
+            icon={Radio}
+            title="No Matching SMC Setups Found"
+            description="The 1H deterministic SMC engine is actively monitoring order blocks and structure breaks. Try adjusting your filter criteria above."
+            actionLabel="Reset Filters"
+            onAction={() => {
+              setSymbolFilter('ALL')
+              setDirectionFilter('ALL')
+              setStateFilter('ALL')
+            }}
+          />
         </div>
       )}
 

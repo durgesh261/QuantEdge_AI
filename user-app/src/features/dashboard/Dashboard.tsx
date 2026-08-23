@@ -15,6 +15,8 @@ import { useMarketStore } from '../../stores/marketStore'
 import { apiClient } from '../../services/apiClient'
 import { TradingSystemStatusDto, AccountSummaryDto } from '../../types/trading'
 
+import { SkeletonStat, SkeletonCard } from '../../components/common/Skeleton'
+
 export const Dashboard: React.FC = () => {
   const { user } = useAuthStore()
   const { tickers, fetchTicker } = useMarketStore()
@@ -53,15 +55,18 @@ export const Dashboard: React.FC = () => {
 
   if (isLoading && !accountSummary && !tradingStatus) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-10 bg-background-surface rounded-lg w-1/3"></div>
+      <div className="space-y-6">
+        <div className="h-8 bg-slate-800/60 rounded-lg w-64 animate-pulse"></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="h-28 bg-background-surface rounded-lg"></div>
-          <div className="h-28 bg-background-surface rounded-lg"></div>
-          <div className="h-28 bg-background-surface rounded-lg"></div>
-          <div className="h-28 bg-background-surface rounded-lg"></div>
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
         </div>
-        <div className="h-64 bg-background-surface rounded-lg"></div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonCard rows={4} />
+          <SkeletonCard rows={4} />
+        </div>
       </div>
     )
   }

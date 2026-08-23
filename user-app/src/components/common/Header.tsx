@@ -18,26 +18,25 @@ export const Header: React.FC = () => {
   const { toggleSidebar } = useUIStore()
   const { unreadCount, fetchNotifications } = useNotificationStore()
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false)
+  const [lastSyncTime, setLastSyncTime] = useState<string>('just now')
 
   useEffect(() => {
-    fetchTicker('BTCUSD')
-    fetchTicker('ETHUSD')
-    fetchTicker('SOLUSD')
-    fetchNotifications()
+    const syncAll = async () => {
+      await Promise.allSettled([
+        fetchTicker('BTCUSD'),
+        fetchTicker('ETHUSD'),
+        fetchTicker('SOLUSD'),
+        fetchNotifications(),
+      ])
+      setLastSyncTime(new Date().toLocaleTimeString())
+    }
 
-    const tickerInterval = setInterval(() => {
-      fetchTicker('BTCUSD')
-      fetchTicker('ETHUSD')
-      fetchTicker('SOLUSD')
-    }, 5000)
+    syncAll()
 
-    const notifInterval = setInterval(() => {
-      fetchNotifications()
-    }, 15000)
+    const tickerInterval = setInterval(syncAll, 5000)
 
     return () => {
       clearInterval(tickerInterval)
-      clearInterval(notifInterval)
     }
   }, [fetchTicker, fetchNotifications])
 
@@ -104,7 +103,11 @@ export const Header: React.FC = () => {
 
       {/* Right: User Status & Actions */}
       <div className="flex items-center gap-3">
-        {/* Stream Health Indicator */}
+        {/* Stream Health & Freshness Indicator */}
+        <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-slate-400">
+          <span>Synced: <strong className="text-slate-300">{lastSyncTime}</strong></span>
+        </div>
+
         <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-bullish/10 border border-bullish/20 text-bullish text-xs font-mono">
           <span className="w-2 h-2 rounded-full bg-bullish animate-pulse"></span>
           <span>1H SMC LIVE</span>

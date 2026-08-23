@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { tradingService } from '../../services/tradingService'
 import { useMarketStore } from '../../stores/marketStore'
 import { PositionDto, TradeHistoryDto } from '../../types/trading'
+import { SkeletonTable } from '../../components/common/Skeleton'
+import { EmptyState } from '../../components/common/EmptyState'
 import {
   Layers,
   RefreshCw,
@@ -170,146 +172,154 @@ export const PositionsPage: React.FC = () => {
 
         {/* Table Content */}
         <div className="flex-1 overflow-x-auto p-2">
-          {/* TAB 1: OPEN POSITIONS */}
-          {activeTab === 'open' && (
-            positions.length > 0 ? (
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
-                    <th className="py-3 px-3">Symbol</th>
-                    <th className="py-3 px-3">Side</th>
-                    <th className="py-3 px-3">Size</th>
-                    <th className="py-3 px-3">Entry Price</th>
-                    <th className="py-3 px-3">Mark Price</th>
-                    <th className="py-3 px-3">Unrealized P&L</th>
-                    <th className="py-3 px-3">Margin</th>
-                    <th className="py-3 px-3">Leverage</th>
-                    <th className="py-3 px-3">Liq. Price</th>
-                    <th className="py-3 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-terminal-border/50 text-slate-200">
-                  {positions.map((p) => {
-                    const isLong = p.side?.toUpperCase() === 'LONG' || p.side?.toUpperCase() === 'BUY'
-                    const pnl = Number(p.unrealizedPnl) || 0
-                    const notional = p.entryPrice * p.quantity
-                    const pnlPct = notional > 0 ? (pnl / notional) * 100 : 0
-                    const mark = p.currentPrice ?? p.entryPrice
-
-                    return (
-                      <tr key={p.id} className="hover:bg-background-elevated/40 transition-colors">
-                        <td className="py-3 px-3 font-bold text-white text-sm">{p.symbol}</td>
-                        <td className="py-3 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 w-fit ${
-                              isLong
-                                ? 'bg-bullish/15 text-bullish'
-                                : 'bg-bearish/15 text-bearish'
-                            }`}
-                          >
-                            {isLong ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                            {p.side}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-bold">{p.quantity}</td>
-                        <td className="py-3 px-3">${p.entryPrice.toFixed(2)}</td>
-                        <td className="py-3 px-3 font-bold text-white">${mark.toFixed(2)}</td>
-                        <td className="py-3 px-3">
-                          <div className={`font-bold ${pnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-                            {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
-                          </div>
-                        </td>
-                        <td className="py-3 px-3">${(p.marginUsed ?? 0).toFixed(2)}</td>
-                        <td className="py-3 px-3">{p.leverage}x</td>
-                        <td className="py-3 px-3 text-bearish font-semibold">
-                          ${p.liquidationPrice ? p.liquidationPrice.toFixed(2) : '—'}
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            onClick={() => handleOpenTerminal(p.symbol)}
-                            className="px-2.5 py-1 rounded bg-brand-cyan/15 hover:bg-brand-cyan/25 text-brand-cyan text-xs font-bold transition-all inline-flex items-center gap-1"
-                          >
-                            <span>Terminal</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        </td>
+          {isLoading && positions.length === 0 && history.length === 0 ? (
+            <SkeletonTable rows={5} cols={8} />
+          ) : (
+            <>
+              {/* TAB 1: OPEN POSITIONS */}
+              {activeTab === 'open' && (
+                positions.length > 0 ? (
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
+                        <th className="py-3 px-3">Symbol</th>
+                        <th className="py-3 px-3">Side</th>
+                        <th className="py-3 px-3">Size</th>
+                        <th className="py-3 px-3">Entry Price</th>
+                        <th className="py-3 px-3">Mark Price</th>
+                        <th className="py-3 px-3">Unrealized P&L</th>
+                        <th className="py-3 px-3">Margin</th>
+                        <th className="py-3 px-3">Leverage</th>
+                        <th className="py-3 px-3">Liq. Price</th>
+                        <th className="py-3 px-3 text-right">Action</th>
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-16 text-center text-slate-500 font-mono text-xs space-y-2">
-                <Layers className="w-8 h-8 mx-auto text-slate-600" />
-                <div className="font-bold text-slate-400">No Active Open Positions</div>
-                <div className="text-[11px] text-slate-500">
-                  When the SMC engine qualifies and fills an order, active exposure appears here.
-                </div>
-              </div>
-            )
-          )}
+                    </thead>
+                    <tbody className="divide-y divide-terminal-border/50 text-slate-200">
+                      {positions.map((p) => {
+                        const isLong = p.side?.toUpperCase() === 'LONG' || p.side?.toUpperCase() === 'BUY'
+                        const pnl = Number(p.unrealizedPnl) || 0
+                        const notional = p.entryPrice * p.quantity
+                        const pnlPct = notional > 0 ? (pnl / notional) * 100 : 0
+                        const mark = p.currentPrice ?? p.entryPrice
 
-          {/* TAB 2: CLOSED HISTORY */}
-          {activeTab === 'history' && (
-            history.length > 0 ? (
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
-                    <th className="py-2.5 px-3">Closed Time</th>
-                    <th className="py-2.5 px-3">Symbol</th>
-                    <th className="py-2.5 px-3">Direction</th>
-                    <th className="py-2.5 px-3">Entry</th>
-                    <th className="py-2.5 px-3">Exit</th>
-                    <th className="py-2.5 px-3">Quantity</th>
-                    <th className="py-2.5 px-3">Realized P&L</th>
-                    <th className="py-2.5 px-3">Reason</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-terminal-border/50 text-slate-200">
-                  {history.map((h) => {
-                    const isLong = h.direction?.toUpperCase() === 'LONG' || h.direction?.toUpperCase() === 'BUY'
-                    const pnl = Number(h.netPnl) || 0
+                        return (
+                          <tr key={p.id} className="hover:bg-background-elevated/40 transition-colors">
+                            <td className="py-3 px-3 font-bold text-white text-sm">{p.symbol}</td>
+                            <td className="py-3 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 w-fit ${
+                                  isLong
+                                    ? 'bg-bullish/15 text-bullish'
+                                    : 'bg-bearish/15 text-bearish'
+                                }`}
+                              >
+                                {isLong ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                                {p.side}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 font-bold">{p.quantity}</td>
+                            <td className="py-3 px-3">${p.entryPrice.toFixed(2)}</td>
+                            <td className="py-3 px-3 font-bold text-white">${mark.toFixed(2)}</td>
+                            <td className="py-3 px-3">
+                              <div className={`font-bold ${pnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+                                {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
+                              </div>
+                            </td>
+                            <td className="py-3 px-3">${(p.marginUsed ?? 0).toFixed(2)}</td>
+                            <td className="py-3 px-3">{p.leverage}x</td>
+                            <td className="py-3 px-3 text-bearish font-semibold">
+                              ${p.liquidationPrice ? p.liquidationPrice.toFixed(2) : '—'}
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <button
+                                onClick={() => handleOpenTerminal(p.symbol)}
+                                className="px-2.5 py-1 rounded bg-brand-cyan/15 hover:bg-brand-cyan/25 text-brand-cyan text-xs font-bold transition-all inline-flex items-center gap-1"
+                              >
+                                <span>Terminal</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <EmptyState
+                    icon={Layers}
+                    title="No Active Open Positions"
+                    description="When the SMC engine qualifies and fills an order, active exposure appears here."
+                    actionLabel="Launch Trading Terminal"
+                    actionLink="/terminal"
+                  />
+                )
+              )}
 
-                    return (
-                      <tr key={h.id} className="hover:bg-background-elevated/40 transition-colors">
-                        <td className="py-2.5 px-3 text-slate-400">
-                          {new Date(h.closedAt).toLocaleString()}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-white">{h.symbol}</td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                              isLong
-                                ? 'bg-bullish/15 text-bullish'
-                                : 'bg-bearish/15 text-bearish'
-                            }`}
-                          >
-                            {h.direction}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3">${h.entryPrice.toFixed(2)}</td>
-                        <td className="py-2.5 px-3">${h.exitPrice.toFixed(2)}</td>
-                        <td className="py-2.5 px-3">{h.quantity}</td>
-                        <td className="py-2.5 px-3">
-                          <span className={`font-bold ${pnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-                            {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-background border border-terminal-border text-[10px] text-slate-300">
-                            {h.closeReason}
-                          </span>
-                        </td>
+              {/* TAB 2: CLOSED HISTORY */}
+              {activeTab === 'history' && (
+                history.length > 0 ? (
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
+                        <th className="py-2.5 px-3">Closed Time</th>
+                        <th className="py-2.5 px-3">Symbol</th>
+                        <th className="py-2.5 px-3">Direction</th>
+                        <th className="py-2.5 px-3">Entry</th>
+                        <th className="py-2.5 px-3">Exit</th>
+                        <th className="py-2.5 px-3">Quantity</th>
+                        <th className="py-2.5 px-3">Realized P&L</th>
+                        <th className="py-2.5 px-3">Reason</th>
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-16 text-center text-slate-500 font-mono text-xs">
-                No closed trades recorded in history.
-              </div>
-            )
+                    </thead>
+                    <tbody className="divide-y divide-terminal-border/50 text-slate-200">
+                      {history.map((h) => {
+                        const isLong = h.direction?.toUpperCase() === 'LONG' || h.direction?.toUpperCase() === 'BUY'
+                        const pnl = Number(h.netPnl) || 0
+
+                        return (
+                          <tr key={h.id} className="hover:bg-background-elevated/40 transition-colors">
+                            <td className="py-2.5 px-3 text-slate-400">
+                              {new Date(h.closedAt).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-white">{h.symbol}</td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  isLong
+                                    ? 'bg-bullish/15 text-bullish'
+                                    : 'bg-bearish/15 text-bearish'
+                                }`}
+                              >
+                                {h.direction}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">${h.entryPrice.toFixed(2)}</td>
+                            <td className="py-2.5 px-3">${h.exitPrice.toFixed(2)}</td>
+                            <td className="py-2.5 px-3">{h.quantity}</td>
+                            <td className="py-2.5 px-3">
+                              <span className={`font-bold ${pnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
+                                {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded bg-background border border-terminal-border text-[10px] text-slate-300">
+                                {h.closeReason}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <EmptyState
+                    icon={Clock}
+                    title="No Closed Trades in History"
+                    description="When positions are closed (via Take Profit, Stop Loss, or manual exit), trade records appear here."
+                  />
+                )
+              )}
+            </>
           )}
         </div>
 

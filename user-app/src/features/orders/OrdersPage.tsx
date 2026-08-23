@@ -1,12 +1,15 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { tradingService } from '../../services/tradingService'
 import { OrderDto, OrderFillDto } from '../../types/trading'
+import { SkeletonTable } from '../../components/common/Skeleton'
+import { EmptyState } from '../../components/common/EmptyState'
 import {
   BookOpen,
   Filter,
   RefreshCw,
   AlertCircle,
   Shield,
+  Layers,
 } from 'lucide-react'
 
 export const OrdersPage: React.FC = () => {
@@ -222,184 +225,194 @@ export const OrdersPage: React.FC = () => {
 
         {/* Tables Content */}
         <div className="flex-1 overflow-x-auto p-2">
-          {/* TAB 1: OPEN ORDERS */}
-          {activeTab === 'open' && (
-            openOrders.length > 0 ? (
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
-                    <th className="py-2.5 px-3">Placed Time</th>
-                    <th className="py-2.5 px-3">Symbol</th>
-                    <th className="py-2.5 px-3">Side</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Price</th>
-                    <th className="py-2.5 px-3">Quantity</th>
-                    <th className="py-2.5 px-3">Filled</th>
-                    <th className="py-2.5 px-3">Leverage</th>
-                    <th className="py-2.5 px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-terminal-border/50 text-slate-200">
-                  {openOrders.map((o) => (
-                    <tr key={o.id} className="hover:bg-background-elevated/40 transition-colors">
-                      <td className="py-2.5 px-3 text-slate-400">
-                        {new Date(o.placedAt).toLocaleTimeString()}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-white">{o.symbol}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            o.side === 'BUY'
-                              ? 'bg-bullish/15 text-bullish'
-                              : 'bg-bearish/15 text-bearish'
-                          }`}
-                        >
-                          {o.side}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">{o.orderType}</td>
-                      <td className="py-2.5 px-3 font-semibold text-white">
-                        ${o.price ? o.price.toFixed(2) : 'MARKET'}
-                      </td>
-                      <td className="py-2.5 px-3">{o.quantity}</td>
-                      <td className="py-2.5 px-3">{o.filledQuantity || 0}</td>
-                      <td className="py-2.5 px-3">{o.leverage}x</td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded bg-background border border-terminal-border text-[10px] text-brand-cyan font-bold">
-                          {o.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-16 text-center text-slate-500 font-mono text-xs space-y-2">
-                <BookOpen className="w-8 h-8 mx-auto text-slate-600" />
-                <div className="font-bold text-slate-400">No Open Working Orders</div>
-                <div className="text-[11px] text-slate-500">
-                  Limit and conditional orders will appear here when active.
-                </div>
-              </div>
-            )
-          )}
+          {isLoading && orders.length === 0 && fills.length === 0 ? (
+            <SkeletonTable rows={6} cols={7} />
+          ) : (
+            <>
+              {/* TAB 1: OPEN ORDERS */}
+              {activeTab === 'open' && (
+                openOrders.length > 0 ? (
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
+                        <th className="py-2.5 px-3">Placed Time</th>
+                        <th className="py-2.5 px-3">Symbol</th>
+                        <th className="py-2.5 px-3">Side</th>
+                        <th className="py-2.5 px-3">Type</th>
+                        <th className="py-2.5 px-3">Price</th>
+                        <th className="py-2.5 px-3">Quantity</th>
+                        <th className="py-2.5 px-3">Filled</th>
+                        <th className="py-2.5 px-3">Leverage</th>
+                        <th className="py-2.5 px-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-terminal-border/50 text-slate-200">
+                      {openOrders.map((o) => (
+                        <tr key={o.id} className="hover:bg-background-elevated/40 transition-colors">
+                          <td className="py-2.5 px-3 text-slate-400">
+                            {new Date(o.placedAt).toLocaleTimeString()}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-white">{o.symbol}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                o.side === 'BUY'
+                                  ? 'bg-bullish/15 text-bullish'
+                                  : 'bg-bearish/15 text-bearish'
+                              }`}
+                            >
+                              {o.side}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">{o.orderType}</td>
+                          <td className="py-2.5 px-3 font-semibold text-white">
+                            ${o.price ? o.price.toFixed(2) : 'MARKET'}
+                          </td>
+                          <td className="py-2.5 px-3">{o.quantity}</td>
+                          <td className="py-2.5 px-3">{o.filledQuantity || 0}</td>
+                          <td className="py-2.5 px-3">{o.leverage}x</td>
+                          <td className="py-2.5 px-3">
+                            <span className="px-2 py-0.5 rounded bg-background border border-terminal-border text-[10px] text-brand-cyan font-bold">
+                              {o.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <EmptyState
+                    icon={BookOpen}
+                    title="No Open Working Orders"
+                    description="Limit and conditional orders will appear here when active in the order book."
+                    actionLabel="Open Trading Terminal"
+                    actionLink="/terminal"
+                  />
+                )
+              )}
 
-          {/* TAB 2: ORDER HISTORY */}
-          {activeTab === 'history' && (
-            orderHistory.length > 0 ? (
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
-                    <th className="py-2.5 px-3">Placed Time</th>
-                    <th className="py-2.5 px-3">Symbol</th>
-                    <th className="py-2.5 px-3">Side</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Price</th>
-                    <th className="py-2.5 px-3">Quantity</th>
-                    <th className="py-2.5 px-3">Avg Fill</th>
-                    <th className="py-2.5 px-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-terminal-border/50 text-slate-200">
-                  {orderHistory.map((o) => (
-                    <tr key={o.id} className="hover:bg-background-elevated/40 transition-colors">
-                      <td className="py-2.5 px-3 text-slate-400">
-                        {new Date(o.placedAt).toLocaleString()}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-white">{o.symbol}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            o.side === 'BUY'
-                              ? 'bg-bullish/15 text-bullish'
-                              : 'bg-bearish/15 text-bearish'
-                          }`}
-                        >
-                          {o.side}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">{o.orderType}</td>
-                      <td className="py-2.5 px-3">${o.price ? o.price.toFixed(2) : 'MARKET'}</td>
-                      <td className="py-2.5 px-3">{o.quantity}</td>
-                      <td className="py-2.5 px-3 text-brand-cyan">
-                        {o.averageFillPrice ? `$${o.averageFillPrice.toFixed(2)}` : '—'}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            o.status === 'FILLED'
-                              ? 'bg-bullish/15 text-bullish'
-                              : o.status === 'CANCELLED'
-                              ? 'bg-slate-800 text-slate-400'
-                              : 'bg-background border border-terminal-border text-slate-300'
-                          }`}
-                        >
-                          {o.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-16 text-center text-slate-500 font-mono text-xs">
-                No orders recorded in account history.
-              </div>
-            )
-          )}
+              {/* TAB 2: ORDER HISTORY */}
+              {activeTab === 'history' && (
+                orderHistory.length > 0 ? (
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
+                        <th className="py-2.5 px-3">Placed Time</th>
+                        <th className="py-2.5 px-3">Symbol</th>
+                        <th className="py-2.5 px-3">Side</th>
+                        <th className="py-2.5 px-3">Type</th>
+                        <th className="py-2.5 px-3">Price</th>
+                        <th className="py-2.5 px-3">Quantity</th>
+                        <th className="py-2.5 px-3">Avg Fill</th>
+                        <th className="py-2.5 px-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-terminal-border/50 text-slate-200">
+                      {orderHistory.map((o) => (
+                        <tr key={o.id} className="hover:bg-background-elevated/40 transition-colors">
+                          <td className="py-2.5 px-3 text-slate-400">
+                            {new Date(o.placedAt).toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-white">{o.symbol}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                o.side === 'BUY'
+                                  ? 'bg-bullish/15 text-bullish'
+                                  : 'bg-bearish/15 text-bearish'
+                              }`}
+                            >
+                              {o.side}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">{o.orderType}</td>
+                          <td className="py-2.5 px-3">${o.price ? o.price.toFixed(2) : 'MARKET'}</td>
+                          <td className="py-2.5 px-3">{o.quantity}</td>
+                          <td className="py-2.5 px-3 text-brand-cyan">
+                            {o.averageFillPrice ? `$${o.averageFillPrice.toFixed(2)}` : '—'}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                o.status === 'FILLED'
+                                  ? 'bg-bullish/15 text-bullish'
+                                  : o.status === 'CANCELLED'
+                                  ? 'bg-slate-800 text-slate-400'
+                                  : 'bg-background border border-terminal-border text-slate-300'
+                              }`}
+                            >
+                              {o.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <EmptyState
+                    icon={BookOpen}
+                    title="No Order History Found"
+                    description="Closed, filled, or cancelled orders will be recorded here."
+                  />
+                )
+              )}
 
-          {/* TAB 3: EXECUTION FILLS */}
-          {activeTab === 'fills' && (
-            fills.length > 0 ? (
-              <table className="w-full text-left text-xs font-mono">
-                <thead>
-                  <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
-                    <th className="py-2.5 px-3">Fill Time</th>
-                    <th className="py-2.5 px-3">Symbol</th>
-                    <th className="py-2.5 px-3">Side</th>
-                    <th className="py-2.5 px-3">Fill Price</th>
-                    <th className="py-2.5 px-3">Fill Quantity</th>
-                    <th className="py-2.5 px-3">Fee Paid</th>
-                    <th className="py-2.5 px-3">Exchange Fill ID</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-terminal-border/50 text-slate-200">
-                  {fills.map((f) => (
-                    <tr key={f.id} className="hover:bg-background-elevated/40 transition-colors">
-                      <td className="py-2.5 px-3 text-slate-400">
-                        {new Date(f.filledAt).toLocaleString()}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-white">{f.symbol}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            f.side === 'BUY'
-                              ? 'bg-bullish/15 text-bullish'
-                              : 'bg-bearish/15 text-bearish'
-                          }`}
-                        >
-                          {f.side}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-brand-cyan">
-                        ${f.fillPrice.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3">{f.fillQuantity}</td>
-                      <td className="py-2.5 px-3 text-slate-300">
-                        ${f.fee.toFixed(4)} {f.feeAsset}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-500 text-[10px] truncate max-w-[140px]">
-                        {f.exchangeFillId || f.id}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-16 text-center text-slate-500 font-mono text-xs">
-                No verified execution fills found.
-              </div>
-            )
+              {/* TAB 3: EXECUTION FILLS */}
+              {activeTab === 'fills' && (
+                fills.length > 0 ? (
+                  <table className="w-full text-left text-xs font-mono">
+                    <thead>
+                      <tr className="border-b border-terminal-border text-slate-400 text-[11px]">
+                        <th className="py-2.5 px-3">Fill Time</th>
+                        <th className="py-2.5 px-3">Symbol</th>
+                        <th className="py-2.5 px-3">Side</th>
+                        <th className="py-2.5 px-3">Fill Price</th>
+                        <th className="py-2.5 px-3">Fill Quantity</th>
+                        <th className="py-2.5 px-3">Fee Paid</th>
+                        <th className="py-2.5 px-3">Exchange Fill ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-terminal-border/50 text-slate-200">
+                      {fills.map((f) => (
+                        <tr key={f.id} className="hover:bg-background-elevated/40 transition-colors">
+                          <td className="py-2.5 px-3 text-slate-400">
+                            {new Date(f.filledAt).toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 font-bold text-white">{f.symbol}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                f.side === 'BUY'
+                                  ? 'bg-bullish/15 text-bullish'
+                                  : 'bg-bearish/15 text-bearish'
+                              }`}
+                            >
+                              {f.side}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-semibold text-white">
+                            ${f.fillPrice ? f.fillPrice.toFixed(2) : '0.00'}
+                          </td>
+                          <td className="py-2.5 px-3">{f.fillQuantity}</td>
+                          <td className="py-2.5 px-3 text-warning">
+                            ${f.fee ? f.fee.toFixed(4) : '0.0000'} {f.feeAsset || 'USDT'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400 text-[11px] truncate max-w-[120px]">
+                            {f.exchangeFillId || f.id}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <EmptyState
+                    icon={Layers}
+                    title="No Execution Fills Recorded"
+                    description="Verified exchange fills and execution fee records will be displayed here."
+                  />
+                )
+              )}
+            </>
           )}
         </div>
 

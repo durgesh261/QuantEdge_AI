@@ -3,6 +3,8 @@ import { tradingService } from '../../services/tradingService'
 import { accountService } from '../../services/accountService'
 import { TradingSystemStatusDto, AccountSummaryDto } from '../../types/trading'
 import { AlgoConfigResponse } from '../../types/risk'
+import { toast } from '../../stores/toastStore'
+import { SkeletonStat, SkeletonCard } from '../../components/common/Skeleton'
 import {
   ShieldAlert,
   Power,
@@ -43,7 +45,6 @@ export const RiskAlgoPage: React.FC = () => {
     try {
       setIsLoading(true)
       setError(null)
-
       const [statusRes, summaryRes, configRes] = await Promise.allSettled([
         tradingService.getTradingStatus(),
         accountService.getAccountSummary(),
@@ -55,15 +56,15 @@ export const RiskAlgoPage: React.FC = () => {
       if (configRes.status === 'fulfilled') {
         const cfg = configRes.value
         setAlgoConfig(cfg)
-        setRiskPerTrade(Number(cfg.riskPerTradePercent) || 1.0)
-        setMaxLeverage(Number(cfg.maxLeverage) || 10)
-        setMaxDailyLoss(Number(cfg.maxDailyLossPercent) || 5.0)
-        setTakeProfit(Number(cfg.takeProfitPercent) || 4.0)
-        setStopLoss(Number(cfg.stopLossPercent) || 2.0)
+        if (cfg.riskPerTradePercent) setRiskPerTrade(cfg.riskPerTradePercent)
+        if (cfg.maxLeverage) setMaxLeverage(cfg.maxLeverage)
+        if (cfg.maxDailyLossPercent) setMaxDailyLoss(cfg.maxDailyLossPercent)
+        if (cfg.takeProfitPercent) setTakeProfit(cfg.takeProfitPercent)
+        if (cfg.stopLossPercent) setStopLoss(cfg.stopLossPercent)
       }
     } catch (err: any) {
       console.warn('Failed to load risk controls', err)
-      setError(err.response?.data?.message || 'Unable to load risk configuration')
+      setError(err.response?.data?.message || 'Error communicating with backend trading engine')
     } finally {
       setIsLoading(false)
     }
@@ -71,6 +72,8 @@ export const RiskAlgoPage: React.FC = () => {
 
   useEffect(() => {
     loadData()
+    const interval = setInterval(loadData, 10000)
+    return () => clearInterval(interval)
   }, [loadData])
 
   // Handle Algo Toggle
@@ -81,10 +84,14 @@ export const RiskAlgoPage: React.FC = () => {
       setError(null)
       const nextState = !tradingStatus?.algoEnabled
       await tradingService.toggleAlgo(nextState)
-      setSuccessMessage(`Algorithmic engine ${nextState ? 'ENABLED' : 'PAUSED'} successfully.`)
+      const msg = `Algorithmic engine ${nextState ? 'ENABLED' : 'PAUSED'} successfully.`
+      setSuccessMessage(msg)
+      toast.success(nextState ? 'Algo Engine Active' : 'Algo Engine Paused', msg)
       await loadData()
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to toggle algorithmic engine')
+      const msg = err.response?.data?.message || 'Failed to toggle algorithmic engine'
+      setError(msg)
+      toast.error('Algo Toggle Failed', msg)
     } finally {
       setIsSaving(false)
     }
@@ -97,10 +104,14 @@ export const RiskAlgoPage: React.FC = () => {
       setIsSaving(true)
       setError(null)
       await tradingService.triggerKillSwitch('Manual user emergency halt from Risk Dashboard')
-      setSuccessMessage('EMERGENCY KILL-SWITCH ENGAGED: All execution halted and system locked.')
+      const msg = 'EMERGENCY KILL-SWITCH ENGAGED: All execution halted and system locked.'
+      setSuccessMessage(msg)
+      toast.error('Emergency Kill-Switch Engaged', msg)
       await loadData()
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to trigger emergency kill-switch')
+      const msg = err.response?.data?.message || 'Failed to trigger emergency kill-switch'
+      setError(msg)
+      toast.error('Kill-Switch Action Failed', msg)
     } finally {
       setIsSaving(false)
     }
@@ -113,10 +124,14 @@ export const RiskAlgoPage: React.FC = () => {
       setIsSaving(true)
       setError(null)
       await tradingService.resetKillSwitch()
-      setSuccessMessage('Emergency kill-switch has been RESET. System restored to normal state.')
+      const msg = 'Emergency kill-switch has been RESET. System restored to normal state.'
+      setSuccessMessage(msg)
+      toast.success('Kill-Switch Restored', msg)
       await loadData()
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to reset emergency kill-switch')
+      const msg = err.response?.data?.message || 'Failed to reset emergency kill-switch'
+      setError(msg)
+      toast.error('Kill-Switch Reset Failed', msg)
     } finally {
       setIsSaving(false)
     }
@@ -139,13 +154,19 @@ export const RiskAlgoPage: React.FC = () => {
       })
 
       if (res.success) {
-        setSuccessMessage('Risk and algorithmic parameters updated successfully.')
+        const msg = 'Risk and algorithmic parameters updated successfully.'
+        setSuccessMessage(msg)
+        toast.success('Risk Limits Updated', msg)
         setAlgoConfig(res)
       } else {
-        setError(res.message || 'Failed to update risk parameters')
+        const msg = res.message || 'Failed to update risk parameters'
+        setError(msg)
+        toast.error('Update Failed', msg)
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save risk configuration')
+      const msg = err.response?.data?.message || 'Failed to save risk configuration'
+      setError(msg)
+      toast.error('Configuration Error', msg)
     } finally {
       setIsSaving(false)
     }
@@ -153,6 +174,24 @@ export const RiskAlgoPage: React.FC = () => {
 
   const isKillActive = tradingStatus?.killSwitchActive || algoConfig?.killSwitchActive
   const isAlgoActive = tradingStatus?.algoEnabled && !isKillActive
+
+  if (isLoading && !tradingStatus && !accountSummary) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 bg-slate-800/60 rounded-lg w-72 animate-pulse"></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
+          <SkeletonStat />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonCard rows={4} />
+          <SkeletonCard rows={4} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
