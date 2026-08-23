@@ -7,6 +7,9 @@ import { Dashboard } from './features/dashboard/Dashboard'
 import { TradingTerminal } from './features/terminal/TradingTerminal'
 import { SignalsRadar } from './features/signals/SignalsRadar'
 import { MarketIntelligence } from './features/intelligence/MarketIntelligence'
+import { OrdersPage } from './features/orders/OrdersPage'
+import { PositionsPage } from './features/positions/PositionsPage'
+import { RiskAlgoPage } from './features/risk/RiskAlgoPage'
 
 export function App() {
   return (
@@ -40,9 +43,9 @@ export function App() {
                 <Route path="terminal" element={<TradingTerminal />} />
                 <Route path="signals" element={<SignalsRadar />} />
                 <Route path="intelligence" element={<MarketIntelligence />} />
-                <Route path="orders" element={<Dashboard />} />
-                <Route path="positions" element={<Dashboard />} />
-                <Route path="risk-algo" element={<Dashboard />} />
+                <Route path="orders" element={<OrdersPage />} />
+                <Route path="positions" element={<PositionsPage />} />
+                <Route path="risk-algo" element={<RiskAlgoPage />} />
                 <Route path="settings" element={<Dashboard />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

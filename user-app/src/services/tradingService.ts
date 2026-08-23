@@ -90,6 +90,10 @@ export const tradingService = {
     return data
   },
 
+  async triggerKillSwitch(reason = 'Operator emergency stop', accountId?: string): Promise<{ success: boolean; message: string }> {
+    return this.activateKillSwitch(reason, accountId)
+  },
+
   async resetKillSwitch(accountId?: string): Promise<{ success: boolean; message: string }> {
     const { data } = await apiClient.post('/api/v1/trade/kill-switch/reset', { accountId })
     return data
