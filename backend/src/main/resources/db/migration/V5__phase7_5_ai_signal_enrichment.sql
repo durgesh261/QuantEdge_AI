@@ -12,7 +12,7 @@
 
 CREATE TABLE IF NOT EXISTS ai_signal_enrichments (
     id                     VARCHAR(36)    PRIMARY KEY,
-    trading_account_id     VARCHAR(36)    NOT NULL REFERENCES trading_accounts(id) ON DELETE CASCADE,
+    trading_account_id     UUID           NOT NULL REFERENCES trading_accounts(id) ON DELETE CASCADE,
     setup_id               VARCHAR(100)   NOT NULL,
     symbol                 VARCHAR(20)    NOT NULL,
     direction              VARCHAR(10)    NOT NULL,

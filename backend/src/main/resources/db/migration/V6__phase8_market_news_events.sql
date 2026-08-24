@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_economic_status ON economic_events(status);
 -- 3. In-App Notification Events Table
 CREATE TABLE IF NOT EXISTS notification_events (
     id                VARCHAR(36)    PRIMARY KEY,
-    user_id           VARCHAR(36)    REFERENCES users(id) ON DELETE CASCADE,
+    user_id           UUID           REFERENCES users(id) ON DELETE CASCADE,
     type              VARCHAR(50)    NOT NULL,
     title             VARCHAR(255)   NOT NULL,
     message           TEXT           NOT NULL,

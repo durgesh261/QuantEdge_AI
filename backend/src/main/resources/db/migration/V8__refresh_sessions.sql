@@ -6,8 +6,7 @@ CREATE TABLE IF NOT EXISTS refresh_sessions (
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     expires_at       TIMESTAMPTZ  NOT NULL,
     revoked_at       TIMESTAMPTZ,
-    replaced_by_hash VARCHAR(64),
-    CONSTRAINT fk_rs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    replaced_by_hash VARCHAR(64)
 );
 
 CREATE INDEX IF NOT EXISTS idx_rs_token_hash ON refresh_sessions(token_hash);
