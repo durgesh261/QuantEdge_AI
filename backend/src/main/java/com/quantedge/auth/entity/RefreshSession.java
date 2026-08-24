@@ -24,15 +24,14 @@ import java.time.Instant;
 public class RefreshSession {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @JdbcTypeCode(SqlTypes.UUID)
+    @Convert(converter = com.quantedge.common.entity.StringUuidConverter.class)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 
     @Column(name = "token_hash", nullable = false, unique = true, length = 64)
     private String tokenHash;
 
-    @JdbcTypeCode(SqlTypes.UUID)
+    @Convert(converter = com.quantedge.common.entity.StringUuidConverter.class)
     @Column(name = "user_id", nullable = false)
     private String userId;
 

@@ -22,8 +22,7 @@ import java.time.Instant;
 public class PasswordResetToken {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @JdbcTypeCode(SqlTypes.UUID)
+    @Convert(converter = com.quantedge.common.entity.StringUuidConverter.class)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 

@@ -15,8 +15,7 @@ import org.hibernate.type.SqlTypes;
 public abstract class BaseEntity {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
-    @JdbcTypeCode(SqlTypes.UUID)
+    @Convert(converter = StringUuidConverter.class)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 
@@ -27,6 +26,13 @@ public abstract class BaseEntity {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.id == null || this.id.isBlank()) {
+            this.id = java.util.UUID.randomUUID().toString();
+        }
+    }
 
     public String getId() {
         return id;
