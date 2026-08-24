@@ -7,6 +7,7 @@ import { marketService } from '../../services/marketService'
 import { AccountStatusResponse } from '../../types/account'
 import { TradingSystemStatusDto } from '../../types/trading'
 import { MarketStatusDto } from '../../types/market'
+import { DeltaExchangeSettings } from './DeltaExchangeSettings'
 import {
   Settings as SettingsIcon,
   User,
@@ -138,6 +139,9 @@ export const SettingsPage: React.FC = () => {
           <span>{saveSuccess}</span>
         </div>
       )}
+
+      {/* Delta Exchange API Credential Management */}
+      <DeltaExchangeSettings onConnectionChange={fetchDiagnostics} />
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* LEFT COLUMN: User Profile & Security (5 cols) */}
