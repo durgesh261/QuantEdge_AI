@@ -1,42 +1,186 @@
 {
-  "manifest_version": "2.0.0",
-  "generated_at_utc": "2026-08-24T17:33:19.028001+00:00",
+  "manifest_version": "2.1.0",
+  "phase": "E",
+  "generated_at_utc": "2026-08-24T17:55:06.485205+00:00",
   "model_name": "quantedge-ai-v2",
   "artifact_path": "backend/src/main/resources/models/quantedge-ai-v2.onnx",
   "artifact_sha256": "e33cd01f7f8a39db3f3ec4288a569b949d2d9d7a5146674d4f676f9caa124a8b",
   "artifact_size_bytes": 598403,
   "feature_count": 24,
   "feature_contract_version": "canonical-24-v2",
-  "technical_validation": {
-    "onnx_export_valid": true,
-    "onnx_runtime_parity": true,
-    "max_absolute_difference": 5.69e-07,
-    "parity_threshold": 0.001
+  "assets_evaluated": [
+    "BTCUSD",
+    "ETHUSD",
+    "SOLUSD",
+    "XRPUSD"
+  ],
+  "assets_with_sufficient_data": [
+    "BTCUSD"
+  ],
+  "threshold": 0.0,
+  "smc_baseline": {
+    "expectancy_r": -0.0435,
+    "profit_factor": 0.936,
+    "win_rate_pct": 31.88,
+    "max_drawdown_r": 18.0
   },
-  "predictive_gate_evaluation": {
-    "gate_status": "REJECTED",
-    "live_execution_authorized": false,
-    "frozen_validation_threshold_r": 0.0,
-    "reasons": [
-      "OOS Expectancy (-0.1176R) does not exceed SMC Baseline (-0.0435R).",
-      "OOS Profit Factor (0.833) is inferior to SMC Baseline (0.936)."
-    ]
+  "ai_performance": {
+    "expectancy_r": -0.3438,
+    "profit_factor": 0.56,
+    "win_rate_pct": 21.88,
+    "max_drawdown_r": 22.0,
+    "coverage_pct": 46.4
   },
-  "multi_asset_scope": {
-    "authorized_live_symbols": [],
-    "blocked_symbols": [
-      "BTCUSD",
-      "ETHUSD",
-      "SOLUSD",
-      "XRPUSD"
+  "incremental_performance": {
+    "incremental_expectancy_r": -0.3003,
+    "incremental_profit_factor": -0.376
+  },
+  "confidence_intervals": {
+    "smc_mean_r_95ci": [
+      -0.4783,
+      0.5652
     ],
-    "dataset_availability": {
-      "BTCUSD_1h": "data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv",
-      "ETHUSD_1h": "NOT_AVAILABLE",
-      "SOLUSD_1h": "NOT_AVAILABLE",
-      "XRPUSD_1h": "NOT_AVAILABLE"
-    }
+    "ai_mean_r_95ci": [
+      -0.9062,
+      0.4062
+    ],
+    "incremental_mean_r_95ci": [
+      -0.9236,
+      0.3889
+    ],
+    "mbb_block_size": 5,
+    "n_bootstraps": 1000
   },
+  "regime_analysis": [
+    {
+      "regime": "Bullish Trend",
+      "smc_setups": 65,
+      "smc_expectancy_r": 0.4308,
+      "smc_win_rate_pct": 47.69,
+      "ai_setups": 33,
+      "ai_expectancy_r": 1.8182,
+      "ai_win_rate_pct": 93.94,
+      "incremental_r": 1.3874,
+      "ai_coverage_pct": 50.8,
+      "ai_max_drawdown_r": 1.0,
+      "catastrophic_failure": false
+    },
+    {
+      "regime": "Bearish Trend",
+      "smc_setups": 87,
+      "smc_expectancy_r": 0.1379,
+      "smc_win_rate_pct": 37.93,
+      "ai_setups": 34,
+      "ai_expectancy_r": 1.6471,
+      "ai_win_rate_pct": 88.24,
+      "incremental_r": 1.5092,
+      "ai_coverage_pct": 39.1,
+      "ai_max_drawdown_r": 2.0,
+      "catastrophic_failure": false
+    },
+    {
+      "regime": "Ranging Market",
+      "smc_setups": 59,
+      "smc_expectancy_r": 0.2712,
+      "smc_win_rate_pct": 42.37,
+      "ai_setups": 24,
+      "ai_expectancy_r": 1.875,
+      "ai_win_rate_pct": 95.83,
+      "incremental_r": 1.6038,
+      "ai_coverage_pct": 40.7,
+      "ai_max_drawdown_r": 1.0,
+      "catastrophic_failure": false
+    },
+    {
+      "regime": "Transitional",
+      "smc_setups": 42,
+      "smc_expectancy_r": 0.1022,
+      "smc_win_rate_pct": 38.1,
+      "ai_setups": 15,
+      "ai_expectancy_r": 1.6861,
+      "ai_win_rate_pct": 93.33,
+      "incremental_r": 1.5839,
+      "ai_coverage_pct": 35.7,
+      "ai_max_drawdown_r": 1.0,
+      "catastrophic_failure": false
+    },
+    {
+      "regime": "High Volatility",
+      "smc_setups": 127,
+      "smc_expectancy_r": 0.2858,
+      "smc_win_rate_pct": 43.31,
+      "ai_setups": 57,
+      "ai_expectancy_r": 1.7069,
+      "ai_win_rate_pct": 91.23,
+      "incremental_r": 1.4211,
+      "ai_coverage_pct": 44.9,
+      "ai_max_drawdown_r": 3.0,
+      "catastrophic_failure": false
+    },
+    {
+      "regime": "Low Volatility",
+      "smc_setups": 126,
+      "smc_expectancy_r": 0.1905,
+      "smc_win_rate_pct": 39.68,
+      "ai_setups": 49,
+      "ai_expectancy_r": 1.8163,
+      "ai_win_rate_pct": 93.88,
+      "incremental_r": 1.6258,
+      "ai_coverage_pct": 38.9,
+      "ai_max_drawdown_r": 2.0,
+      "catastrophic_failure": false
+    }
+  ],
+  "cross_asset_analysis": [
+    {
+      "symbol": "BTCUSD",
+      "status": "AVAILABLE",
+      "smc_expectancy": "-0.0435R",
+      "ai_expectancy": "-0.3438R",
+      "incremental_r": "-0.3003R",
+      "profit_factor": "0.560",
+      "max_drawdown": "22.00R",
+      "coverage_pct": "46.4%"
+    },
+    {
+      "symbol": "ETHUSD",
+      "status": "NOT_AVAILABLE",
+      "smc_expectancy": "N/A",
+      "ai_expectancy": "N/A",
+      "incremental_r": "N/A",
+      "profit_factor": "N/A",
+      "max_drawdown": "N/A",
+      "coverage_pct": "0.0%"
+    },
+    {
+      "symbol": "SOLUSD",
+      "status": "NOT_AVAILABLE",
+      "smc_expectancy": "N/A",
+      "ai_expectancy": "N/A",
+      "incremental_r": "N/A",
+      "profit_factor": "N/A",
+      "max_drawdown": "N/A",
+      "coverage_pct": "0.0%"
+    },
+    {
+      "symbol": "XRPUSD",
+      "status": "NOT_AVAILABLE",
+      "smc_expectancy": "N/A",
+      "ai_expectancy": "N/A",
+      "incremental_r": "N/A",
+      "profit_factor": "N/A",
+      "max_drawdown": "N/A",
+      "coverage_pct": "0.0%"
+    }
+  ],
+  "latency_benchmarks": {
+    "p50_latency_ms": 89.886,
+    "p95_latency_ms": 143.09,
+    "p99_latency_ms": 197.034,
+    "mean_latency_ms": 97.097
+  },
+  "promotion_status": "REJECTED",
+  "live_execution_authorized": false,
   "execution_boundary_policy": {
     "unauthorized_action": "HARD_BLOCK",
     "default_engine": "DETERMINISTIC_SMC",
