@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantedge.economic.entity.EconomicEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -44,6 +45,7 @@ public class ExternalEconomicCalendarProvider implements EconomicCalendarProvide
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public ExternalEconomicCalendarProvider(
             @Value("${quantedge.economic.api-base-url:https://nfs.faireconomy.media/}") String apiBaseUrl,
             @Value("${quantedge.economic.api-key:}") String apiKey,

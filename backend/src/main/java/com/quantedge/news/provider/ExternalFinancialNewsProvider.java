@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantedge.news.entity.NewsArticle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
@@ -42,6 +43,7 @@ public class ExternalFinancialNewsProvider implements NewsProvider {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public ExternalFinancialNewsProvider(
             @Value("${quantedge.news.api-base-url:https://min-api.cryptocompare.com/data/v2/news/?lang=EN}") String apiBaseUrl,
             @Value("${quantedge.news.api-key:}") String apiKey,
