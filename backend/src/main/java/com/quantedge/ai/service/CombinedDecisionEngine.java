@@ -89,10 +89,11 @@ public class CombinedDecisionEngine {
         BigDecimal aiPatternScore = enrichment.getPatternScore();
         BigDecimal aiSignalScore = enrichment.getSignalScore();
 
-        if ("AI_UNAVAILABLE".equals(aiRegime) || "INSUFFICIENT_DATA".equals(aiRegime)) {
-            return recordAndReturn(DecisionState.BLOCKED_BY_SYSTEM, "AI intelligence unavailable: " + enrichment.getMarketContext(), 
+        if ("AI_UNAVAILABLE".equals(aiRegime) || "INSUFFICIENT_DATA".equals(aiRegime) || "AI_PROMOTION_REJECTED".equals(aiRegime)) {
+            return recordAndReturn(DecisionState.BLOCKED_BY_SYSTEM, "AI intelligence unavailable or promotion rejected: " + enrichment.getMarketContext(), 
                     setup, enrichment, riskConfig, startTime, "AI_UNAVAILABLE");
         }
+
 
         // 4. AI Confidence Threshold
         if (aiConfidence == null || aiConfidence.compareTo(BigDecimal.valueOf(30)) < 0) {

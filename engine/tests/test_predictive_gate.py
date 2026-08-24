@@ -182,12 +182,52 @@ class TestDiagnosticsAndBaselines:
             assert "win_rate_pct" in b
             assert "mean_realized_r" in b
 
+    def test_moving_block_bootstrap_ci(self, real_data_gate):
+        ci = real_data_gate.compute_bootstrap_confidence_intervals(0.0, n_bootstraps=200)
+        assert "smc_mean_r_95ci" in ci
+        assert "ai_mean_r_95ci" in ci
+        smc_low, smc_high = ci["smc_mean_r_95ci"]
+        assert smc_low <= smc_high
+
+    def test_max_drawdown_rejection_criterion(self, real_data_gate):
+        # Create synthetic metrics where AI has worse drawdown (>125% of SMC)
+        val_smc = calculate_performance_metrics(real_data_gate.val_df)
+        val_ai = calculate_performance_metrics(real_data_gate.val_df)
+        oos_smc = calculate_performance_metrics(real_data_gate.test_df)
+
+        # Force high drawdown on AI
+        df_high_dd = pd.DataFrame({
+            TARGET_REALIZED_R: [2.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0],
+            TARGET_MFE_R: [2.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+            TARGET_MAE_R: [0.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+        })
+        oos_ai_high_dd = calculate_performance_metrics(df_high_dd, total_eligible_setups=len(real_data_gate.test_df))
+
+        status, reasons = real_data_gate._evaluate_promotion_decision(
+            val_smc=val_smc,
+            val_ai=val_ai,
+            oos_smc=oos_smc,
+            oos_ai=oos_ai_high_dd,
+            best_threshold=0.0,
+            baselines={"Random_Forest_AI": {"R2": 0.05}},
+            ablation={},
+        )
+        assert status == "REJECTED"
+
+    def test_diagnostics_isolate_oos_split(self, real_data_gate):
+        # Diagnostic functions must use only Train + Val data
+        calib = real_data_gate.analyze_confidence_calibration(0.0)
+        total_samples = sum(b["sample_count"] for b in calib)
+        dev_samples = len(real_data_gate.train_df) + len(real_data_gate.val_df)
+        assert total_samples == dev_samples, "Diagnostics should evaluate exclusively on Train + Val splits"
+
     def test_clustering_audit_detected(self, real_data_gate):
         audit = real_data_gate.audit_setup_clustering()
         assert "total_raw_setups" in audit
         assert "clustered_within_3h" in audit
         assert "unique_structural_events_approx" in audit
         assert audit["total_raw_setups"] >= audit["unique_structural_events_approx"]
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

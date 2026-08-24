@@ -1,0 +1,45 @@
+{
+  "manifest_version": "2.0.0",
+  "generated_at_utc": "2026-08-24T17:33:19.028001+00:00",
+  "model_name": "quantedge-ai-v2",
+  "artifact_path": "backend/src/main/resources/models/quantedge-ai-v2.onnx",
+  "artifact_sha256": "e33cd01f7f8a39db3f3ec4288a569b949d2d9d7a5146674d4f676f9caa124a8b",
+  "artifact_size_bytes": 598403,
+  "feature_count": 24,
+  "feature_contract_version": "canonical-24-v2",
+  "technical_validation": {
+    "onnx_export_valid": true,
+    "onnx_runtime_parity": true,
+    "max_absolute_difference": 5.69e-07,
+    "parity_threshold": 0.001
+  },
+  "predictive_gate_evaluation": {
+    "gate_status": "REJECTED",
+    "live_execution_authorized": false,
+    "frozen_validation_threshold_r": 0.0,
+    "reasons": [
+      "OOS Expectancy (-0.1176R) does not exceed SMC Baseline (-0.0435R).",
+      "OOS Profit Factor (0.833) is inferior to SMC Baseline (0.936)."
+    ]
+  },
+  "multi_asset_scope": {
+    "authorized_live_symbols": [],
+    "blocked_symbols": [
+      "BTCUSD",
+      "ETHUSD",
+      "SOLUSD",
+      "XRPUSD"
+    ],
+    "dataset_availability": {
+      "BTCUSD_1h": "data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv",
+      "ETHUSD_1h": "NOT_AVAILABLE",
+      "SOLUSD_1h": "NOT_AVAILABLE",
+      "XRPUSD_1h": "NOT_AVAILABLE"
+    }
+  },
+  "execution_boundary_policy": {
+    "unauthorized_action": "HARD_BLOCK",
+    "default_engine": "DETERMINISTIC_SMC",
+    "risk_engine_override_allowed": false
+  }
+}

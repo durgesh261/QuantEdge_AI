@@ -1,6 +1,6 @@
 # QuantEdge AI — Phase C Predictive-Value Gate Report
 
-**Generated At**: 2026-08-24 17:17:37 UTC  
+**Generated At**: 2026-08-24 17:33:19 UTC  
 **Authoritative Gate Status**: `REJECTED`  
 **Frozen Validation Threshold**: `+0.00R`  
 
@@ -144,10 +144,10 @@
 
 | Predicted Expected R Bucket | Sample Count | Realized Win Rate | Mean Realized R | Median Realized R |
 |---|---:|---:|---:|---:|
-| **< 0.0R (Bearish/Avoid)** | 185 | 9.7% | -0.7081R | -1.0000R |
-| **0.0R – 0.2R (Low)** | 26 | 46.2% | +0.3846R | -1.0000R |
-| **0.2R – 0.5R (Moderate)** | 27 | 22.2% | -0.3333R | -1.0000R |
-| **>= 0.5R (High)** | 96 | 94.8% | +1.8260R | +2.0000R |
+| **< 0.0R (Bearish/Avoid)** | 144 | 4.2% | -0.8750R | -1.0000R |
+| **0.0R – 0.2R (Low)** | 11 | 63.6% | +0.9091R | +2.0000R |
+| **0.2R – 0.5R (Moderate)** | 8 | 37.5% | +0.1250R | -1.0000R |
+| **>= 0.5R (High)** | 90 | 98.9% | +1.9477R | +2.0000R |
 
 ---
 
@@ -155,10 +155,10 @@
 
 | Market Regime | SMC Setups | SMC Win Rate | SMC Mean R | AI Setups | AI Win Rate | AI Mean R | AI Coverage |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| **Bullish Trend** | 91 | 39.6% | +0.1868R | 44 | 77.3% | +1.3182R | 48.4% |
-| **Bearish Trend** | 104 | 40.4% | +0.2115R | 37 | 86.5% | +1.5946R | 35.6% |
-| **Ranging Market** | 94 | 35.1% | +0.0532R | 51 | 54.9% | +0.6471R | 54.3% |
-| **Transitional** | 45 | 35.6% | +0.0287R | 17 | 88.2% | +1.5466R | 37.8% |
+| **Bullish Trend** | 65 | 47.7% | +0.4308R | 34 | 88.2% | +1.6471R | 52.3% |
+| **Bearish Trend** | 87 | 37.9% | +0.1379R | 34 | 91.2% | +1.7353R | 39.1% |
+| **Ranging Market** | 59 | 42.4% | +0.2712R | 25 | 92.0% | +1.7600R | 42.4% |
+| **Transitional** | 42 | 38.1% | +0.1022R | 16 | 93.8% | +1.7057R | 38.1% |
 
 ---
 
@@ -170,17 +170,15 @@
 | **2026-02** | 32 | 31.2% | -2.00R | 11 | 90.9% | +19.00R | 34.4% |
 | **2026-03** | 47 | 44.7% | +16.00R | 21 | 100.0% | +42.00R | 44.7% |
 | **2026-04** | 65 | 44.6% | +20.29R | 30 | 96.7% | +55.29R | 46.2% |
-| **2026-05** | 46 | 17.4% | -22.00R | 13 | 53.9% | +8.00R | 28.3% |
+| **2026-05** | 39 | 20.5% | -15.00R | 12 | 58.3% | +9.00R | 30.8% |
 | **2026-06** | 27 | 59.3% | +21.00R | 14 | 78.6% | +19.00R | 51.9% |
-| **2026-07** | 50 | 26.0% | -11.00R | 28 | 35.7% | +2.00R | 56.0% |
-| **2026-08** | 24 | 37.5% | +3.00R | 11 | 0.0% | -11.00R | 45.8% |
 
 ---
 
 ## 9. Statistical Robustness & Bootstrap Confidence Intervals
 
-- **SMC Baseline OOS Mean R (95% CI)**: `-0.3489R` to `+0.3043R`
-- **SMC + AI OOS Mean R (95% CI)**: `-0.5588R` to `+0.3235R`
+- **SMC Baseline OOS Mean R (95% CI)**: `-0.4783R` to `+0.5652R`
+- **SMC + AI OOS Mean R (95% CI)**: `-0.8235R` to `+0.6765R`
 
 ---
 

@@ -87,7 +87,8 @@ def _load_or_build_dataset(
         print(f"  Extraction + Replay finished in {elapsed:.1f}s -> {df.shape}")
         target_names = REAL_TARGET_NAMES
     else:
-        _print_section("Stage 1: Generating Synthetic Prototype Dataset (Testing Only)")
+        _print_section("Stage 1: Generating Synthetic Prototype Dataset [UNIT-TEST FIXTURE ONLY]")
+        print("  [WARNING] Synthetic datasets are strictly for infrastructure testing and must NEVER be promoted to live execution.")
         print(f"  n_samples={n_samples:,}  seed={seed}")
         t0 = time.monotonic()
         df = build_training_dataset(n_samples=n_samples, seed=seed)
@@ -96,6 +97,7 @@ def _load_or_build_dataset(
         target_names = ["target_pattern_score", "target_signal_score", "target_confidence"]
 
     return df, target_names
+
 
 
 def _train_sklearn_model(X_train: np.ndarray, y_train: np.ndarray) -> Any:
@@ -344,7 +346,9 @@ def run_pipeline(
 
     _print_section("Pipeline Complete [OK]")
     print(f"  Model written to: {onnx_output}")
-    print("  Production AI model successfully trained and validated on genuine market data.")
+    print("  [STATUS] Technical training & ONNX export complete.")
+    print("  [GOVERNANCE] Live execution authority requires passing the AI Predictive-Value Promotion Gate.")
+    print("               Run 'python -m quantedge.ai.evaluation.run_gate' to evaluate production promotion eligibility.")
     print()
 
     return {
@@ -356,6 +360,7 @@ def run_pipeline(
         "test_metrics": test_metrics,
         "onnx_path": str(onnx_output),
     }
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

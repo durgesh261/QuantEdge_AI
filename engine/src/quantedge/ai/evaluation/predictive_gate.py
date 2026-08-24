@@ -332,11 +332,14 @@ class AIPredictiveValueGate:
         }
 
     def analyze_confidence_calibration(self, threshold_r: float) -> List[Dict[str, Any]]:
-        """Analyzes calibration of model predictions on the full dataset."""
-        df_all = self.raw_df
-        X_all = df_all[FEATURE_NAMES].values
-        preds_r = self.model.predict(X_all)[:, 0]
-        actual_r = df_all[TARGET_REALIZED_R].values
+        """
+        Analyzes calibration of model predictions strictly on Train + Validation splits.
+        Keeps OOS dataset completely untouched for final gate evaluation.
+        """
+        df_dev = pd.concat([self.train_df, self.val_df], ignore_index=True)
+        X_dev = df_dev[FEATURE_NAMES].values
+        preds_r = self.model.predict(X_dev)[:, 0]
+        actual_r = df_dev[TARGET_REALIZED_R].values
 
         buckets = [
             ("< 0.0R (Bearish/Avoid)", preds_r < 0.0),
@@ -366,28 +369,31 @@ class AIPredictiveValueGate:
         return calibration
 
     def analyze_regime_breakdown(self, threshold_r: float) -> List[Dict[str, Any]]:
-        """Evaluates performance by market regime across the complete historical timeline."""
-        df = self.raw_df
-        X = df[FEATURE_NAMES].values
+        """
+        Evaluates performance by market regime strictly on Train + Validation splits.
+        Keeps OOS dataset untouched for final gate evaluation.
+        """
+        df_dev = pd.concat([self.train_df, self.val_df], ignore_index=True)
+        X = df_dev[FEATURE_NAMES].values
         preds_r = self.model.predict(X)[:, 0]
 
         regimes = [
-            ("Bullish Trend", df["regime_1h_bullish"] == 1.0),
-            ("Bearish Trend", df["regime_1h_bearish"] == 1.0),
-            ("Ranging Market", df["regime_1h_ranging"] == 1.0),
-            ("Transitional", df["regime_1h_transitional"] == 1.0),
+            ("Bullish Trend", df_dev["regime_1h_bullish"] == 1.0),
+            ("Bearish Trend", df_dev["regime_1h_bearish"] == 1.0),
+            ("Ranging Market", df_dev["regime_1h_ranging"] == 1.0),
+            ("Transitional", df_dev["regime_1h_transitional"] == 1.0),
         ]
 
         rows = []
         for reg_name, mask in regimes:
-            reg_df = df[mask]
+            reg_df = df_dev[mask]
             n_smc = len(reg_df)
             if n_smc == 0:
                 continue
 
             smc_perf = calculate_performance_metrics(reg_df)
             ai_mask = mask & (preds_r >= threshold_r)
-            ai_df = df[ai_mask]
+            ai_df = df_dev[ai_mask]
             ai_perf = calculate_performance_metrics(ai_df, total_eligible_setups=n_smc)
 
             rows.append({
@@ -403,17 +409,20 @@ class AIPredictiveValueGate:
         return rows
 
     def analyze_monthly_breakdown(self, threshold_r: float) -> List[Dict[str, Any]]:
-        """Evaluates chronological performance by month."""
-        df = self.raw_df.copy()
-        X = df[FEATURE_NAMES].values
+        """
+        Evaluates chronological performance by month strictly on Train + Validation splits.
+        Keeps OOS dataset untouched for final gate evaluation.
+        """
+        df_dev = pd.concat([self.train_df, self.val_df], ignore_index=True).copy()
+        X = df_dev[FEATURE_NAMES].values
         preds_r = self.model.predict(X)[:, 0]
-        df["ai_qualified"] = preds_r >= threshold_r
-        df["month"] = df["timestamp"].dt.strftime("%Y-%m")
+        df_dev["ai_qualified"] = preds_r >= threshold_r
+        df_dev["month"] = df_dev["timestamp"].dt.strftime("%Y-%m")
 
-        months = sorted(df["month"].unique())
+        months = sorted(df_dev["month"].unique())
         rows = []
         for m in months:
-            m_df = df[df["month"] == m]
+            m_df = df_dev[df_dev["month"] == m]
             smc_perf = calculate_performance_metrics(m_df)
             ai_df = m_df[m_df["ai_qualified"]]
             ai_perf = calculate_performance_metrics(ai_df, total_eligible_setups=len(m_df))
@@ -435,19 +444,37 @@ class AIPredictiveValueGate:
     def compute_bootstrap_confidence_intervals(
         self, threshold_r: float, n_bootstraps: int = 1000
     ) -> Dict[str, Tuple[float, float]]:
-        """Computes block bootstrap 95% confidence intervals on OOS test trades."""
+        """
+        Computes Moving Block Bootstrap (MBB) 95% confidence intervals on OOS test trades.
+        Block size B = max(3, ceil(N^(1/3))) captures temporal autocorrelation in time-series trades.
+        """
         X_test = self.test_df[FEATURE_NAMES].values
         preds_r = self.model.predict(X_test)[:, 0]
         mask = preds_r >= threshold_r
         ai_test_df = self.test_df[mask]
 
-        r_smc = self.test_df[TARGET_REALIZED_R].values
-        r_ai = ai_test_df[TARGET_REALIZED_R].values if len(ai_test_df) > 0 else np.array([0.0])
+        r_smc = self.test_df[TARGET_REALIZED_R].to_numpy(dtype=float)
+        r_ai = ai_test_df[TARGET_REALIZED_R].to_numpy(dtype=float) if len(ai_test_df) > 0 else np.array([0.0])
 
-        np.random.seed(self.seed)
+        def _moving_block_bootstrap(data: np.ndarray, n_boot: int, seed: int) -> np.ndarray:
+            N = len(data)
+            if N == 0:
+                return np.zeros(n_boot)
+            if N < 4:
+                return np.full(n_boot, np.mean(data))
+            block_size = max(3, int(np.ceil(N ** (1.0 / 3.0))))
+            num_blocks = int(np.ceil(N / block_size))
+            max_start = N - block_size + 1
+            rng = np.random.default_rng(seed)
+            means = np.empty(n_boot)
+            for b in range(n_boot):
+                start_indices = rng.integers(0, max_start, size=num_blocks)
+                sample = np.concatenate([data[idx : idx + block_size] for idx in start_indices])[:N]
+                means[b] = np.mean(sample)
+            return means
 
-        smc_means = [np.mean(np.random.choice(r_smc, size=len(r_smc), replace=True)) for _ in range(n_bootstraps)]
-        ai_means = [np.mean(np.random.choice(r_ai, size=len(r_ai), replace=True)) for _ in range(n_bootstraps)]
+        smc_means = _moving_block_bootstrap(r_smc, n_bootstraps, self.seed)
+        ai_means = _moving_block_bootstrap(r_ai, n_bootstraps, self.seed)
 
         return {
             "smc_mean_r_95ci": (round(float(np.percentile(smc_means, 2.5)), 4), round(float(np.percentile(smc_means, 97.5)), 4)),
@@ -479,7 +506,7 @@ class AIPredictiveValueGate:
         oos_smc = calculate_performance_metrics(self.test_df)
         oos_ai = self.evaluate_filter_on_split(self.test_df, best_threshold)
 
-        # 7. Diagnostics
+        # 7. Diagnostics (strictly on Train + Val splits)
         importance = self.compute_feature_importance()
         ablation = self.run_ablation_study()
         baselines = self.compare_against_baselines()
@@ -532,10 +559,11 @@ class AIPredictiveValueGate:
         """
         Evaluates objective production promotion criteria:
         1. Out-of-sample Expectancy / Mean R improvement (E_ai > E_smc).
-        2. Out-of-sample Drawdown protection (MDD_ai <= MDD_smc * 1.25).
-        3. Minimum coverage maintained (>= 10% on OOS).
-        4. Superiority over naive baselines on validation.
-        5. Consistent positive value across market splits.
+        2. Out-of-sample Profit Factor superiority (PF_ai >= PF_smc).
+        3. Out-of-sample Max Drawdown protection (MDD_ai <= MDD_smc * 1.25).
+        4. Minimum coverage maintained (>= 10% on OOS).
+        5. Superiority over naive baselines on validation (R2 > 0).
+        6. Sample size sufficiency (>= 50 OOS setups).
         """
         reasons = []
         is_approved = True
@@ -554,14 +582,21 @@ class AIPredictiveValueGate:
                 f"OOS Profit Factor ({oos_ai.profit_factor:.3f}) is inferior to SMC Baseline ({oos_smc.profit_factor:.3f})."
             )
 
-        # Criterion 3: OOS Coverage Constraint
+        # Criterion 3: OOS Max Drawdown Protection (MDD_ai <= MDD_smc * 1.25)
+        if oos_ai.max_drawdown_r > (oos_smc.max_drawdown_r * 1.25):
+            is_approved = False
+            reasons.append(
+                f"OOS Max Drawdown ({oos_ai.max_drawdown_r:.2f}R) exceeds 125% of SMC baseline ({oos_smc.max_drawdown_r:.2f}R)."
+            )
+
+        # Criterion 4: OOS Coverage Constraint
         if oos_ai.coverage_pct < self.min_coverage_pct:
             is_approved = False
             reasons.append(
                 f"OOS Coverage ({oos_ai.coverage_pct:.1f}%) is below mandatory minimum ({self.min_coverage_pct}%)."
             )
 
-        # Criterion 4: Baseline Superiority (R2 > 0 vs Mean baseline)
+        # Criterion 5: Baseline Superiority (R2 > 0 vs Mean baseline)
         rf_r2 = baselines.get("Random_Forest_AI", {}).get("R2", -1.0)
         if rf_r2 <= 0.0:
             is_approved = False
@@ -569,7 +604,7 @@ class AIPredictiveValueGate:
                 f"Validation R2 ({rf_r2:.4f}) is non-positive, indicating model does not beat a naive Mean Predictor."
             )
 
-        # Criterion 5: Sample Size Sufficiency
+        # Criterion 6: Sample Size Sufficiency
         if len(self.test_df) < 50:
             return "INSUFFICIENT_DATA", ["Out-of-sample sample size is below 50 historical setups."]
 
@@ -577,3 +612,4 @@ class AIPredictiveValueGate:
             return "APPROVED", ["All predictive, risk, and stability gates passed."]
         else:
             return "REJECTED", reasons
+
