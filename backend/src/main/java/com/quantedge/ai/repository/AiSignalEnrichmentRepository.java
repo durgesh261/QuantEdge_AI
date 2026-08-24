@@ -23,4 +23,7 @@ public interface AiSignalEnrichmentRepository extends JpaRepository<AiSignalEnri
 
     @Query("SELECT e FROM AiSignalEnrichment e WHERE e.tradingAccount.id = :accountId AND e.symbol = :symbol ORDER BY e.generatedAt DESC")
     List<AiSignalEnrichment> findByTradingAccountIdAndSymbolOrderByGeneratedAtDesc(@Param("accountId") String accountId, @Param("symbol") String symbol);
+
+    @Query("SELECT e FROM AiSignalEnrichment e WHERE e.setupId IN :setupIds AND e.tradingAccount.id = :accountId ORDER BY e.generatedAt DESC")
+    List<AiSignalEnrichment> findBySetupIdInAndTradingAccountId(@Param("setupIds") List<String> setupIds, @Param("accountId") String accountId);
 }

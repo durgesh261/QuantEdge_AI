@@ -7,6 +7,8 @@ import com.quantedge.ai.entity.AiSignalEnrichment;
 import com.quantedge.ai.repository.AiSignalEnrichmentRepository;
 import com.quantedge.auth.entity.User;
 import com.quantedge.common.exception.ResourceNotFoundException;
+import com.quantedge.risk.entity.RiskConfiguration;
+import com.quantedge.risk.repository.RiskConfigurationRepository;
 import com.quantedge.strategy.entity.StrategySetupRecord;
 import com.quantedge.strategy.repository.StrategySetupRepository;
 import org.slf4j.Logger;
@@ -28,18 +30,27 @@ public class AiEnrichmentService {
     private final AiSignalEnrichmentRepository enrichmentRepository;
     private final TradingAccountRepository accountRepository;
     private final StrategySetupRepository setupRepository;
+    private final RiskConfigurationRepository riskConfigRepository;
     private final AiIntelligenceEngine intelligenceEngine;
+    private final AiDecisionAuditService auditService;
+    private final CombinedDecisionEngine decisionEngine;
 
     public AiEnrichmentService(
             AiSignalEnrichmentRepository enrichmentRepository,
             TradingAccountRepository accountRepository,
             StrategySetupRepository setupRepository,
-            AiIntelligenceEngine intelligenceEngine
+            RiskConfigurationRepository riskConfigRepository,
+            AiIntelligenceEngine intelligenceEngine,
+            AiDecisionAuditService auditService,
+            CombinedDecisionEngine decisionEngine
     ) {
         this.enrichmentRepository = enrichmentRepository;
         this.accountRepository = accountRepository;
         this.setupRepository = setupRepository;
+        this.riskConfigRepository = riskConfigRepository;
         this.intelligenceEngine = intelligenceEngine;
+        this.auditService = auditService;
+        this.decisionEngine = decisionEngine;
     }
 
     /**
@@ -172,6 +183,7 @@ public class AiEnrichmentService {
 
     /**
      * Retrieves AI intelligence in bulk for a list of setup IDs.
+     * Uses a single database query to fetch all enrichments, then evaluates missing ones on-the-fly.
      */
     @Transactional(readOnly = true)
     public java.util.Map<String, AiEnrichmentDto> getBulkEnrichments(User user, List<String> setupIds, String accountId) {
@@ -185,23 +197,82 @@ public class AiEnrichmentService {
         TradingAccount account = accountOpt.get();
         java.util.Map<String, AiEnrichmentDto> resultMap = new java.util.HashMap<>();
 
-        for (String setupId : setupIds) {
-            try {
-                List<AiSignalEnrichment> list = enrichmentRepository.findBySetupIdAndTradingAccountId(setupId, account.getId());
-                if (!list.isEmpty()) {
-                    resultMap.put(setupId, AiEnrichmentDto.fromEntity(list.getFirst()));
-                } else {
-                    java.util.Optional<StrategySetupRecord> setupOpt = setupRepository.findBySetupId(setupId);
-                    if (setupOpt.isPresent() && setupOpt.get().getTradingAccount() != null &&
-                            account.getId().equals(setupOpt.get().getTradingAccount().getId())) {
-                        AiSignalEnrichment enrichment = intelligenceEngine.evaluate(account, setupOpt.get());
-                        resultMap.put(setupId, AiEnrichmentDto.fromEntity(enrichment));
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Could not enrich setup {}: {}", setupId, e.getMessage());
+        // Single bulk query for all setup IDs
+        List<AiSignalEnrichment> existingEnrichments = enrichmentRepository.findBySetupIdInAndTradingAccountId(setupIds, account.getId());
+        
+        // Map existing enrichments by setupId (take the latest for each)
+        java.util.Map<String, AiSignalEnrichment> existingMap = new java.util.LinkedHashMap<>();
+        for (AiSignalEnrichment e : existingEnrichments) {
+            if (!existingMap.containsKey(e.getSetupId())) {
+                existingMap.put(e.getSetupId(), e);
             }
         }
+
+        // Find which setup IDs need on-the-fly evaluation
+        List<String> missingSetupIds = setupIds.stream()
+                .filter(id -> !existingMap.containsKey(id))
+                .toList();
+
+        // Add existing enrichments to result
+        for (String setupId : setupIds) {
+            if (existingMap.containsKey(setupId)) {
+                resultMap.put(setupId, AiEnrichmentDto.fromEntity(existingMap.get(setupId)));
+            }
+        }
+
+        // Evaluate missing setups on-the-fly (still in bulk to avoid N+1 for setups)
+        if (!missingSetupIds.isEmpty()) {
+            List<StrategySetupRecord> missingSetups = setupRepository.findBySetupIdIn(missingSetupIds);
+            for (StrategySetupRecord setup : missingSetups) {
+                if (setup.getTradingAccount() != null && account.getId().equals(setup.getTradingAccount().getId())) {
+                    try {
+                        AiSignalEnrichment enrichment = intelligenceEngine.evaluate(account, setup);
+                        resultMap.put(setup.getSetupId(), AiEnrichmentDto.fromEntity(enrichment));
+                    } catch (Exception e) {
+                        log.warn("Could not enrich setup {}: {}", setup.getSetupId(), e.getMessage());
+                    }
+                }
+            }
+        }
+
         return resultMap;
+    }
+
+    /**
+     * Evaluates a setup through the complete SMC + AI + Risk decision pipeline.
+     * Returns the combined decision with full audit trail.
+     */
+    @Transactional
+    public CombinedDecisionEngine.DecisionResult evaluateSetupDecision(
+            User user,
+            String setupId,
+            String accountId,
+            boolean killSwitchActive,
+            boolean algoEnabled
+    ) {
+        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        
+        StrategySetupRecord setup = setupRepository.findBySetupId(setupId)
+                .orElseThrow(() -> new ResourceNotFoundException("Strategy setup not found: " + setupId));
+
+        if (setup.getTradingAccount() == null || !account.getId().equals(setup.getTradingAccount().getId())) {
+            throw new AccessDeniedException("Access denied: Setup does not belong to your account");
+        }
+
+        // Get or generate AI enrichment
+        AiSignalEnrichment enrichment;
+        List<AiSignalEnrichment> existing = enrichmentRepository.findBySetupIdAndTradingAccountId(setupId, account.getId());
+        if (existing.isEmpty()) {
+            enrichment = intelligenceEngine.evaluate(account, setup);
+        } else {
+            enrichment = existing.getFirst();
+        }
+
+        // Get risk configuration
+        RiskConfiguration riskConfig = riskConfigRepository.findByTradingAccountId(account.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Risk configuration not found for account"));
+
+        // Run through combined decision engine
+        return decisionEngine.evaluate(account, setup, enrichment, riskConfig, killSwitchActive, algoEnabled);
     }
 }

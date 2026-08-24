@@ -329,11 +329,57 @@ export const MarketIntelligence: React.FC = () => {
             </div>
           ) : (
             <div className="glass-panel p-12 text-center rounded-lg space-y-3">
-              <Newspaper className="w-10 h-10 text-slate-600 mx-auto" />
-              <h3 className="text-sm font-bold text-white font-mono">No News Articles Found</h3>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                No financial articles match your category or impact filter. Ingested news maintains a strict 7-day retention window.
-              </p>
+              {newsError ? (
+                <>
+                  <AlertCircle className="w-10 h-10 text-bearish mx-auto" />
+                  <h3 className="text-sm font-bold text-white font-mono">News Service Unavailable</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Unable to connect to the financial news ingestion service. Please try again later.
+                  </p>
+                  <button
+                    onClick={fetchNews}
+                    className="mt-4 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                  >
+                    Retry News Feed
+                  </button>
+                </>
+              ) : newsLoading ? (
+                <>
+                  <Newspaper className="w-10 h-10 text-slate-600 mx-auto animate-pulse" />
+                  <h3 className="text-sm font-bold text-white font-mono">Loading News Feed...</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Ingesting latest financial articles from multiple sources.
+                  </p>
+                </>
+              ) : (newsCategory !== 'ALL' || newsImportance !== 'ALL') ? (
+                <>
+                  <Filter className="w-10 h-10 text-slate-600 mx-auto" />
+                  <h3 className="text-sm font-bold text-white font-mono">No Articles Match Filters</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    No financial articles match your selected category ({newsCategory}) and impact ({newsImportance}) filters.
+                  </p>
+                  <button
+                    onClick={() => { setNewsCategory('ALL'); setNewsImportance('ALL'); }}
+                    className="mt-4 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                  >
+                    Reset Filters
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Newspaper className="w-10 h-10 text-slate-600 mx-auto" />
+                  <h3 className="text-sm font-bold text-white font-mono">No News Articles Available</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    No financial articles currently available. Ingestion may be delayed or no new articles published in the last 7 days.
+                  </p>
+                  <button
+                    onClick={fetchNews}
+                    className="mt-4 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                  >
+                    Refresh Feed
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -513,7 +559,43 @@ export const MarketIntelligence: React.FC = () => {
               </div>
             ) : (
               <div className="p-12 text-center text-slate-500 font-mono text-xs">
-                No economic events found for the selected filter.
+                {calendarError ? (
+                  <>
+                    <AlertCircle className="w-8 h-8 text-bearish mx-auto mb-2" />
+                    <div className="text-white font-bold mb-1">Calendar Service Unavailable</div>
+                    <div>Unable to connect to macroeconomic calendar service.</div>
+                    <button
+                      onClick={fetchCalendar}
+                      className="mt-3 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                    >
+                      Retry Calendar
+                    </button>
+                  </>
+                ) : (countryFilter !== 'ALL' || importanceFilter !== 'ALL') ? (
+                  <>
+                    <Filter className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <div className="text-white font-bold mb-1">No Events Match Filters</div>
+                    <div>No economic events match your selected country ({countryFilter}) and impact ({importanceFilter}) filters.</div>
+                    <button
+                      onClick={() => { setCountryFilter('ALL'); setImportanceFilter('ALL'); }}
+                      className="mt-3 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                    >
+                      Reset Filters
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <div className="text-white font-bold mb-1">No Economic Events Found</div>
+                    <div>No macroeconomic events available for the 15-day window. Calendar ingestion may be delayed.</div>
+                    <button
+                      onClick={fetchCalendar}
+                      className="mt-3 px-4 py-2 rounded bg-brand-cyan text-background font-mono text-xs font-bold hover:bg-brand-cyan/90 transition-all"
+                    >
+                      Refresh Calendar
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

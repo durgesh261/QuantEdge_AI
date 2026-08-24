@@ -361,11 +361,11 @@ export const SignalsRadar: React.FC = () => {
         <div className="glass-panel rounded-lg">
           <EmptyState
             icon={Radio}
-            title={error?.toLowerCase().includes('account') ? 'No Trading Account Configured' : 'No Matching SMC Setups Found'}
+            title={error?.toLowerCase().includes('account') ? 'No Trading Account Configured' : 'No Qualified Setups Right Now'}
             description={
               error?.toLowerCase().includes('account')
                 ? 'Connect your Delta Exchange India credentials in Settings to start receiving authoritative strategy setups and AI conviction scoring.'
-                : 'The 1H deterministic SMC engine is actively monitoring market structure, order blocks, and liquidity. Try clearing or adjusting your filters.'
+                : `The deterministic SMC engine is monitoring the market.\nA setup will appear here only after all qualification\nand risk/reward conditions pass.\n\nLast scan: ${new Date().toLocaleTimeString()}\nEngine: LIVE`
             }
             actionLabel={error?.toLowerCase().includes('account') ? 'Go to Settings' : 'Reset Filters'}
             onAction={() => {

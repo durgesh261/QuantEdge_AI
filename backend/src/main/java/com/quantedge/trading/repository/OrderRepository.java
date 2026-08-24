@@ -26,6 +26,8 @@ public interface OrderRepository extends JpaRepository<Order, String> {
 
     List<Order> findByTradingAccountIdOrderByPlacedAtDesc(String tradingAccountId);
 
+    List<Order> findByTradingAccountIdAndStatusInOrderByPlacedAtDesc(String tradingAccountId, Collection<String> statuses);
+
     List<Order> findByTradingAccountIdAndSymbolOrderByPlacedAtDesc(String tradingAccountId, String symbol);
 
     List<Order> findByTradingAccountIdAndStatusOrderByPlacedAtDesc(String tradingAccountId, String status);

@@ -35,6 +35,16 @@ export const TradingTerminal: React.FC = () => {
   const [accountSummary, setAccountSummary] = useState<AccountSummaryDto | null>(null)
   const [trayLoading, setTrayLoading] = useState(false)
 
+  // Chart preferences from localStorage
+  const [showOverlays, setShowOverlays] = useState(true)
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('quantedge_pref_overlays')
+      if (saved !== null) setShowOverlays(saved === 'true')
+    } catch {}
+  }, [])
+
   // 1. Fetch Candles
   const loadCandles = useCallback(async () => {
     try {
@@ -109,7 +119,8 @@ export const TradingTerminal: React.FC = () => {
   }, [loadTradingData])
 
   const latestCandle = candles.length > 0 ? candles[candles.length - 1] : null
-  const currentPrice = latestCandle ? Number(latestCandle.close) : 65000
+  const currentPrice = latestCandle ? Number(latestCandle.close) : null
+  const availableBalance = accountSummary?.availableBalance ?? accountSummary?.balance ?? null
 
   return (
     <div className="space-y-4">
@@ -128,6 +139,8 @@ export const TradingTerminal: React.FC = () => {
             onRetry={loadCandles}
             symbol={activeSymbol}
             interval={activeInterval}
+            showOverlays={showOverlays}
+            lastUpdate={candles.length > 0 ? Date.now() : null}
           />
         </div>
 
@@ -143,8 +156,9 @@ export const TradingTerminal: React.FC = () => {
           <OrderTicketCard
             symbol={activeSymbol}
             currentPrice={currentPrice}
-            balance={accountSummary?.availableBalance ?? accountSummary?.balance ?? 10000}
+            balance={availableBalance}
             currency={accountSummary?.currency || 'USDT'}
+            hasAccount={!!accountSummary}
           />
         </div>
       </div>

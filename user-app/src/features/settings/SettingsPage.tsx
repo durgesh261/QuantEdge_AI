@@ -263,7 +263,7 @@ export const SettingsPage: React.FC = () => {
                 <Sliders className="w-5 h-5 text-brand-cyan" />
                 <h3 className="text-sm font-bold text-white font-mono">Trading & Terminal Preferences</h3>
               </div>
-              <span className="text-slate-400 text-xs font-mono">Client-Side Synced</span>
+              <span className="text-slate-400 text-xs font-mono">Saved on this device</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST API Controller for Real Delta Exchange India (DELTAIN) Market Data & Charts.
@@ -62,5 +63,11 @@ public class MarketDataController {
     ) {
         MarketStatusDto status = marketDataService.getMarketStatus(symbol);
         return ResponseEntity.ok(status);
+    }
+
+    @GetMapping("/tickers")
+    public ResponseEntity<Map<String, TickerDto>> getAllTickers() {
+        Map<String, TickerDto> tickers = marketDataService.getAllTickers();
+        return ResponseEntity.ok(tickers);
     }
 }

@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { SignalSetupDto } from '../../types/trading'
-import { AiEnrichmentDto } from '../../types/ai'
-import { Cpu, Activity, CheckCircle2, TrendingUp, TrendingDown } from 'lucide-react'
+import { AiEnrichmentDto, AiDecisionResultDto, AiDecisionEvaluationRequest } from '../../types/ai'
+import { tradingService } from '../../services/tradingService'
+import { Cpu, Activity, CheckCircle2, TrendingUp, TrendingDown, AlertCircle, Shield, Clock, RefreshCw } from 'lucide-react'
 
 interface AiSignalRadarCardProps {
   setup?: SignalSetupDto | null
@@ -15,6 +16,9 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
   aiEnrichment,
   symbol,
 }) => {
+  const [decisionResult, setDecisionResult] = useState<AiDecisionResultDto | null>(null)
+  const [isEvaluating, setIsEvaluating] = useState(false)
+
   const confidenceScore = aiEnrichment?.confidence
     ? Math.round(Number(aiEnrichment.confidence) * (Number(aiEnrichment.confidence) <= 1 ? 100 : 1))
     : setup?.confidence
@@ -27,6 +31,74 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
   const reasoning = aiEnrichment?.marketContext || 'Deterministic 1H SMC engine analyzing structure breaks (BOS/CHOCH) and unmitigated order block boundaries.'
 
   const isLong = setup?.direction?.toUpperCase() === 'LONG' || setup?.direction?.toUpperCase() === 'BUY'
+
+  // Evaluate decision when setup/enrichment changes
+  useEffect(() => {
+    if (setup && aiEnrichment && !isEvaluating) {
+      evaluateDecision()
+    }
+  }, [setup?.setupId, aiEnrichment?.id])
+
+  const evaluateDecision = async () => {
+    if (!setup) return
+    setIsEvaluating(true)
+    try {
+      const request: AiDecisionEvaluationRequest = {
+        setupId: setup.setupId,
+        killSwitchActive: false, // Would come from trading status
+        algoEnabled: true, // Would come from trading status
+      }
+      const result = await tradingService.evaluateAiDecision(request)
+      setDecisionResult(result)
+    } catch (err) {
+      console.warn('AI decision evaluation failed', err)
+    } finally {
+      setIsEvaluating(false)
+    }
+  }
+
+  const getDecisionColor = (decision: string) => {
+    switch (decision) {
+      case 'EXECUTION_ELIGIBLE': return 'text-bullish bg-bullish/10 border-bullish/30'
+      case 'QUALIFIED': return 'text-brand-cyan bg-brand-cyan/10 border-brand-cyan/30'
+      case 'WATCH': return 'text-warning bg-warning/10 border-warning/30'
+      case 'BLOCKED_BY_AI_CONFIDENCE': return 'text-bearish bg-bearish/10 border-bearish/30'
+      case 'BLOCKED_BY_RISK': return 'text-bearish bg-bearish/10 border-bearish/30'
+      case 'BLOCKED_BY_SYSTEM': return 'text-slate-400 bg-slate-800 border-slate-600'
+      case 'REJECTED': return 'text-bearish bg-bearish/10 border-bearish/30'
+      case 'BLOCKED_BY_MARKET': return 'text-warning bg-warning/10 border-warning/30'
+      default: return 'text-slate-400 bg-slate-800 border-slate-600'
+    }
+  }
+
+  const getDecisionIcon = (decision: string) => {
+    switch (decision) {
+      case 'EXECUTION_ELIGIBLE': return <CheckCircle2 className="w-3.5 h-3.5" />
+      case 'QUALIFIED': return <Shield className="w-3.5 h-3.5" />
+      case 'WATCH': return <Clock className="w-3.5 h-3.5" />
+      case 'BLOCKED_BY_AI_CONFIDENCE':
+      case 'BLOCKED_BY_RISK':
+      case 'REJECTED':
+        return <AlertCircle className="w-3.5 h-3.5" />
+      case 'BLOCKED_BY_SYSTEM': return <Activity className="w-3.5 h-3.5" />
+      case 'BLOCKED_BY_MARKET': return <RefreshCw className="w-3.5 h-3.5" />
+      default: return <Activity className="w-3.5 h-3.5" />
+    }
+  }
+
+  const getDecisionLabel = (decision: string) => {
+    switch (decision) {
+      case 'EXECUTION_ELIGIBLE': return 'EXECUTION ELIGIBLE'
+      case 'QUALIFIED': return 'QUALIFIED'
+      case 'WATCH': return 'WATCH'
+      case 'BLOCKED_BY_AI_CONFIDENCE': return 'BLOCKED: AI CONFIDENCE'
+      case 'BLOCKED_BY_RISK': return 'BLOCKED: RISK'
+      case 'BLOCKED_BY_SYSTEM': return 'BLOCKED: SYSTEM'
+      case 'REJECTED': return 'REJECTED'
+      case 'BLOCKED_BY_MARKET': return 'BLOCKED: MARKET'
+      default: return decision
+    }
+  }
 
   return (
     <div className="glass-panel p-4 rounded-lg flex flex-col justify-between space-y-4">
@@ -76,6 +148,23 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
             </div>
           </div>
 
+          {/* AI Combined Decision Badge */}
+          {decisionResult && (
+            <div className={`p-3 rounded-lg border ${getDecisionColor(decisionResult.decision)} flex items-center justify-between`}>
+              <div className="flex items-center gap-2">
+                {getDecisionIcon(decisionResult.decision)}
+                <div>
+                  <div className="text-[10px] uppercase font-mono text-slate-400">Combined Decision</div>
+                  <div className="font-bold text-white font-mono text-sm">{getDecisionLabel(decisionResult.decision)}</div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] uppercase font-mono text-slate-400">Latency</div>
+                <div className="font-bold text-white font-mono text-sm">{decisionResult.latencyMs}ms</div>
+              </div>
+            </div>
+          )}
+
           {/* Sub-Scores Matrix */}
           <div className="grid grid-cols-2 gap-2 text-xs font-mono">
             <div className="p-2.5 rounded bg-background/40 border border-terminal-border/80">
@@ -111,6 +200,13 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
             <span className="text-brand-cyan font-semibold text-[11px]">{regime}</span>
           </div>
 
+          {/* Decision Reason */}
+          {decisionResult && (
+            <div className="p-2.5 rounded bg-background/50 border border-terminal-border text-[11px] font-mono text-slate-300">
+              {decisionResult.reason}
+            </div>
+          )}
+
           {/* Plain-English AI Reasoning */}
           <div className="p-3 rounded-lg bg-background/50 border border-terminal-border">
             <div className="text-[10px] font-mono uppercase text-slate-400 mb-1 flex items-center gap-1">
@@ -121,6 +217,30 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
               {reasoning}
             </p>
           </div>
+
+          {/* Supporting/Risk Factors from AI */}
+          {aiEnrichment?.featureSummary && (
+            <div className="p-2.5 rounded bg-background/40 border border-terminal-border text-[10px] font-sans text-slate-300">
+              {(() => {
+                try {
+                  const parsed = JSON.parse(aiEnrichment.featureSummary)
+                  if (parsed.supportingFactors || parsed.riskFactors) {
+                    return (
+                      <div>
+                        {parsed.supportingFactors && (
+                          <div className="text-bullish mb-1">✓ {parsed.supportingFactors}</div>
+                        )}
+                        {parsed.riskFactors && (
+                          <div className="text-bearish">⚠ {parsed.riskFactors}</div>
+                        )}
+                      </div>
+                    )
+                  }
+                } catch {}
+                return null
+              })()}
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-6 rounded-lg bg-background/30 border border-terminal-border/60 text-center space-y-2">
@@ -134,7 +254,7 @@ export const AiSignalRadarCard: React.FC<AiSignalRadarCardProps> = ({
 
       {/* Footer Invariant Tag */}
       <div className="pt-2 border-t border-terminal-border/60 flex items-center justify-between text-[10px] font-mono text-slate-500">
-        <span>Deterministic Rule Scorer</span>
+        <span>AI Inference Engine v2.0</span>
         <span className="text-bullish flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3" /> Authoritative
         </span>

@@ -66,6 +66,34 @@ public class StrategySetupRecord extends BaseEntity {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
+    // SMC Structural Data
+    @Column(name = "structure_break_price", precision = 20, scale = 8)
+    private BigDecimal structureBreakPrice;
+
+    @Column(name = "order_block_price", precision = 20, scale = 8)
+    private BigDecimal orderBlockPrice;
+
+    @Column(name = "ob_mitigated")
+    private Boolean obMitigated;
+
+    @Column(name = "fvg_price", precision = 20, scale = 8)
+    private BigDecimal fvgPrice;
+
+    @Column(name = "fvg_mitigated")
+    private Boolean fvgMitigated;
+
+    @Column(name = "choch_price", precision = 20, scale = 8)
+    private BigDecimal chochPrice;
+
+    @Column(name = "liquidity_level_high", precision = 20, scale = 8)
+    private BigDecimal liquidityLevelHigh;
+
+    @Column(name = "liquidity_level_low", precision = 20, scale = 8)
+    private BigDecimal liquidityLevelLow;
+
+    @Column(name = "leverage")
+    private Integer leverage;
+
     public StrategySetupRecord() {}
 
     public StrategySetupRecord(
@@ -143,4 +171,31 @@ public class StrategySetupRecord extends BaseEntity {
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+
+    public BigDecimal getStructureBreakPrice() { return structureBreakPrice; }
+    public void setStructureBreakPrice(BigDecimal structureBreakPrice) { this.structureBreakPrice = structureBreakPrice; }
+
+    public BigDecimal getOrderBlockPrice() { return orderBlockPrice; }
+    public void setOrderBlockPrice(BigDecimal orderBlockPrice) { this.orderBlockPrice = orderBlockPrice; }
+
+    public Boolean getObMitigated() { return obMitigated; }
+    public void setObMitigated(Boolean obMitigated) { this.obMitigated = obMitigated; }
+
+    public BigDecimal getFvgPrice() { return fvgPrice; }
+    public void setFvgPrice(BigDecimal fvgPrice) { this.fvgPrice = fvgPrice; }
+
+    public Boolean getFvgMitigated() { return fvgMitigated; }
+    public void setFvgMitigated(Boolean fvgMitigated) { this.fvgMitigated = fvgMitigated; }
+
+    public BigDecimal getChochPrice() { return chochPrice; }
+    public void setChochPrice(BigDecimal chochPrice) { this.chochPrice = chochPrice; }
+
+    public BigDecimal getLiquidityLevelHigh() { return liquidityLevelHigh; }
+    public void setLiquidityLevelHigh(BigDecimal liquidityLevelHigh) { this.liquidityLevelHigh = liquidityLevelHigh; }
+
+    public BigDecimal getLiquidityLevelLow() { return liquidityLevelLow; }
+    public void setLiquidityLevelLow(BigDecimal liquidityLevelLow) { this.liquidityLevelLow = liquidityLevelLow; }
+
+    public Integer getLeverage() { return leverage; }
+    public void setLeverage(Integer leverage) { this.leverage = leverage; }
 }

@@ -89,19 +89,44 @@ export const SUPPORTED_SYMBOLS: string[] = Object.keys(CANONICAL_INSTRUMENTS)
 
 /**
  * Normalizes any symbol input (e.g. "BTCUSD.P", "btc/usd", "BTC/USD") to canonical "BTCUSD".
+ * Throws if the symbol is invalid or unsupported.
  */
 export function normalizeSymbol(raw?: string): string {
-  if (!raw || !raw.trim()) return 'BTCUSD'
+  if (!raw || !raw.trim()) {
+    throw new Error('Symbol is required')
+  }
   const clean = raw.trim().toUpperCase().replace('.P', '').replace('/', '')
-  return CANONICAL_INSTRUMENTS[clean] ? clean : 'BTCUSD'
+  if (!CANONICAL_INSTRUMENTS[clean]) {
+    throw new Error(`Unsupported symbol: ${raw}. Supported: ${Object.keys(CANONICAL_INSTRUMENTS).join(', ')}`)
+  }
+  return clean
 }
 
 /**
- * Gets instrument metadata with safe fallback.
+ * Gets instrument metadata. Throws if symbol is invalid.
  */
 export function getInstrumentMeta(symbol?: string): InstrumentMeta {
   const norm = normalizeSymbol(symbol)
-  return CANONICAL_INSTRUMENTS[norm] || CANONICAL_INSTRUMENTS.BTCUSD
+  return CANONICAL_INSTRUMENTS[norm]
+}
+
+/**
+ * Safely normalizes symbol, returning null if invalid (for cases where you need to handle gracefully).
+ */
+export function tryNormalizeSymbol(raw?: string): string | null {
+  try {
+    return normalizeSymbol(raw)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Safely gets instrument metadata, returning null if invalid.
+ */
+export function tryGetInstrumentMeta(symbol?: string): InstrumentMeta | null {
+  const norm = tryNormalizeSymbol(symbol)
+  return norm ? CANONICAL_INSTRUMENTS[norm] : null
 }
 
 /**

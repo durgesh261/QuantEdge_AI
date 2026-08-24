@@ -12,6 +12,11 @@ export const marketService = {
     return data
   },
 
+  async getAllTickers(): Promise<Record<string, TickerDto>> {
+    const { data } = await apiClient.get<Record<string, TickerDto>>('/api/v1/market/tickers')
+    return data
+  },
+
   async getCandles(symbol: string, interval = '1h', limit = 500): Promise<ChartCandlesResponseDto> {
     const { data } = await apiClient.get<ChartCandlesResponseDto>('/api/v1/market/candles', {
       params: { symbol, interval, limit },

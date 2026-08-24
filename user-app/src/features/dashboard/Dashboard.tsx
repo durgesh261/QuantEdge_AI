@@ -15,7 +15,7 @@ import { useMarketStore } from '../../stores/marketStore'
 import { apiClient } from '../../services/apiClient'
 import { TradingSystemStatusDto, AccountSummaryDto } from '../../types/trading'
 import { SkeletonStat, SkeletonCard } from '../../components/common/Skeleton'
-import { formatPrice } from '../../constants/instruments'
+import { formatPrice, SUPPORTED_SYMBOLS, getInstrumentMeta } from '../../constants/instruments'
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuthStore()
@@ -51,8 +51,6 @@ export const Dashboard: React.FC = () => {
     loadData()
   }, [fetchAllTickers])
 
-  const btc = tickers['BTCUSD']
-
   if (isLoading && !accountSummary && !tradingStatus) {
     return (
       <div className="space-y-6">
@@ -70,6 +68,35 @@ export const Dashboard: React.FC = () => {
       </div>
     )
   }
+
+  // Build ticker cards for all 4 canonical instruments
+  const tickerCards = SUPPORTED_SYMBOLS.map((sym) => {
+    const t = tickers[sym]
+    const meta = getInstrumentMeta(sym)
+    if (!t) return null
+    const isPos = (t.priceChangePercent24h ?? 0) >= 0
+    return (
+      <div key={sym} className="glass-panel p-4 rounded-lg flex flex-col">
+        <div className="flex items-center justify-between">
+          <span className="font-bold text-white font-mono">{meta.displaySymbol}</span>
+          <span className={`text-xs font-mono ${isPos ? 'text-bullish' : 'text-bearish'}`}>
+            {isPos ? '+' : ''}{t.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
+          </span>
+        </div>
+        <div className="mt-2 flex items-baseline justify-between">
+          <span className="text-xl font-bold font-mono text-white">
+            ${formatPrice(t.markPrice ?? t.lastPrice, sym)}
+          </span>
+        </div>
+        <div className="mt-2 text-[11px] font-mono text-slate-400 flex items-center gap-1">
+          <span>24h High:</span>
+          <span className="text-white">${formatPrice(t.high24h, sym)}</span>
+          <span className="text-slate-500">/</span>
+          <span className="text-slate-400">${formatPrice(t.low24h, sym)}</span>
+        </div>
+      </div>
+    )
+  }).filter(Boolean)
 
   return (
     <div className="space-y-6">
@@ -179,6 +206,21 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Live Market Overview - All 4 Canonical Instruments */}
+      <div className="glass-panel p-5 rounded-lg">
+        <div className="flex items-center justify-between pb-3 border-b border-terminal-border">
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-brand-cyan" />
+            <span className="text-sm font-bold text-white">Live Market Overview</span>
+          </div>
+          <span className="text-xs font-mono text-slate-400">1H Canonical SMC Stream</span>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {tickerCards}
+        </div>
+      </div>
+
       {/* Main Grid: Live Radar Preview & Navigation Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Cols: Terminal & Radar Overview */}
@@ -189,7 +231,7 @@ export const Dashboard: React.FC = () => {
                 <Cpu className="w-4 h-4 text-brand-cyan" />
                 <span className="text-sm font-bold text-white">Institutional SMC Core Overview</span>
               </div>
-              <span className="text-xs font-mono text-slate-400">BTC/USD (1H Stream)</span>
+              <span className="text-xs font-mono text-slate-400">All 4 Canonical Instruments</span>
             </div>
 
             <div className="mt-4 p-4 rounded-lg bg-background/50 border border-terminal-border font-mono text-xs space-y-2">
@@ -200,10 +242,6 @@ export const Dashboard: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-slate-400">Active Trade Locks:</span>
                 <span className="text-white">{tradingStatus?.hasActiveTradeLock ? `LOCKED (${tradingStatus.activeLockSetupId})` : '0 ACQUIRED'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Live Mark Price:</span>
-                <span className="text-white">${formatPrice(btc?.markPrice ?? btc?.lastPrice, 'BTCUSD')}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Order Authority Invariant:</span>

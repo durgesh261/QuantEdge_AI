@@ -9,6 +9,7 @@ import {
   SignalSetupDto,
 } from '../types/trading'
 import { AiEnrichmentDto } from '../types/ai'
+import { AiDecisionResultDto, AiDecisionEvaluationRequest } from '../types/ai'
 
 export const tradingService = {
   async getTradingStatus(accountId?: string): Promise<TradingSystemStatusDto> {
@@ -86,6 +87,11 @@ export const tradingService = {
     const { data } = await apiClient.get<AiEnrichmentDto[]>('/api/v1/ai/enrichments', {
       params: { symbol, limit },
     })
+    return data
+  },
+
+  async evaluateAiDecision(request: AiDecisionEvaluationRequest): Promise<AiDecisionResultDto> {
+    const { data } = await apiClient.post<AiDecisionResultDto>('/api/v1/ai/decisions/evaluate', request)
     return data
   },
 

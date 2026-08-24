@@ -144,4 +144,14 @@ export interface SignalSetupDto {
   confidence: number
   expiresAt: string | null
   createdAt: string
+
+  // SMC Structural Data for Visualization
+  orderBlockPrice?: number
+  obMitigated?: boolean
+  fvgPrice?: number
+  fvgMitigated?: boolean
+  structureBreakPrice?: number
+  chochPrice?: number
+  liquidityLevelHigh?: number
+  liquidityLevelLow?: number
 }

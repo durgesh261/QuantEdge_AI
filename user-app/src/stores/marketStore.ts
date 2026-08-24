@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { TickerDto, ProductDto } from '../types/market'
 import { marketService } from '../services/marketService'
-import { normalizeSymbol, SUPPORTED_SYMBOLS } from '../constants/instruments'
+import { tryNormalizeSymbol, SUPPORTED_SYMBOLS } from '../constants/instruments'
 
 interface MarketState {
   activeSymbol: string
@@ -9,6 +9,7 @@ interface MarketState {
   products: ProductDto[]
   tickers: Record<string, TickerDto>
   isLoading: boolean
+  symbolError: string | null
   setActiveSymbol: (symbol: string) => void
   setActiveInterval: (interval: string) => void
   fetchProducts: () => Promise<void>
@@ -22,10 +23,15 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   products: [],
   tickers: {},
   isLoading: false,
+  symbolError: null,
 
   setActiveSymbol: (symbol) => {
-    const clean = normalizeSymbol(symbol)
-    set({ activeSymbol: clean })
+    const clean = tryNormalizeSymbol(symbol)
+    if (!clean) {
+      set({ symbolError: `Unsupported symbol: ${symbol}. Supported: ${SUPPORTED_SYMBOLS.join(', ')}` })
+      return
+    }
+    set({ activeSymbol: clean, symbolError: null })
     get().fetchTicker(clean)
   },
 
@@ -41,7 +47,11 @@ export const useMarketStore = create<MarketState>((set, get) => ({
   },
 
   fetchTicker: async (symbol) => {
-    const clean = normalizeSymbol(symbol)
+    const clean = tryNormalizeSymbol(symbol)
+    if (!clean) {
+      console.warn(`Invalid symbol for ticker: ${symbol}`)
+      return
+    }
     try {
       const ticker = await marketService.getTicker(clean)
       set((state) => ({
@@ -54,21 +64,30 @@ export const useMarketStore = create<MarketState>((set, get) => ({
 
   fetchAllTickers: async () => {
     try {
-      const promises = SUPPORTED_SYMBOLS.map((sym) =>
-        marketService.getTicker(sym).catch(() => null)
-      )
-      const results = await Promise.all(promises)
-      const newTickers: Record<string, TickerDto> = {}
-      SUPPORTED_SYMBOLS.forEach((sym, idx) => {
-        if (results[idx]) {
-          newTickers[sym] = results[idx] as TickerDto
-        }
-      })
+      const bulkTickers = await marketService.getAllTickers()
       set((state) => ({
-        tickers: { ...state.tickers, ...newTickers },
+        tickers: { ...state.tickers, ...bulkTickers },
       }))
     } catch (err) {
-      console.warn('Failed to fetch all market tickers', err)
+      console.warn('Failed to fetch all market tickers via bulk endpoint, falling back to individual', err)
+      // Fallback to individual requests
+      try {
+        const promises = SUPPORTED_SYMBOLS.map((sym) =>
+          marketService.getTicker(sym).catch(() => null)
+        )
+        const results = await Promise.all(promises)
+        const newTickers: Record<string, TickerDto> = {}
+        SUPPORTED_SYMBOLS.forEach((sym, idx) => {
+          if (results[idx]) {
+            newTickers[sym] = results[idx] as TickerDto
+          }
+        })
+        set((state) => ({
+          tickers: { ...state.tickers, ...newTickers },
+        }))
+      } catch (fallbackErr) {
+        console.warn('Fallback ticker fetch also failed', fallbackErr)
+      }
     }
   },
 }))

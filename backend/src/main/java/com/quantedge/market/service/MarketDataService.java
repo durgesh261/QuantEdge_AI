@@ -207,6 +207,37 @@ public class MarketDataService {
         );
     }
 
+    /**
+     * Fetches tickers for all supported symbols in a single request.
+     * Returns a map of symbol -> TickerDto for efficient frontend loading.
+     */
+    public Map<String, TickerDto> getAllTickers() {
+        Map<String, TickerDto> result = new LinkedHashMap<>();
+        String[] supportedSymbols = {"BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"};
+        
+        for (String symbol : supportedSymbols) {
+            try {
+                TickerDto ticker = getTicker(symbol);
+                result.put(symbol, ticker);
+            } catch (Exception e) {
+                log.warn("Failed to fetch ticker for {}: {}", symbol, e.getMessage());
+                // Return zero ticker for failed symbols to maintain consistent response structure
+                result.put(symbol, new TickerDto(
+                        symbol,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        Instant.now()
+                ));
+            }
+        }
+        return result;
+    }
+
     private BigDecimal parseDecimal(JsonNode node) {
         if (node == null || node.isMissingNode() || node.isNull()) return null;
         try {
