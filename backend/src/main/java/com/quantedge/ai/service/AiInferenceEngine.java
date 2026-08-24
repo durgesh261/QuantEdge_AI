@@ -341,6 +341,92 @@ public class AiInferenceEngine implements AiIntelligenceEngine {
     }
 
     /**
+     * Phase G: Executes shadow inference on a live strategy setup.
+     * Computes raw ONNX regression predictions, logs result, but STRICTLY enforces:
+     * - governanceStatus = "REJECTED"
+     * - executionAuthorized = false
+     */
+    public com.quantedge.ai.dto.AiShadowResult evaluateShadow(TradingAccount account, StrategySetupRecord setup) {
+        Optional<AiFeatureVector> featureOpt = featureExtractor.extractFeatures(account, setup);
+        float[] vector = featureOpt.map(AiFeatureVector::toFloat32Array).orElse(new float[24]);
+        
+        return evaluateShadowInternal(
+                setup.getSymbol(),
+                setup.getDirection(),
+                setup.getSetupId(),
+                setup.getCreatedAt() != null ? setup.getCreatedAt() : Instant.now(),
+                setup.getOrderBlockPrice() != null ? "OB_" + setup.getOrderBlockPrice().toPlainString() : "OB_UNKNOWN",
+                vector
+        );
+    }
+
+    /**
+     * Phase G: Executes shadow inference directly on a feature vector.
+     */
+    public com.quantedge.ai.dto.AiShadowResult evaluateShadow(String symbol, String direction, float[] featureVector) {
+        return evaluateShadowInternal(
+                symbol,
+                direction,
+                "manual-shadow-" + UUID.randomUUID().toString().substring(0, 8),
+                Instant.now(),
+                "OB_MANUAL",
+                featureVector
+        );
+    }
+
+    private com.quantedge.ai.dto.AiShadowResult evaluateShadowInternal(
+            String symbol,
+            String direction,
+            String setupId,
+            Instant setupTime,
+            String obIdentifier,
+            float[] vector
+    ) {
+        BigDecimal predR = BigDecimal.ZERO;
+        BigDecimal predMfe = BigDecimal.ZERO;
+        BigDecimal predMae = BigDecimal.ZERO;
+
+        if (onnxInferenceService.isModelLoaded() && vector != null && vector.length == 24) {
+            Optional<OnnxModelInferenceService.OnnxRegressionResult> regOpt =
+                    onnxInferenceService.runRegressionInference(vector);
+            if (regOpt.isPresent()) {
+                predR = regOpt.get().predictedRealizedR();
+                predMfe = regOpt.get().predictedMfeR();
+                predMae = regOpt.get().predictedMaeR();
+            }
+        }
+
+        BigDecimal threshold = BigDecimal.valueOf(0.50);
+        boolean accepted = predR.compareTo(threshold) >= 0;
+
+        com.quantedge.ai.dto.AiShadowResult shadowResult = new com.quantedge.ai.dto.AiShadowResult(
+                symbol,
+                Instant.now(),
+                setupTime,
+                direction,
+                obIdentifier,
+                "quantedge-ai-v2.onnx",
+                MODEL_VERSION,
+                onnxInferenceService.getModelArtifactHash(),
+                "2.0.0",
+                vector,
+                predR,
+                predMfe,
+                predMae,
+                threshold,
+                accepted,
+                "REJECTED", // Governance Status: REJECTED
+                false       // Execution Authorized: FALSE (Invariant!)
+        );
+
+        log.info("[AI SHADOW INFERENCE] setupId={}, symbol={}, dir={}, predRealizedR={}, predMfe={}, predMae={}, threshold={}, accepted={}, governance={}, executionAuthorized={}",
+                setupId, symbol, direction, predR, predMfe, predMae, threshold, accepted,
+                shadowResult.governanceStatus(), shadowResult.executionAuthorized());
+
+        return shadowResult;
+    }
+
+    /**
      * Internal inference result record.
      */
     private record InferenceResult(

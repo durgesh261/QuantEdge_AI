@@ -36,6 +36,13 @@
 - Emergency kill switch and risk caps remain strictly enforced on server-side and cannot be bypassed.
 - Sole authorized production execution engine: **Deterministic SMC Engine**.
 
+## Phase G Shadow Execution & Calibration Invariants
+- **Runtime Mode**: `NON_AUTHORITATIVE_SHADOW`
+- **Shadow Inference Status**: Active across all live Delta WebSocket & historical SMC setups.
+- **Order Placement Dispatch**: Strictly `0` live orders dispatched (`AiShadowResult.executionAuthorized = false`).
+- **Feature & Output Parity**: Python scikit-learn $\leftrightarrow$ Python ONNX $\leftrightarrow$ Java ONNX verified across 24 golden vectors ($\le 10^{-4}$ numeric parity).
+- **Inference Robustness**: Hardened against missing features, NaN, $\pm\infty$, and dimensionality mismatches.
+
 ## Critical Limitations & Disclaimers
 > [!IMPORTANT]
 > - **Correlation does not imply causation.**
