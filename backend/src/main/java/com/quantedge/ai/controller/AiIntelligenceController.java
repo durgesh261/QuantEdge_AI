@@ -1,8 +1,11 @@
 package com.quantedge.ai.controller;
 
 import com.quantedge.ai.dto.AiEnrichmentDto;
+import com.quantedge.ai.entity.AiDecisionAudit;
+import com.quantedge.ai.service.AiDecisionAuditService;
 import com.quantedge.ai.service.AiEnrichmentService;
 import com.quantedge.ai.service.CombinedDecisionEngine;
+import com.quantedge.account.service.AccountManagementService;
 import com.quantedge.auth.entity.User;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -10,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * REST API Controller for AI Intelligence & Signal Enrichment.
@@ -19,9 +23,13 @@ import java.util.Map;
 public class AiIntelligenceController {
 
     private final AiEnrichmentService enrichmentService;
+    private final AiDecisionAuditService auditService;
+    private final AccountManagementService accountManagementService;
 
-    public AiIntelligenceController(AiEnrichmentService enrichmentService) {
+    public AiIntelligenceController(AiEnrichmentService enrichmentService, AiDecisionAuditService auditService, AccountManagementService accountManagementService) {
         this.enrichmentService = enrichmentService;
+        this.auditService = auditService;
+        this.accountManagementService = accountManagementService;
     }
 
     /**
@@ -78,14 +86,13 @@ public class AiIntelligenceController {
 
     public record DecisionEvaluationRequest(
             String setupId,
-            String accountId,
-            boolean killSwitchActive,
-            boolean algoEnabled
+            String accountId
     ) {}
 
     /**
      * Evaluates a setup through the complete SMC + AI + Risk decision pipeline.
      * Returns the combined decision with full audit trail.
+     * Kill-switch and algo state are resolved server-side from authoritative sources.
      */
     @PostMapping({"/v1/ai/decisions/evaluate", "/v1/trade/signals/{setupId}/decision"})
     public ResponseEntity<CombinedDecisionEngine.DecisionResult> evaluateDecision(
@@ -97,8 +104,15 @@ public class AiIntelligenceController {
         User effectiveUser = user != null ? user : requestUser;
         String setupId = request.setupId() != null ? request.setupId() : pathSetupId;
         String accountId = request.accountId();
-        boolean killSwitch = request.killSwitchActive();
-        boolean algoEnabled = request.algoEnabled();
+
+        // Resolve authoritative kill-switch and algo state from server
+        Optional<com.quantedge.account.entity.TradingAccount> accountOpt = accountManagementService.findAuthorizedAccount(effectiveUser, accountId);
+        if (accountOpt.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        com.quantedge.account.entity.TradingAccount account = accountOpt.get();
+        boolean killSwitch = Boolean.TRUE.equals(account.getKillSwitchActive());
+        boolean algoEnabled = Boolean.TRUE.equals(account.getAlgoEnabled());
 
         CombinedDecisionEngine.DecisionResult result = enrichmentService.evaluateSetupDecision(
                 effectiveUser, setupId, accountId, killSwitch, algoEnabled
@@ -110,14 +124,33 @@ public class AiIntelligenceController {
      * Retrieves AI decision audit history for an account.
      */
     @GetMapping("/v1/ai/decisions/audit")
-    public ResponseEntity<List<com.quantedge.ai.entity.AiDecisionAudit>> getDecisionAudit(
+    public ResponseEntity<List<AiDecisionAudit>> getDecisionAudit(
             @AuthenticationPrincipal User user,
             @RequestAttribute(value = "currentUser", required = false) User requestUser,
             @RequestParam(value = "accountId", required = false) String accountId,
             @RequestParam(value = "limit", required = false, defaultValue = "100") Integer limit
     ) {
         User effectiveUser = user != null ? user : requestUser;
-        // TODO: Implement audit service call
-        return ResponseEntity.ok(List.of());
+        Optional<com.quantedge.account.entity.TradingAccount> accountOpt = accountManagementService.findAuthorizedAccount(effectiveUser, accountId);
+        if (accountOpt.isEmpty()) {
+            return ResponseEntity.ok(List.of());
+        }
+        String resolvedAccountId = accountOpt.get().getId();
+        List<AiDecisionAudit> audits = auditService.getDecisionHistory(resolvedAccountId, limit);
+        return ResponseEntity.ok(audits);
+    }
+
+    /**
+     * Retrieves AI decision audit for a specific setup.
+     */
+    @GetMapping("/v1/ai/decisions/audit/{setupId}")
+    public ResponseEntity<List<AiDecisionAudit>> getDecisionAuditForSetup(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @PathVariable("setupId") String setupId
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        List<AiDecisionAudit> audits = auditService.getDecisionsForSetup(setupId);
+        return ResponseEntity.ok(audits);
     }
 }

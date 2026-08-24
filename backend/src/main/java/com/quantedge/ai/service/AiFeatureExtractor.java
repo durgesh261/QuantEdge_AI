@@ -295,7 +295,7 @@ public class AiFeatureExtractor {
         // Normalized leverage (1-100 -> 0-1)
         BigDecimal maxLeverage = BigDecimal.valueOf(100); // Would come from instrument config
         if (setup.getLeverage() == null) return BigDecimal.valueOf(0.1);
-        return setup.getLeverage().divide(maxLeverage, 4, RoundingMode.HALF_UP).min(BigDecimal.ONE);
+        return BigDecimal.valueOf(setup.getLeverage()).divide(maxLeverage, 4, RoundingMode.HALF_UP).min(BigDecimal.ONE);
     }
 
     private String classifyRegime(List<CandleDto> candles) {

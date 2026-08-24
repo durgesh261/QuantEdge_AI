@@ -120,6 +120,10 @@ quantedge:
   developer:
     email: ${DEVELOPER_EMAIL:}
     initial-password: ${DEVELOPER_INITIAL_PASSWORD:}
+  ai:
+    model:
+      enabled: ${AI_MODEL_ENABLED:true}
+      path: ${AI_MODEL_PATH:classpath:models/quantedge-ai-v2.onnx}
 
 ---
 # Test profile

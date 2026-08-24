@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantedge.ai.controller.AiIntelligenceController;
 import com.quantedge.ai.controller.AiIntelligenceController.BulkIntelligenceRequest;
 import com.quantedge.ai.dto.AiEnrichmentDto;
+import com.quantedge.ai.service.AiDecisionAuditService;
 import com.quantedge.ai.service.AiEnrichmentService;
+import com.quantedge.account.service.AccountManagementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -31,13 +33,17 @@ class SignalFilteringAndAiBulkTest {
 
     @Mock
     private AiEnrichmentService aiEnrichmentService;
+    @Mock
+    private AiDecisionAuditService auditService;
+    @Mock
+    private AccountManagementService accountManagementService;
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @BeforeEach
     void setUp() {
-        AiIntelligenceController controller = new AiIntelligenceController(aiEnrichmentService);
+        AiIntelligenceController controller = new AiIntelligenceController(aiEnrichmentService, auditService, accountManagementService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 

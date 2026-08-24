@@ -3,7 +3,9 @@ package com.quantedge.ai;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quantedge.ai.controller.AiIntelligenceController;
 import com.quantedge.ai.dto.AiEnrichmentDto;
+import com.quantedge.ai.service.AiDecisionAuditService;
 import com.quantedge.ai.service.AiEnrichmentService;
+import com.quantedge.account.service.AccountManagementService;
 import com.quantedge.auth.entity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +39,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class AiIntelligenceArchitectureTest {
 
     @Mock private AiEnrichmentService enrichmentService;
+    @Mock private AiDecisionAuditService auditService;
+    @Mock private AccountManagementService accountManagementService;
 
     private MockMvc mockMvc;
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
@@ -45,7 +49,7 @@ class AiIntelligenceArchitectureTest {
 
     @BeforeEach
     void setUp() {
-        AiIntelligenceController controller = new AiIntelligenceController(enrichmentService);
+        AiIntelligenceController controller = new AiIntelligenceController(enrichmentService, auditService, accountManagementService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new com.quantedge.common.exception.GlobalExceptionHandler())
                 .build();

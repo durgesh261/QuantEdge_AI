@@ -5,9 +5,13 @@ import com.quantedge.account.repository.TradingAccountRepository;
 import com.quantedge.ai.dto.AiEnrichmentDto;
 import com.quantedge.ai.entity.AiSignalEnrichment;
 import com.quantedge.ai.repository.AiSignalEnrichmentRepository;
+import com.quantedge.ai.service.AiDecisionAuditService;
 import com.quantedge.ai.service.AiEnrichmentService;
+import com.quantedge.ai.service.CombinedDecisionEngine;
 import com.quantedge.ai.service.DeterministicBaselineIntelligenceEngine;
 import com.quantedge.auth.entity.User;
+import com.quantedge.risk.entity.RiskConfiguration;
+import com.quantedge.risk.repository.RiskConfigurationRepository;
 import com.quantedge.strategy.entity.StrategySetupRecord;
 import com.quantedge.strategy.repository.StrategySetupRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +40,9 @@ class AiEnrichmentServiceTest {
     @Mock private AiSignalEnrichmentRepository enrichmentRepository;
     @Mock private TradingAccountRepository accountRepository;
     @Mock private StrategySetupRepository setupRepository;
+    @Mock private RiskConfigurationRepository riskConfigRepository;
+    @Mock private AiDecisionAuditService auditService;
+    @Mock private CombinedDecisionEngine decisionEngine;
 
     private DeterministicBaselineIntelligenceEngine baselineEngine;
     private AiEnrichmentService enrichmentService;
@@ -45,15 +52,20 @@ class AiEnrichmentServiceTest {
     private TradingAccount accountA;
     private TradingAccount accountB;
     private StrategySetupRecord setupRecord;
+    private RiskConfiguration riskConfig;
 
     @BeforeEach
     void setUp() {
         baselineEngine = new DeterministicBaselineIntelligenceEngine();
+        
         enrichmentService = new AiEnrichmentService(
                 enrichmentRepository,
                 accountRepository,
                 setupRepository,
-                baselineEngine
+                riskConfigRepository,
+                baselineEngine,
+                auditService,
+                decisionEngine
         );
 
         userA = new User();
@@ -84,6 +96,8 @@ class AiEnrichmentServiceTest {
                 Instant.now().plusSeconds(3600)
         );
         setupRecord.setConfidence(new BigDecimal("80.00"));
+
+        riskConfig = new RiskConfiguration(accountA);
     }
 
     @Nested

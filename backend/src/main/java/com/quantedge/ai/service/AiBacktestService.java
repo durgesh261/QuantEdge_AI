@@ -7,6 +7,8 @@ import com.quantedge.ai.repository.AiDecisionAuditRepository;
 import com.quantedge.ai.repository.AiSignalEnrichmentRepository;
 import com.quantedge.strategy.entity.StrategySetupRecord;
 import com.quantedge.strategy.repository.StrategySetupRepository;
+import com.quantedge.trading.entity.Order;
+import com.quantedge.trading.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,9 @@ import java.util.stream.Collectors;
  * 
  * Compares SMC-only vs SMC+AI performance to validate AI value-add.
  * Prevents data leakage with strict temporal splits.
+ * 
+ * NOTE: This is evaluation infrastructure. For actual model training,
+ * a separate ML pipeline (Python/TensorFlow/PyTorch) should be used.
  */
 @Service
 public class AiBacktestService {
@@ -32,15 +37,18 @@ public class AiBacktestService {
     private final AiSignalEnrichmentRepository enrichmentRepository;
     private final AiDecisionAuditRepository auditRepository;
     private final StrategySetupRepository setupRepository;
+    private final OrderRepository orderRepository;
 
     public AiBacktestService(
             AiSignalEnrichmentRepository enrichmentRepository,
             AiDecisionAuditRepository auditRepository,
-            StrategySetupRepository setupRepository
+            StrategySetupRepository setupRepository,
+            OrderRepository orderRepository
     ) {
         this.enrichmentRepository = enrichmentRepository;
         this.auditRepository = auditRepository;
         this.setupRepository = setupRepository;
+        this.orderRepository = orderRepository;
     }
 
     /**
@@ -49,8 +57,8 @@ public class AiBacktestService {
      */
     @Transactional(readOnly = true)
     public BacktestResult runBacktest(BacktestConfig config) {
-        log.info("Starting AI backtest: {} to {} for symbols {}", 
-                config.from(), config.to(), config.symbols());
+        log.info("Starting AI backtest: {} to {} for symbols {}, starting equity: {}", 
+                config.from(), config.to(), config.symbols(), config.startingEquity());
 
         // 1. Fetch all setups in date range
         List<StrategySetupRecord> allSetups = setupRepository.findByCreatedAtBetween(
@@ -61,14 +69,16 @@ public class AiBacktestService {
 
         log.info("Found {} setups in date range", allSetups.size());
 
-        // 2. Split into train/validation/test temporally
+        // 2. Split into train/validation/test temporally (strict chronological split)
+        // Train: [from, splitPoint), Test: [splitPoint, to]
+        // No overlapping, no look-ahead
+        long totalSeconds = config.to().getEpochSecond() - config.from().getEpochSecond();
+        long trainSeconds = (totalSeconds * (100 - config.testSplitPercent())) / 100;
+        Instant splitPoint = config.from().plusSeconds(trainSeconds);
+
         List<StrategySetupRecord> trainSetups = new ArrayList<>();
         List<StrategySetupRecord> testSetups = new ArrayList<>();
         
-        Instant splitPoint = config.from().plusSeconds(
-                config.to().getEpochSecond() - config.from().getEpochSecond() * (100 - config.testSplitPercent()) / 100
-        );
-
         for (StrategySetupRecord setup : allSetups) {
             if (setup.getCreatedAt().isBefore(splitPoint)) {
                 trainSetups.add(setup);
@@ -77,11 +87,13 @@ public class AiBacktestService {
             }
         }
 
-        log.info("Train: {} setups, Test: {} setups", trainSetups.size(), testSetups.size());
+        log.info("Train: {} setups ({} to {}), Test: {} setups ({} to {})", 
+                trainSetups.size(), config.from(), splitPoint,
+                testSetups.size(), splitPoint, config.to());
 
-        // 3. Evaluate on test set
-        TestMetrics smcOnlyMetrics = evaluateSetups(testSetups, false);
-        TestMetrics smcPlusAiMetrics = evaluateSetups(testSetups, true);
+        // 3. Evaluate on test set only (train set would be used for model training in separate pipeline)
+        TestMetrics smcOnlyMetrics = evaluateSetups(testSetups, false, config.startingEquity());
+        TestMetrics smcPlusAiMetrics = evaluateSetups(testSetups, true, config.startingEquity());
 
         // 4. Calculate improvement
         BigDecimal accuracyImprovement = calculateImprovement(smcOnlyMetrics.accuracy(), smcPlusAiMetrics.accuracy());
@@ -108,7 +120,11 @@ public class AiBacktestService {
         );
     }
 
-    private TestMetrics evaluateSetups(List<StrategySetupRecord> setups, boolean useAi) {
+    /**
+     * Evaluates setups using simplified outcome determination based on setup state.
+     * In production, this would use actual fill data from a separate historical data service.
+     */
+    private TestMetrics evaluateSetups(List<StrategySetupRecord> setups, boolean useAi, BigDecimal startingEquity) {
         int total = setups.size();
         if (total == 0) return emptyMetrics();
 
@@ -120,18 +136,26 @@ public class AiBacktestService {
         BigDecimal totalReturn = BigDecimal.ZERO;
         int winningTrades = 0;
         int losingTrades = 0;
+        BigDecimal grossProfit = BigDecimal.ZERO;
+        BigDecimal grossLoss = BigDecimal.ZERO;
         BigDecimal maxDrawdown = BigDecimal.ZERO;
-        BigDecimal peakEquity = BigDecimal.ZERO;
-        BigDecimal currentEquity = BigDecimal.valueOf(10000); // Starting equity
+        BigDecimal peakEquity = startingEquity;
+        BigDecimal currentEquity = startingEquity;
+
+        int evaluatedTotal = 0;
 
         for (StrategySetupRecord setup : setups) {
-            // Determine actual outcome (would come from fill data)
-            // For now, simulate based on setup state
-            boolean actualWin = "COMPLETED".equals(setup.getSetupState()) && 
-                    setup.getTakeProfit() != null && setup.getEntryPrice() != null &&
-                    (setup.getDirection().equals("LONG") ? 
-                            setup.getTakeProfit().compareTo(setup.getEntryPrice()) > 0 :
-                            setup.getTakeProfit().compareTo(setup.getEntryPrice()) < 0);
+            // Determine actual outcome from setup state (simplified for evaluation infrastructure)
+            // In production, this would query actual fill data from historical data service
+            ActualOutcome outcome = determineActualOutcomeFromState(setup);
+            
+            if (outcome == ActualOutcome.NO_EXECUTION_DATA) {
+                // Skip setups without execution data - cannot evaluate
+                continue;
+            }
+
+            evaluatedTotal++;
+            boolean actualWin = outcome == ActualOutcome.WIN;
 
             // AI decision
             boolean aiWouldTrade = useAi ? wouldAiTrade(setup) : true; // SMC-only trades all qualified
@@ -143,12 +167,14 @@ public class AiBacktestService {
                     BigDecimal pnl = calculatePnL(setup);
                     currentEquity = currentEquity.add(pnl);
                     totalReturn = totalReturn.add(pnl);
+                    grossProfit = grossProfit.add(pnl.max(BigDecimal.ZERO));
                 } else {
                     falsePositives++;
                     losingTrades++;
                     BigDecimal pnl = calculatePnL(setup).negate();
                     currentEquity = currentEquity.add(pnl);
                     totalReturn = totalReturn.add(pnl);
+                    grossLoss = grossLoss.add(pnl.abs());
                 }
             } else {
                 if (actualWin) {
@@ -168,42 +194,68 @@ public class AiBacktestService {
             }
         }
 
+        if (evaluatedTotal == 0) return emptyMetrics();
+
         BigDecimal precision = (truePositives + falsePositives) > 0 ? 
                 BigDecimal.valueOf(truePositives).divide(BigDecimal.valueOf(truePositives + falsePositives), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
         BigDecimal recall = (truePositives + falseNegatives) > 0 ? 
                 BigDecimal.valueOf(truePositives).divide(BigDecimal.valueOf(truePositives + falseNegatives), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
         BigDecimal f1 = (precision.add(recall)).compareTo(BigDecimal.ZERO) > 0 ?
                 precision.multiply(recall).multiply(BigDecimal.valueOf(2)).divide(precision.add(recall), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
-        BigDecimal accuracy = BigDecimal.valueOf(truePositives + trueNegatives).divide(BigDecimal.valueOf(total), 4, RoundingMode.HALF_UP);
+        BigDecimal accuracy = BigDecimal.valueOf(truePositives + trueNegatives).divide(BigDecimal.valueOf(evaluatedTotal), 4, RoundingMode.HALF_UP);
 
         BigDecimal winRate = (winningTrades + losingTrades) > 0 ?
                 BigDecimal.valueOf(winningTrades).divide(BigDecimal.valueOf(winningTrades + losingTrades), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO;
         
-        BigDecimal profitFactor = losingTrades > 0 && totalReturn.compareTo(BigDecimal.ZERO) < 0 ?
-                totalReturn.abs().divide(totalReturn.abs(), 4, RoundingMode.HALF_UP) : BigDecimal.ONE;
+        // Correct profit factor: gross profit / gross loss
+        BigDecimal profitFactor = grossLoss.compareTo(BigDecimal.ZERO) > 0 ?
+                grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP) : BigDecimal.ONE;
 
         return new TestMetrics(
                 accuracy, precision, recall, f1,
-                winRate, totalReturn, profitFactor, maxDrawdown,
+                BigDecimal.valueOf(winningTrades).divide(BigDecimal.valueOf(evaluatedTotal), 4, RoundingMode.HALF_UP),
+                totalReturn,
+                profitFactor,
+                maxDrawdown,
                 truePositives, falsePositives, trueNegatives, falseNegatives
         );
     }
 
+    private ActualOutcome determineActualOutcomeFromState(StrategySetupRecord setup) {
+        // Simplified outcome determination from setup state
+        // In production, this would query actual historical fill data
+        String state = setup.getSetupState();
+        if ("COMPLETED".equalsIgnoreCase(state)) {
+            // Determine win/loss based on whether TP or SL was hit
+            // Simplified: assume WIN if COMPLETED with valid TP/SL
+            if (setup.getTakeProfit() != null && setup.getEntryPrice() != null && setup.getStopLoss() != null) {
+                boolean isLong = "LONG".equalsIgnoreCase(setup.getDirection()) || "BUY".equalsIgnoreCase(setup.getDirection());
+                if (isLong) {
+                    return setup.getTakeProfit().compareTo(setup.getEntryPrice()) > 0 ? ActualOutcome.WIN : ActualOutcome.LOSS;
+                } else {
+                    return setup.getTakeProfit().compareTo(setup.getEntryPrice()) < 0 ? ActualOutcome.WIN : ActualOutcome.LOSS;
+                }
+            }
+            return ActualOutcome.NO_EXECUTION_DATA;
+        }
+        if ("INVALIDATED".equalsIgnoreCase(state) || "STOPPED_OUT".equalsIgnoreCase(state)) {
+            return ActualOutcome.LOSS;
+        }
+        // For other states (ACTIVE, QUALIFIED, PENDING), no execution data yet
+        return ActualOutcome.NO_EXECUTION_DATA;
+    }
+
+    private enum ActualOutcome {
+        WIN, LOSS, NO_EXECUTION_DATA
+    }
+
     private boolean wouldAiTrade(StrategySetupRecord setup) {
-        // Simplified: check if AI enrichment exists and has high confidence
+        // Check if AI enrichment exists and has high confidence
         List<AiSignalEnrichment> enrichments = enrichmentRepository.findBySetupId(setup.getSetupId());
         if (enrichments.isEmpty()) return false;
         
         AiSignalEnrichment latest = enrichments.getFirst();
         return latest.getConfidence() != null && latest.getConfidence().compareTo(BigDecimal.valueOf(50)) >= 0;
-    }
-
-    private BigDecimal calculatePnL(StrategySetupRecord setup) {
-        // Simplified PnL calculation
-        if (setup.getRiskReward() != null) {
-            return BigDecimal.valueOf(100).multiply(setup.getRiskReward().divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP));
-        }
-        return BigDecimal.valueOf(200); // Default 2R win
     }
 
     private BigDecimal calculateImprovement(BigDecimal baseline, BigDecimal improved) {
@@ -216,20 +268,43 @@ public class AiBacktestService {
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 0, 0, 0, 0
-        );
-    }
+);
+}
 
-    /**
-     * Backtest configuration.
-     */
-    public record BacktestConfig(
+/**
+ * Calculates PnL for a setup record.
+ * PnL = (exitPrice - entryPrice) * direction multiplier * position size
+ */
+private BigDecimal calculatePnL(StrategySetupRecord setup) {
+    BigDecimal entry = setup.getEntryPrice();
+    BigDecimal exit = setup.getTakeProfit() != null ? setup.getTakeProfit() : entry;
+    BigDecimal directionMult = "LONG".equalsIgnoreCase(setup.getDirection()) || "BUY".equalsIgnoreCase(setup.getDirection()) ? BigDecimal.ONE : BigDecimal.valueOf(-1);
+    return exit.subtract(entry).multiply(directionMult);
+}
+
+/**
+ * Backtest configuration.
+ */
+public record BacktestConfig(
             String datasetVersion,
             String modelVersion,
             Instant from,
             Instant to,
             List<String> symbols,
-            int testSplitPercent // e.g., 20 for 80/20 split
-    ) {}
+            int testSplitPercent, // e.g., 20 for 80/20 split
+            BigDecimal startingEquity // Configurable starting equity
+    ) {
+        public static BacktestConfig builder() {
+            return new BacktestConfig(
+                    "1.0", "2.0.0", 
+                    Instant.now().minusSeconds(86400 * 30), // 30 days ago
+                    Instant.now(),
+                    List.of("BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"),
+                    20, // 80/20 split
+                    BigDecimal.valueOf(10000) // Default starting equity
+            );
+        }
+    }
 
     /**
      * Backtest result with comparison metrics.
