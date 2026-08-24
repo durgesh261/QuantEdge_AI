@@ -155,7 +155,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.1.2</version>
                 <configuration>
-                    <argLine>-Dnet.bytebuddy.experimental=true -Dspring.profiles.active=test</argLine>
+                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                    <systemPropertyVariables>
+                        <spring.profiles.active>test</spring.profiles.active>
+                    </systemPropertyVariables>
                     <environmentVariables>
                         <SPRING_DATASOURCE_URL>jdbc:postgresql://localhost:5432/quantedge</SPRING_DATASOURCE_URL>
                         <SPRING_DATASOURCE_USERNAME>quantifiedge</SPRING_DATASOURCE_USERNAME>
