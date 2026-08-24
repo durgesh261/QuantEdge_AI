@@ -34,8 +34,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/src ./src
 
 # Create non-root user
-RUN addgroup -g 1000 -S appgroup && \
-    adduser -u 1000 -S appuser -G appgroup
+RUN groupadd -g 1000 appgroup && \
+    useradd -u 1000 -g appgroup -s /bin/sh appuser
 
 RUN chown -R appuser:appgroup /app
 
