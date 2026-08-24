@@ -33,6 +33,7 @@ from quantedge.ai.evaluation.smc_baseline import (
     format_performance_table,
 )
 from quantedge.ai.training.leakage_detector import split_purged_chronological
+from quantedge.ai.training.model_config import AUTHORITATIVE_MODEL_CONFIG
 from quantedge.ai.training.model_research import (
     CandidateModelEvaluation,
     run_hyperparameter_search,
@@ -298,10 +299,10 @@ class PhaseFMultiAssetGate:
             y_train = train_df[REAL_TARGET_NAMES].values
             rf_model = MultiOutputRegressor(
                 RandomForestRegressor(
-                    n_estimators=100,
-                    max_depth=self.best_params.get("max_depth", 8),
-                    min_samples_leaf=self.best_params.get("min_samples_leaf", 3),
-                    max_features=self.best_params.get("max_features", 0.7),
+                    n_estimators=self.best_params.get("n_estimators", AUTHORITATIVE_MODEL_CONFIG.n_estimators),
+                    max_depth=self.best_params.get("max_depth", AUTHORITATIVE_MODEL_CONFIG.max_depth),
+                    min_samples_leaf=self.best_params.get("min_samples_leaf", AUTHORITATIVE_MODEL_CONFIG.min_samples_leaf),
+                    max_features=self.best_params.get("max_features", AUTHORITATIVE_MODEL_CONFIG.max_features),
                     random_state=self.seed,
                     n_jobs=-1,
                 )

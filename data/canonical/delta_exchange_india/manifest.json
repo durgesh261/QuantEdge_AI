@@ -7,7 +7,7 @@
     "BTCUSD": {
       "symbol": "BTCUSD",
       "timeframe": "1h",
-      "file_path": "C:\\Users\\durge\\OneDrive\\Desktop\\Antigravity App\\QuantEdge AI\\data\\canonical\\delta_exchange_india\\BTCUSD\\1h\\2026.csv",
+      "file_path": "data/canonical/delta_exchange_india/BTCUSD/1h/2026.csv",
       "file_exists": true,
       "candle_count": 5583,
       "first_timestamp": "2026-01-01T00:00:00+00:00",
@@ -26,7 +26,7 @@
     "ETHUSD": {
       "symbol": "ETHUSD",
       "timeframe": "1h",
-      "file_path": "C:\\Users\\durge\\OneDrive\\Desktop\\Antigravity App\\QuantEdge AI\\data\\canonical\\delta_exchange_india\\ETHUSD\\1h\\2026.csv",
+      "file_path": "data/canonical/delta_exchange_india/ETHUSD/1h/2026.csv",
       "file_exists": true,
       "candle_count": 5583,
       "first_timestamp": "2026-01-01T00:00:00+00:00",
@@ -45,7 +45,7 @@
     "SOLUSD": {
       "symbol": "SOLUSD",
       "timeframe": "1h",
-      "file_path": "C:\\Users\\durge\\OneDrive\\Desktop\\Antigravity App\\QuantEdge AI\\data\\canonical\\delta_exchange_india\\SOLUSD\\1h\\2026.csv",
+      "file_path": "data/canonical/delta_exchange_india/SOLUSD/1h/2026.csv",
       "file_exists": true,
       "candle_count": 5583,
       "first_timestamp": "2026-01-01T00:00:00+00:00",
@@ -64,7 +64,7 @@
     "XRPUSD": {
       "symbol": "XRPUSD",
       "timeframe": "1h",
-      "file_path": "C:\\Users\\durge\\OneDrive\\Desktop\\Antigravity App\\QuantEdge AI\\data\\canonical\\delta_exchange_india\\XRPUSD\\1h\\2026.csv",
+      "file_path": "data/canonical/delta_exchange_india/XRPUSD/1h/2026.csv",
       "file_exists": true,
       "candle_count": 5583,
       "first_timestamp": "2026-01-01T00:00:00+00:00",

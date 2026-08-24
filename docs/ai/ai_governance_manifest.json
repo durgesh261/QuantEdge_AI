@@ -1,249 +1,312 @@
 {
-  "manifest_version": "2.2.0",
-  "phase": "F",
-  "generated_at_utc": "2026-08-24T18:24:49.266900+00:00",
+  "manifest_version": "2.3.0",
+  "phase": "F.1",
+  "generated_at_utc": "2026-08-24T19:05:34.679550+00:00",
   "model_name": "quantedge-ai-v2",
-  "artifact_path": "backend/src/main/resources/models/quantedge-ai-v2.onnx",
-  "artifact_sha256": "e33cd01f7f8a39db3f3ec4288a569b949d2d9d7a5146674d4f676f9caa124a8b",
-  "artifact_size_bytes": 598403,
-  "feature_count": 24,
+  "model_type": "RandomForestRegressor",
+  "model_hyperparameters": {
+    "n_estimators": 100,
+    "max_depth": 4,
+    "min_samples_leaf": 5,
+    "max_features": 0.5,
+    "random_state": 42
+  },
+  "random_seed": 42,
   "feature_contract_version": "canonical-24-v2",
-  "assets_evaluated": [
+  "feature_count": 24,
+  "feature_names": [
+    "bos_strength",
+    "choch_strength",
+    "order_block_strength",
+    "fvg_strength",
+    "liquidity_proximity",
+    "trend_strength_1h",
+    "trend_strength_15m",
+    "trend_strength_4h",
+    "volatility_1h",
+    "volatility_15m",
+    "volume_profile",
+    "momentum_1h",
+    "momentum_15m",
+    "risk_reward",
+    "risk_distance",
+    "entry_precision",
+    "account_utilization",
+    "leverage_ratio",
+    "regime_1h_bullish",
+    "regime_1h_bearish",
+    "regime_1h_ranging",
+    "regime_1h_transitional",
+    "regime_alignment",
+    "direction_long"
+  ],
+  "target_names": [
+    "target_realized_r",
+    "target_mfe_r",
+    "target_mae_r"
+  ],
+  "threshold": 0.5,
+  "dataset_fingerprint": "020dda52614a1dd08b8e8885af2d30d75aa2c44fede91cc7f56d005686d4e862",
+  "canonical_asset_hashes": {
+    "BTCUSD": "9774e176db71b367aec26728546a53484b56cbf96f0331209fa324d7b6e5c27b",
+    "ETHUSD": "8644a3bf853915e412f4881d76d52432b96d643e0d0562c4989cec3f3b5b90ab",
+    "SOLUSD": "c9ad8c1fc1a0d123d29abb947618840ce13433582f2dc92e50e78b0428cbb86a",
+    "XRPUSD": "72d2be15477673ec412a41b79da774cbbf63b94440b5bee19c8fd0f3e93bf862"
+  },
+  "training_configuration": {
+    "assets": [
+      "BTCUSD",
+      "ETHUSD",
+      "SOLUSD",
+      "XRPUSD"
+    ],
+    "timeframe": "1h",
+    "replay_horizon_hours": 72,
+    "clustering_window_hours": 3.0,
+    "train_ratio": 0.6
+  },
+  "validation_configuration": {
+    "val_ratio": 0.2,
+    "embargo_hours": 72.0,
+    "grid_search_candidates": 4
+  },
+  "oos_configuration": {
+    "test_ratio": 0.2,
+    "embargo_hours": 72.0,
+    "is_frozen": true,
+    "sample_count": 0
+  },
+  "artifact_path": "backend/src/main/resources/models/quantedge-ai-v2.onnx",
+  "artifact_sha256": "a4e5bb708a20c667bc0a956df6064c8510f80b313618d5a04857bfeb599e44de",
+  "artifact_size_bytes": 302892,
+  "technical_validation": {
+    "input_shape": [
+      null,
+      24
+    ],
+    "output_shape": [
+      null,
+      3
+    ],
+    "numeric_parity_tolerance": 0.001,
+    "status": "PASS"
+  },
+  "predictive_gate_evaluation": {
+    "pooled_smc_baseline": {
+      "expectancy_r": -0.1532,
+      "profit_factor": 0.786,
+      "win_rate_pct": 28.44,
+      "max_drawdown_r": 56.99
+    },
+    "pooled_ai_performance": {
+      "expectancy_r": 0.0242,
+      "profit_factor": 1.037,
+      "win_rate_pct": 34.15,
+      "max_drawdown_r": 18.0,
+      "coverage_pct": 12.8
+    },
+    "leave_one_asset_out_matrix": [
+      {
+        "held_out_symbol": "BTCUSD",
+        "training_symbols": [
+          "ETHUSD",
+          "SOLUSD",
+          "XRPUSD"
+        ],
+        "train_samples": 1167,
+        "test_samples": 334,
+        "smc_expectancy_r": 0.1356,
+        "ai_expectancy_r": -1.0,
+        "incremental_r": -1.1356,
+        "profit_factor": 0.0,
+        "win_rate_pct": 0.0,
+        "coverage_pct": 0.6,
+        "max_drawdown_r": 1.0,
+        "incremental_95ci": [
+          -1.157,
+          -1.157
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out_symbol": "ETHUSD",
+        "training_symbols": [
+          "BTCUSD",
+          "SOLUSD",
+          "XRPUSD"
+        ],
+        "train_samples": 1145,
+        "test_samples": 356,
+        "smc_expectancy_r": -0.0145,
+        "ai_expectancy_r": 0.0133,
+        "incremental_r": 0.0278,
+        "profit_factor": 1.021,
+        "win_rate_pct": 34.83,
+        "coverage_pct": 50.0,
+        "max_drawdown_r": 41.05,
+        "incremental_95ci": [
+          -0.3682,
+          0.3616
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out_symbol": "SOLUSD",
+        "training_symbols": [
+          "BTCUSD",
+          "ETHUSD",
+          "XRPUSD"
+        ],
+        "train_samples": 1071,
+        "test_samples": 430,
+        "smc_expectancy_r": 0.2543,
+        "ai_expectancy_r": 0.0,
+        "incremental_r": -0.2543,
+        "profit_factor": 0.0,
+        "win_rate_pct": 0.0,
+        "coverage_pct": 0.0,
+        "max_drawdown_r": 0.0,
+        "incremental_95ci": [
+          -0.258,
+          -0.258
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out_symbol": "XRPUSD",
+        "training_symbols": [
+          "BTCUSD",
+          "ETHUSD",
+          "SOLUSD"
+        ],
+        "train_samples": 1120,
+        "test_samples": 381,
+        "smc_expectancy_r": -0.4109,
+        "ai_expectancy_r": -0.6765,
+        "incremental_r": -0.2656,
+        "profit_factor": 0.248,
+        "win_rate_pct": 10.0,
+        "coverage_pct": 2.6,
+        "max_drawdown_r": 5.76,
+        "incremental_95ci": [
+          -0.6015,
+          0.3691
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      }
+    ],
+    "confidence_intervals": {
+      "smc_mean_r_95ci": [
+        -0.3972,
+        0.093
+      ],
+      "ai_mean_r_95ci": [
+        -0.4881,
+        0.8291
+      ],
+      "incremental_mean_r_95ci": [
+        -0.3239,
+        0.9932
+      ],
+      "mbb_block_size": 7,
+      "n_bootstraps": 1000
+    },
+    "regime_analysis": [
+      {
+        "regime": "Bullish Trend",
+        "smc_setups": 375,
+        "smc_expectancy_r": 0.0857,
+        "smc_win_rate_pct": 36.0,
+        "ai_setups": 104,
+        "ai_expectancy_r": 1.259,
+        "ai_win_rate_pct": 75.0,
+        "incremental_r": 1.1733,
+        "ai_coverage_pct": 27.7,
+        "ai_max_drawdown_r": 10.05,
+        "catastrophic_failure": false
+      },
+      {
+        "regime": "Bearish Trend",
+        "smc_setups": 414,
+        "smc_expectancy_r": -0.0138,
+        "smc_win_rate_pct": 33.82,
+        "ai_setups": 125,
+        "ai_expectancy_r": 1.252,
+        "ai_win_rate_pct": 77.6,
+        "incremental_r": 1.2658,
+        "ai_coverage_pct": 30.2,
+        "ai_max_drawdown_r": 7.0,
+        "catastrophic_failure": false
+      },
+      {
+        "regime": "Ranging Market",
+        "smc_setups": 62,
+        "smc_expectancy_r": 0.2097,
+        "smc_win_rate_pct": 40.32,
+        "ai_setups": 17,
+        "ai_expectancy_r": 2.0,
+        "ai_win_rate_pct": 100.0,
+        "incremental_r": 1.7903,
+        "ai_coverage_pct": 27.4,
+        "ai_max_drawdown_r": 0.0,
+        "catastrophic_failure": false
+      },
+      {
+        "regime": "Transitional",
+        "smc_setups": 294,
+        "smc_expectancy_r": -0.0131,
+        "smc_win_rate_pct": 33.33,
+        "ai_setups": 78,
+        "ai_expectancy_r": 0.9585,
+        "ai_win_rate_pct": 65.38,
+        "incremental_r": 0.9716,
+        "ai_coverage_pct": 26.5,
+        "ai_max_drawdown_r": 13.0,
+        "catastrophic_failure": false
+      },
+      {
+        "regime": "High Volatility",
+        "smc_setups": 573,
+        "smc_expectancy_r": -0.0933,
+        "smc_win_rate_pct": 30.54,
+        "ai_setups": 141,
+        "ai_expectancy_r": 1.2195,
+        "ai_win_rate_pct": 75.18,
+        "incremental_r": 1.3128,
+        "ai_coverage_pct": 24.6,
+        "ai_max_drawdown_r": 25.05,
+        "catastrophic_failure": false
+      },
+      {
+        "regime": "Low Volatility",
+        "smc_setups": 572,
+        "smc_expectancy_r": 0.1557,
+        "smc_win_rate_pct": 38.99,
+        "ai_setups": 183,
+        "ai_expectancy_r": 1.2254,
+        "ai_win_rate_pct": 74.86,
+        "incremental_r": 1.0697,
+        "ai_coverage_pct": 32.0,
+        "ai_max_drawdown_r": 8.0,
+        "catastrophic_failure": false
+      }
+    ],
+    "latency_benchmarks": {
+      "p50_latency_ms": 0.035,
+      "p95_latency_ms": 0.059,
+      "p99_latency_ms": 0.195,
+      "mean_latency_ms": 0.041
+    }
+  },
+  "promotion_status": "REJECTED",
+  "live_execution_authorized": false,
+  "authorized_live_symbols": [],
+  "blocked_symbols": [
     "BTCUSD",
     "ETHUSD",
     "SOLUSD",
     "XRPUSD"
   ],
-  "canonical_datasets": {
-    "BTCUSD": {
-      "candle_count": 5583,
-      "sha256": "9774e176db71b367aec26728546a53484b56cbf96f0331209fa324d7b6e5c27b",
-      "status": "AVAILABLE"
-    },
-    "ETHUSD": {
-      "candle_count": 5583,
-      "sha256": "8644a3bf853915e412f4881d76d52432b96d643e0d0562c4989cec3f3b5b90ab",
-      "status": "AVAILABLE"
-    },
-    "SOLUSD": {
-      "candle_count": 5583,
-      "sha256": "c9ad8c1fc1a0d123d29abb947618840ce13433582f2dc92e50e78b0428cbb86a",
-      "status": "AVAILABLE"
-    },
-    "XRPUSD": {
-      "candle_count": 5583,
-      "sha256": "72d2be15477673ec412a41b79da774cbbf63b94440b5bee19c8fd0f3e93bf862",
-      "status": "AVAILABLE"
-    }
-  },
-  "threshold": 0.5,
-  "pooled_smc_baseline": {
-    "expectancy_r": -0.1532,
-    "profit_factor": 0.786,
-    "win_rate_pct": 28.44,
-    "max_drawdown_r": 56.99
-  },
-  "pooled_ai_performance": {
-    "expectancy_r": 0.0242,
-    "profit_factor": 1.037,
-    "win_rate_pct": 34.15,
-    "max_drawdown_r": 18.0,
-    "coverage_pct": 12.8
-  },
-  "leave_one_asset_out_matrix": [
-    {
-      "held_out_symbol": "BTCUSD",
-      "training_symbols": [
-        "ETHUSD",
-        "SOLUSD",
-        "XRPUSD"
-      ],
-      "train_samples": 1167,
-      "test_samples": 334,
-      "smc_expectancy_r": 0.1356,
-      "ai_expectancy_r": -1.0,
-      "incremental_r": -1.1356,
-      "profit_factor": 0.0,
-      "win_rate_pct": 0.0,
-      "coverage_pct": 0.6,
-      "max_drawdown_r": 1.0,
-      "incremental_95ci": [
-        -1.157,
-        -1.157
-      ],
-      "status": "GENERALIZED_NEGATIVE"
-    },
-    {
-      "held_out_symbol": "ETHUSD",
-      "training_symbols": [
-        "BTCUSD",
-        "SOLUSD",
-        "XRPUSD"
-      ],
-      "train_samples": 1145,
-      "test_samples": 356,
-      "smc_expectancy_r": -0.0145,
-      "ai_expectancy_r": 0.0133,
-      "incremental_r": 0.0278,
-      "profit_factor": 1.021,
-      "win_rate_pct": 34.83,
-      "coverage_pct": 50.0,
-      "max_drawdown_r": 41.05,
-      "incremental_95ci": [
-        -0.3682,
-        0.3616
-      ],
-      "status": "GENERALIZED_NEUTRAL"
-    },
-    {
-      "held_out_symbol": "SOLUSD",
-      "training_symbols": [
-        "BTCUSD",
-        "ETHUSD",
-        "XRPUSD"
-      ],
-      "train_samples": 1071,
-      "test_samples": 430,
-      "smc_expectancy_r": 0.2543,
-      "ai_expectancy_r": 0.0,
-      "incremental_r": -0.2543,
-      "profit_factor": 0.0,
-      "win_rate_pct": 0.0,
-      "coverage_pct": 0.0,
-      "max_drawdown_r": 0.0,
-      "incremental_95ci": [
-        -0.258,
-        -0.258
-      ],
-      "status": "GENERALIZED_NEGATIVE"
-    },
-    {
-      "held_out_symbol": "XRPUSD",
-      "training_symbols": [
-        "BTCUSD",
-        "ETHUSD",
-        "SOLUSD"
-      ],
-      "train_samples": 1120,
-      "test_samples": 381,
-      "smc_expectancy_r": -0.4109,
-      "ai_expectancy_r": -0.6765,
-      "incremental_r": -0.2656,
-      "profit_factor": 0.248,
-      "win_rate_pct": 10.0,
-      "coverage_pct": 2.6,
-      "max_drawdown_r": 5.76,
-      "incremental_95ci": [
-        -0.6015,
-        0.3691
-      ],
-      "status": "GENERALIZED_NEGATIVE"
-    }
-  ],
-  "confidence_intervals": {
-    "smc_mean_r_95ci": [
-      -0.3972,
-      0.093
-    ],
-    "ai_mean_r_95ci": [
-      -0.4881,
-      0.8291
-    ],
-    "incremental_mean_r_95ci": [
-      -0.3239,
-      0.9932
-    ],
-    "mbb_block_size": 7,
-    "n_bootstraps": 1000
-  },
-  "regime_analysis": [
-    {
-      "regime": "Bullish Trend",
-      "smc_setups": 375,
-      "smc_expectancy_r": 0.0857,
-      "smc_win_rate_pct": 36.0,
-      "ai_setups": 104,
-      "ai_expectancy_r": 1.259,
-      "ai_win_rate_pct": 75.0,
-      "incremental_r": 1.1733,
-      "ai_coverage_pct": 27.7,
-      "ai_max_drawdown_r": 10.05,
-      "catastrophic_failure": false
-    },
-    {
-      "regime": "Bearish Trend",
-      "smc_setups": 414,
-      "smc_expectancy_r": -0.0138,
-      "smc_win_rate_pct": 33.82,
-      "ai_setups": 125,
-      "ai_expectancy_r": 1.252,
-      "ai_win_rate_pct": 77.6,
-      "incremental_r": 1.2658,
-      "ai_coverage_pct": 30.2,
-      "ai_max_drawdown_r": 7.0,
-      "catastrophic_failure": false
-    },
-    {
-      "regime": "Ranging Market",
-      "smc_setups": 62,
-      "smc_expectancy_r": 0.2097,
-      "smc_win_rate_pct": 40.32,
-      "ai_setups": 17,
-      "ai_expectancy_r": 2.0,
-      "ai_win_rate_pct": 100.0,
-      "incremental_r": 1.7903,
-      "ai_coverage_pct": 27.4,
-      "ai_max_drawdown_r": 0.0,
-      "catastrophic_failure": false
-    },
-    {
-      "regime": "Transitional",
-      "smc_setups": 294,
-      "smc_expectancy_r": -0.0131,
-      "smc_win_rate_pct": 33.33,
-      "ai_setups": 78,
-      "ai_expectancy_r": 0.9585,
-      "ai_win_rate_pct": 65.38,
-      "incremental_r": 0.9716,
-      "ai_coverage_pct": 26.5,
-      "ai_max_drawdown_r": 13.0,
-      "catastrophic_failure": false
-    },
-    {
-      "regime": "High Volatility",
-      "smc_setups": 573,
-      "smc_expectancy_r": -0.0933,
-      "smc_win_rate_pct": 30.54,
-      "ai_setups": 141,
-      "ai_expectancy_r": 1.2195,
-      "ai_win_rate_pct": 75.18,
-      "incremental_r": 1.3128,
-      "ai_coverage_pct": 24.6,
-      "ai_max_drawdown_r": 25.05,
-      "catastrophic_failure": false
-    },
-    {
-      "regime": "Low Volatility",
-      "smc_setups": 572,
-      "smc_expectancy_r": 0.1557,
-      "smc_win_rate_pct": 38.99,
-      "ai_setups": 183,
-      "ai_expectancy_r": 1.2254,
-      "ai_win_rate_pct": 74.86,
-      "incremental_r": 1.0697,
-      "ai_coverage_pct": 32.0,
-      "ai_max_drawdown_r": 8.0,
-      "catastrophic_failure": false
-    }
-  ],
-  "latency_benchmarks": {
-    "p50_latency_ms": 0.034,
-    "p95_latency_ms": 0.041,
-    "p99_latency_ms": 0.059,
-    "mean_latency_ms": 0.034
-  },
-  "promotion_status": "REJECTED",
-  "live_execution_authorized": false,
   "execution_boundary_policy": {
     "unauthorized_action": "HARD_BLOCK",
     "default_engine": "DETERMINISTIC_SMC",

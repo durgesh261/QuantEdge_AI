@@ -8,7 +8,7 @@ Verifies:
 - Strict 1-hour cadence and ascending timestamp order
 - Detection of timestamp duplicates and missing-candle gaps
 - Cryptographic SHA-256 calculation
-- Provenance manifest generation
+- Provenance manifest generation with repository-relative paths
 """
 
 from dataclasses import asdict, dataclass
@@ -19,6 +19,24 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
+
+
+def _find_repo_root() -> Path:
+    p = Path(__file__).resolve()
+    for parent in p.parents:
+        if (parent / ".git").exists() or (parent / "backend").exists():
+            return parent
+    return p.parents[5]
+
+
+def _relativize_path(p: Path) -> str:
+    """Converts a Path into a repository-relative path with forward slashes."""
+    try:
+        root = _find_repo_root()
+        rel = p.resolve().relative_to(root.resolve())
+        return str(rel).replace("\\", "/")
+    except Exception:
+        return str(p).replace("\\", "/")
 
 
 @dataclass(frozen=True)
@@ -63,11 +81,13 @@ class CanonicalDataValidator:
 
     @classmethod
     def validate_file(cls, csv_path: Path, symbol: str, timeframe: str = "1h") -> CanonicalValidationReport:
+        rel_path = _relativize_path(csv_path)
+
         if not csv_path.exists():
             return CanonicalValidationReport(
                 symbol=symbol,
                 timeframe=timeframe,
-                file_path=str(csv_path),
+                file_path=rel_path,
                 file_exists=False,
                 candle_count=0,
                 first_timestamp=None,
@@ -93,7 +113,7 @@ class CanonicalDataValidator:
             return CanonicalValidationReport(
                 symbol=symbol,
                 timeframe=timeframe,
-                file_path=str(csv_path),
+                file_path=rel_path,
                 file_exists=True,
                 candle_count=0,
                 first_timestamp=None,
@@ -117,7 +137,7 @@ class CanonicalDataValidator:
             return CanonicalValidationReport(
                 symbol=symbol,
                 timeframe=timeframe,
-                file_path=str(csv_path),
+                file_path=rel_path,
                 file_exists=True,
                 candle_count=len(df),
                 first_timestamp=None,
@@ -134,17 +154,15 @@ class CanonicalDataValidator:
                 status="INVALID_DATA",
             )
 
-        # Standardize column names
-        df.columns = [c.lower() for c in df.columns]
-
-        # Parse timestamps
+        # Check timestamps
+        ts_col = "timestamp" if "timestamp" in df.columns else df.columns[0]
         try:
-            df["parsed_ts"] = pd.to_datetime(df["timestamp"], utc=True)
+            df["parsed_ts"] = pd.to_datetime(df[ts_col], utc=True)
         except Exception:
             return CanonicalValidationReport(
                 symbol=symbol,
                 timeframe=timeframe,
-                file_path=str(csv_path),
+                file_path=rel_path,
                 file_exists=True,
                 candle_count=len(df),
                 first_timestamp=None,
@@ -166,7 +184,7 @@ class CanonicalDataValidator:
             return CanonicalValidationReport(
                 symbol=symbol,
                 timeframe=timeframe,
-                file_path=str(csv_path),
+                file_path=rel_path,
                 file_exists=True,
                 candle_count=0,
                 first_timestamp=None,
@@ -238,7 +256,7 @@ class CanonicalDataValidator:
         return CanonicalValidationReport(
             symbol=symbol,
             timeframe=timeframe,
-            file_path=str(csv_path),
+            file_path=rel_path,
             file_exists=True,
             candle_count=n_candles,
             first_timestamp=first_ts,

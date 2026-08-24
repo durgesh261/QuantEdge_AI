@@ -8,20 +8,21 @@ Exports the trained model to ONNX for low-latency Java inference.
 ═══════════════════════════════════════════════════════════════════════════════
 PIPELINE ARCHITECTURE
 ═══════════════════════════════════════════════════════════════════════════════
-1. Real Data Ingestion & Causal Replay (real_dataset_builder)
+1. Real Data Ingestion & Causal Replay across Canonical Assets (multi_asset_dataset_builder)
 2. Purged Chronological 3-Way Split (60% Train / 20% Val / 20% Final OOS Test)
    Enforces a >= 72-hour embargo window to eliminate forward-horizon contamination.
 3. Data Hygiene & Leakage Audit (leakage_detector)
-4. Multi-Output Random Forest Training on Train Split
+4. Multi-Output Random Forest Training using Authoritative MODEL_CONFIG
 5. Out-of-Sample Evaluation on Validation and Final Test Splits
 6. ONNX Model Export (Target opset 15)
-7. Sklearn <-> ONNX Runtime Numeric Parity Verification Gate
+7. Sklearn <-> ONNX Runtime Numeric Parity Verification Gate (< 1e-3)
 8. Deploy to Spring Boot Classpath (backend/src/main/resources/models/quantedge-ai-v2.onnx)
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -38,6 +39,12 @@ from quantedge.ai.training.leakage_detector import (
     run_all_purged_checks,
     split_purged_chronological,
 )
+from quantedge.ai.training.model_config import (
+    AUTHORITATIVE_MODEL_CONFIG,
+    compute_dataset_fingerprint,
+    compute_onnx_sha256,
+)
+from quantedge.ai.training.multi_asset_dataset_builder import MultiAssetDatasetBuilder
 from quantedge.ai.training.real_dataset_builder import (
     DEFAULT_CANONICAL_PATH,
     REAL_TARGET_NAMES,
@@ -46,6 +53,7 @@ from quantedge.ai.training.real_dataset_builder import (
     TARGET_REALIZED_R,
     build_real_training_dataset,
 )
+
 
 def _get_default_onnx_path() -> Path:
     cur = Path(__file__).resolve()
@@ -57,7 +65,6 @@ def _get_default_onnx_path() -> Path:
 
 
 _DEFAULT_ONNX_OUT = _get_default_onnx_path()
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -78,14 +85,22 @@ def _load_or_build_dataset(
     seed: int,
 ) -> Tuple[pd.DataFrame, List[str]]:
     if data_source == "real":
-        _print_section("Stage 1: Building Dataset from Real Historical Market Data")
-        target_csv = csv_path or DEFAULT_CANONICAL_PATH
-        print(f"  Source: {target_csv}")
-        t0 = time.monotonic()
-        df = build_real_training_dataset(csv_path=target_csv, verbose=True)
-        elapsed = time.monotonic() - t0
-        print(f"  Extraction + Replay finished in {elapsed:.1f}s -> {df.shape}")
-        target_names = REAL_TARGET_NAMES
+        _print_section("Stage 1: Building Multi-Asset Dataset from Canonical Market Data")
+        if csv_path is not None:
+            print(f"  Source (Single Asset): {csv_path}")
+            t0 = time.monotonic()
+            df = build_real_training_dataset(csv_path=csv_path, verbose=True)
+            elapsed = time.monotonic() - t0
+            print(f"  Extraction + Replay finished in {elapsed:.1f}s -> {df.shape}")
+        else:
+            builder = MultiAssetDatasetBuilder()
+            symbols = builder.get_available_symbols()
+            print(f"  Source (Multi-Asset Canonical): {symbols}")
+            t0 = time.monotonic()
+            df = builder.build_pooled_dataset()
+            elapsed = time.monotonic() - t0
+            print(f"  Multi-Asset Extraction finished in {elapsed:.1f}s -> {df.shape}")
+        target_names = list(AUTHORITATIVE_MODEL_CONFIG.target_columns)
     else:
         _print_section("Stage 1: Generating Synthetic Prototype Dataset [UNIT-TEST FIXTURE ONLY]")
         print("  [WARNING] Synthetic datasets are strictly for infrastructure testing and must NEVER be promoted to live execution.")
@@ -99,21 +114,25 @@ def _load_or_build_dataset(
     return df, target_names
 
 
-
-def _train_sklearn_model(X_train: np.ndarray, y_train: np.ndarray) -> Any:
-    """Trains a MultiOutputRegressor wrapping RandomForestRegressor."""
+def _train_sklearn_model(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    config: Optional[Any] = None,
+) -> Any:
+    """Trains a MultiOutputRegressor wrapping RandomForestRegressor with authoritative parameters."""
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.multioutput import MultiOutputRegressor
 
-    _print_section("Stage 4: Training Multi-Output Random Forest")
+    cfg = config or AUTHORITATIVE_MODEL_CONFIG
+    _print_section(f"Stage 4: Training Multi-Output Random Forest ({cfg.model_name})")
 
     base = RandomForestRegressor(
-        n_estimators=100,
-        max_depth=8,
-        min_samples_leaf=3,
-        max_features=0.7,
-        random_state=42,
-        n_jobs=-1,
+        n_estimators=cfg.n_estimators,
+        max_depth=cfg.max_depth,
+        min_samples_leaf=cfg.min_samples_leaf,
+        max_features=cfg.max_features,
+        random_state=cfg.random_state,
+        n_jobs=cfg.n_jobs,
     )
     model = MultiOutputRegressor(base, n_jobs=1)
 
@@ -121,7 +140,10 @@ def _train_sklearn_model(X_train: np.ndarray, y_train: np.ndarray) -> Any:
     model.fit(X_train, y_train)
     elapsed = time.monotonic() - t0
     print(f"  Training complete in {elapsed:.1f}s")
-    print(f"  n_estimators=100  max_depth=8  n_features={X_train.shape[1]}")
+    print(
+        f"  Hyperparameters: n_estimators={cfg.n_estimators} max_depth={cfg.max_depth} "
+        f"min_samples_leaf={cfg.min_samples_leaf} max_features={cfg.max_features} random_state={cfg.random_state}"
+    )
     return model
 
 
@@ -136,18 +158,19 @@ def _evaluate_split(
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
     print(f"\n  [{split_name} Evaluation — {len(X)} samples]")
+    if len(X) == 0:
+        return {}
     y_pred = model.predict(X)
     metrics: Dict[str, Any] = {}
 
     for i, name in enumerate(target_names):
         mae = mean_absolute_error(y[:, i], y_pred[:, i])
         mse = mean_squared_error(y[:, i], y_pred[:, i])
-        r2 = r2_score(y[:, i], y_pred[:, i])
+        r2 = r2_score(y[:, i], y_pred[:, i]) if len(y) > 1 else 0.0
         metrics[name] = {"MAE": round(float(mae), 4), "MSE": round(float(mse), 4), "R2": round(float(r2), 4)}
         short = name.replace("target_", "")
         print(f"    {short:<18}  MAE={mae:.4f}  MSE={mse:.4f}  R²={r2:.4f}")
 
-    # Directional profitability metric (for realized R)
     if TARGET_REALIZED_R in target_names:
         r_idx = target_names.index(TARGET_REALIZED_R)
         actual_pos = y[:, r_idx] > 0
@@ -159,8 +182,8 @@ def _evaluate_split(
     return metrics
 
 
-def _export_onnx(model: Any, output_path: Path, n_targets: int) -> None:
-    """Converts the sklearn model to ONNX float32 format."""
+def _export_onnx(model: Any, output_path: Path, n_targets: int) -> str:
+    """Converts the sklearn model to ONNX float32 format and returns its SHA-256."""
     try:
         from skl2onnx import to_onnx
         from skl2onnx.common.data_types import FloatTensorType
@@ -180,12 +203,16 @@ def _export_onnx(model: Any, output_path: Path, n_targets: int) -> None:
         raise RuntimeError(f"ONNX export out of memory: {e}") from e
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(onnx_model.SerializeToString())
+    model_bytes = onnx_model.SerializeToString()
+    output_path.write_bytes(model_bytes)
 
-    size_kb = output_path.stat().st_size / 1024
+    sha256_hash = hashlib.sha256(model_bytes).hexdigest()
+    size_kb = len(model_bytes) / 1024.0
     print(f"  Written: {output_path}")
     print(f"  Size:    {size_kb:.1f} KB")
+    print(f"  SHA-256: {sha256_hash}")
+
+    return sha256_hash
 
 
 def _smoke_test_onnx(
@@ -194,7 +221,7 @@ def _smoke_test_onnx(
     X_sample: np.ndarray,
     target_names: List[str],
 ) -> None:
-    """Verifies ONNX output matches sklearn output to within 1e-4."""
+    """Verifies ONNX output matches sklearn output to within 1e-3."""
     try:
         import onnxruntime as rt
     except ImportError:
@@ -253,23 +280,6 @@ def run_pipeline(
 ) -> Dict[str, Any]:
     """
     Runs the complete real-market training pipeline.
-
-    Args:
-        data_source: 'real' (historical CSV replay) or 'synthetic' (unit test prototype).
-        csv_path: Path to historical CSV (for 'real').
-        dataset_path: Alias for csv_path (backward compatibility).
-        n_samples: Number of samples (for 'synthetic').
-        seed: Random seed.
-        train_ratio: Fraction of timeline for training (0.60).
-        train_split: Alias for train_ratio (backward compatibility).
-        val_ratio: Fraction of timeline for validation (0.20).
-        test_ratio: Fraction of timeline for final out-of-sample testing (0.20).
-        embargo_hours: Mandatory purge window between splits (72 hours).
-        onnx_output: Path to write the .onnx file.
-        skip_hygiene: Skip data-hygiene checks (only for unit test mocks).
-
-    Returns:
-        Dictionary of pipeline results.
     """
     if dataset_path is not None and csv_path is None:
         csv_path = dataset_path
@@ -298,7 +308,6 @@ def run_pipeline(
             embargo_hours=embargo_hours,
         )
     else:
-        # 2-way fallback for synthetic
         train_end = int(len(df) * 0.80)
         train_df = df.iloc[:train_end].copy()
         val_df = df.iloc[train_end:].copy()
@@ -330,7 +339,7 @@ def run_pipeline(
     y_test = test_df[target_names].values.astype(np.float32)
 
     # ── Stage 5: Train Model ──────────────────────────────────────────────────
-    model = _train_sklearn_model(X_train, y_train)
+    model = _train_sklearn_model(X_train, y_train, AUTHORITATIVE_MODEL_CONFIG)
 
     # ── Stage 6: Evaluate on Val and Final Test Splits ────────────────────────
     _print_section("Stage 5: Validation & Final Out-of-Sample Evaluation")
@@ -338,17 +347,21 @@ def run_pipeline(
     test_metrics = _evaluate_split(model, X_test, y_test, target_names, "Final Out-of-Sample Test Split")
 
     # ── Stage 7: Export ONNX ──────────────────────────────────────────────────
-    _export_onnx(model, onnx_output, len(target_names))
+    onnx_sha = _export_onnx(model, onnx_output, len(target_names))
 
     # ── Stage 8: Smoke Test ───────────────────────────────────────────────────
     smoke_sample = X_test[: min(50, len(X_test))]
     _smoke_test_onnx(model, onnx_output, smoke_sample, target_names)
 
+    fingerprint = compute_dataset_fingerprint()
+
     _print_section("Pipeline Complete [OK]")
-    print(f"  Model written to: {onnx_output}")
+    print(f"  Model written to:    {onnx_output}")
+    print(f"  ONNX SHA-256:        {onnx_sha}")
+    print(f"  Dataset Fingerprint: {fingerprint}")
     print("  [STATUS] Technical training & ONNX export complete.")
     print("  [GOVERNANCE] Live execution authority requires passing the AI Predictive-Value Promotion Gate.")
-    print("               Run 'python -m quantedge.ai.evaluation.run_gate' to evaluate production promotion eligibility.")
+    print("               Run 'python -m quantedge.ai.evaluation.run_phase_f' to evaluate production promotion eligibility.")
     print()
 
     return {
@@ -359,8 +372,9 @@ def run_pipeline(
         "validation_metrics": val_metrics,
         "test_metrics": test_metrics,
         "onnx_path": str(onnx_output),
+        "onnx_sha256": onnx_sha,
+        "dataset_fingerprint": fingerprint,
     }
-
 
 
 # ─────────────────────────────────────────────────────────────────────────────
