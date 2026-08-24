@@ -50,6 +50,13 @@ public class PasswordResetToken {
         this.expiresAt = expiresAt;
     }
 
+    @PrePersist
+    public void prePersist() {
+        if (this.id == null || this.id.isBlank()) {
+            this.id = java.util.UUID.randomUUID().toString();
+        }
+    }
+
     public String getId() { return id; }
     public String getTokenHash() { return tokenHash; }
     public User getUser() { return user; }

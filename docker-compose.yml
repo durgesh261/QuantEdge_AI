@@ -64,7 +64,7 @@ services:
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
-      DATABASE_URL: postgresql://quantedge:quantedge_dev@postgres:5432/quantedge
+      DATABASE_URL: postgresql://${SPRING_DATASOURCE_USERNAME:-quantifiedge}:${SPRING_DATASOURCE_PASSWORD:-quantifiedge_dev}@postgres:5432/quantedge
       # Python engine receives market data and executes per-user live orders
       DELTA_BASE_URL: https://api.india.delta.exchange
       BACKEND_BASE_URL: http://backend:8080
