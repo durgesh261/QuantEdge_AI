@@ -1,7 +1,7 @@
 """
-Multi-Asset Real Market Dataset Builder and Integrity Auditor.
+Multi-Asset Real Market Dataset Builder and Cross-Asset Generalization Splitter.
 
-Audits canonical historical market data for 4 instruments:
+Audits and ingests canonical historical market data for 4 instruments:
 - BTCUSD, ETHUSD, SOLUSD, XRPUSD
 
 Extracts causal SMC trade setups, applies deterministic clustering before splitting,
@@ -10,10 +10,11 @@ and compiles multi-asset training datasets preserving the canonical 24-feature c
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from quantedge.ai.feature_contract import FEATURE_COUNT, FEATURE_NAMES
 from quantedge.ai.training.real_dataset_builder import (
@@ -24,6 +25,15 @@ from quantedge.ai.training.real_dataset_builder import (
     TARGET_REALIZED_R,
     build_real_training_dataset,
 )
+from quantedge.data.canonical_validator import CanonicalDataValidator, CanonicalValidationReport
+
+
+def _get_repo_root() -> Path:
+    p = Path(__file__).resolve()
+    for parent in p.parents:
+        if (parent / ".git").exists() or (parent / "backend").exists():
+            return parent
+    return p.parents[5]
 
 
 @dataclass(frozen=True)
@@ -44,17 +54,10 @@ class AssetDataAudit:
     ohlc_valid: bool
     volume_valid: bool
     file_size_bytes: int
+    sha256: str
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-
-
-def _get_repo_root() -> Path:
-    p = Path(__file__).resolve()
-    for parent in p.parents:
-        if (parent / ".git").exists() or (parent / "backend").exists():
-            return parent
-    return p.parents[5]
 
 
 def audit_canonical_datasets(canonical_base: Optional[Path] = None) -> List[AssetDataAudit]:
@@ -66,12 +69,13 @@ def audit_canonical_datasets(canonical_base: Optional[Path] = None) -> List[Asse
         canonical_base = _get_repo_root() / "data" / "canonical" / "delta_exchange_india"
 
     target_symbols = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]
-
     audits = []
 
     for sym in target_symbols:
         csv_file = canonical_base / sym / "1h" / "2026.csv"
-        if not csv_file.exists():
+        report = CanonicalDataValidator.validate_file(csv_file, symbol=sym, timeframe="1h")
+
+        if not report.file_exists:
             audits.append(
                 AssetDataAudit(
                     symbol=sym,
@@ -89,98 +93,32 @@ def audit_canonical_datasets(canonical_base: Optional[Path] = None) -> List[Asse
                     ohlc_valid=False,
                     volume_valid=False,
                     file_size_bytes=0,
+                    sha256="MISSING",
                 )
             )
             continue
 
-        try:
-            df = pd.read_csv(csv_file)
-            size_b = csv_file.stat().st_size
-
-            # Check timestamp
-            ts_col = "timestamp" if "timestamp" in df.columns else ("time" if "time" in df.columns else None)
-            if ts_col is None:
-                raise ValueError("Missing timestamp column")
-
-            df["parsed_ts"] = pd.to_datetime(df[ts_col], utc=True)
-            df = df.sort_values("parsed_ts").reset_index(drop=True)
-
-            n_candles = len(df)
-            start_ts = df["parsed_ts"].iloc[0].isoformat() if n_candles > 0 else None
-            end_ts = df["parsed_ts"].iloc[-1].isoformat() if n_candles > 0 else None
-
-            # Duplicate timestamp check
-            dups = int(df["parsed_ts"].duplicated().sum())
-
-            # Expected 1H frequency check
-            time_diffs_h = (df["parsed_ts"].diff().dt.total_seconds() / 3600.0).dropna()
-            missing_count = int(np.sum(time_diffs_h > 1.5))
-
-            # OHLC validity: high >= max(open, close) and low <= min(open, close) and low > 0
-            ohlc_valid = True
-            for req in ["open", "high", "low", "close"]:
-                if req not in df.columns:
-                    ohlc_valid = False
-            if ohlc_valid and n_candles > 0:
-                h_ge = (df["high"] >= df[["open", "close"]].max(axis=1) - 1e-6).all()
-                l_le = (df["low"] <= df[["open", "close"]].min(axis=1) + 1e-6).all()
-                pos = (df["low"] > 0).all()
-                ohlc_valid = bool(h_ge and l_le and pos)
-
-            # Volume validity
-            vol_col = "volume" if "volume" in df.columns else None
-            vol_valid = (vol_col is not None) and bool((df[vol_col] >= 0).all())
-
-            # Status classification
-            if n_candles < 1000:
-                status = "INSUFFICIENT_HISTORY"
-                tr_status = "NOT_TRAINABLE"
-            elif not ohlc_valid or not vol_valid:
-                status = "INVALID_DATA"
-                tr_status = "NOT_TRAINABLE"
-            else:
-                status = "AVAILABLE"
-                tr_status = "TRAINABLE"
-
-            audits.append(
-                AssetDataAudit(
-                    symbol=sym,
-                    timeframe="1h",
-                    file_path=str(csv_file),
-                    available=True,
-                    status=status,
-                    training_status=tr_status,
-                    execution_authority="AUTHORIZED_IF_PROMOTED" if tr_status == "TRAINABLE" else "BLOCKED",
-                    candle_count=n_candles,
-                    start_timestamp=start_ts,
-                    end_timestamp=end_ts,
-                    missing_candles=missing_count,
-                    duplicate_candles=dups,
-                    ohlc_valid=ohlc_valid,
-                    volume_valid=vol_valid,
-                    file_size_bytes=size_b,
-                )
+        is_trainable = report.status == "VALIDATED_CLEAN" and report.candle_count >= 1000
+        audits.append(
+            AssetDataAudit(
+                symbol=sym,
+                timeframe="1h",
+                file_path=str(csv_file),
+                available=True,
+                status="AVAILABLE" if is_trainable else report.status,
+                training_status="TRAINABLE" if is_trainable else "NOT_TRAINABLE",
+                execution_authority="AUTHORIZED_IF_PROMOTED" if is_trainable else "BLOCKED",
+                candle_count=report.candle_count,
+                start_timestamp=report.first_timestamp,
+                end_timestamp=report.last_timestamp,
+                missing_candles=report.gap_count,
+                duplicate_candles=report.duplicate_count,
+                ohlc_valid=report.is_valid_ohlc,
+                volume_valid=report.is_valid_volume,
+                file_size_bytes=report.file_size_bytes,
+                sha256=report.sha256,
             )
-        except Exception as e:
-            audits.append(
-                AssetDataAudit(
-                    symbol=sym,
-                    timeframe="1h",
-                    file_path=str(csv_file),
-                    available=False,
-                    status="INVALID_DATA",
-                    training_status="NOT_TRAINABLE",
-                    execution_authority="BLOCKED",
-                    candle_count=0,
-                    start_timestamp=None,
-                    end_timestamp=None,
-                    missing_candles=0,
-                    duplicate_candles=0,
-                    ohlc_valid=False,
-                    volume_valid=False,
-                    file_size_bytes=0,
-                )
-            )
+        )
 
     return audits
 
@@ -202,9 +140,6 @@ def cluster_and_deduplicate_setups(
     """
     Identifies and groups correlated or clustered setups within a temporal window
     (default <= 3 hours) or sharing near-identical entry geometry.
-
-    Returns:
-        Tuple of (deduplicated_df, ClusteredSetupSummary).
     """
     if len(df) == 0:
         return df, ClusteredSetupSummary(0, 0, 0.0, 0, 0.0, 0)
@@ -222,8 +157,9 @@ def cluster_and_deduplicate_setups(
 
         t_diff_h = (curr["timestamp"] - prev["timestamp"]).total_seconds() / 3600.0
         same_direction = prev["direction_long"] == curr["direction_long"]
+        same_symbol = prev.get("symbol", "") == curr.get("symbol", "")
 
-        if t_diff_h <= cluster_window_hours and same_direction:
+        if t_diff_h <= cluster_window_hours and same_direction and same_symbol:
             cluster_ids[i] = current_cluster
             cluster_sizes[-1] += 1
         else:
@@ -265,7 +201,6 @@ class MultiAssetDatasetBuilder:
         self.canonical_base = canonical_base or (_get_repo_root() / "data" / "canonical" / "delta_exchange_india")
         self.audits = audit_canonical_datasets(self.canonical_base)
 
-
     def get_available_symbols(self) -> List[str]:
         return [a.symbol for a in self.audits if a.status == "AVAILABLE"]
 
@@ -273,7 +208,9 @@ class MultiAssetDatasetBuilder:
         csv_path = self.canonical_base / symbol / "1h" / "2026.csv"
         if not csv_path.exists():
             raise FileNotFoundError(f"Canonical dataset for {symbol} not available at {csv_path}")
-        return build_real_training_dataset(csv_path=csv_path, verbose=False)
+        df = build_real_training_dataset(csv_path=csv_path, verbose=False)
+        df["symbol"] = symbol
+        return df
 
     def build_all_available_datasets(self) -> Dict[str, pd.DataFrame]:
         datasets = {}
@@ -283,3 +220,29 @@ class MultiAssetDatasetBuilder:
             datasets[sym] = df
             print(f"[MultiAsset] Extracted {len(df)} setups for {sym}.")
         return datasets
+
+    def build_pooled_dataset(self) -> pd.DataFrame:
+        all_ds = self.build_all_available_datasets()
+        if not all_ds:
+            return pd.DataFrame()
+        pooled = pd.concat(all_ds.values(), ignore_index=True)
+        pooled = pooled.sort_values("timestamp").reset_index(drop=True)
+        return pooled
+
+    def build_leave_one_asset_out_splits(
+        self, test_symbol: str
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Creates a Leave-One-Asset-Out (LOAO) split.
+        Train split = all symbols except test_symbol.
+        Test split = test_symbol only.
+        """
+        all_ds = self.build_all_available_datasets()
+        if test_symbol not in all_ds:
+            raise ValueError(f"Held-out symbol {test_symbol} not found in available datasets: {list(all_ds.keys())}")
+
+        test_df = all_ds[test_symbol].sort_values("timestamp").reset_index(drop=True)
+        train_dfs = [df for sym, df in all_ds.items() if sym != test_symbol]
+        train_df = pd.concat(train_dfs, ignore_index=True).sort_values("timestamp").reset_index(drop=True)
+
+        return train_df, test_df

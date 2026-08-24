@@ -1,0 +1,27 @@
+{
+  "symbol": "SOLUSD.P",
+  "delta_symbol": "SOLUSD",
+  "tradingview_symbol": "SOLUSD.P",
+  "exchange": "Delta Exchange India (api.india.delta.exchange)",
+  "description": "Solana Perpetual futures, quoted, settled & margined in US Dollar",
+  "timeframe": "1h",
+  "source_url": "https://cdn.india.deltaex.org/v2/history/candles",
+  "download_utc": "2026-08-24T18:22:47.112006+00:00",
+  "candle_count": 5583,
+  "first_timestamp": "2026-01-01T00:00:00+00:00",
+  "last_timestamp": "2026-08-21T14:00:00+00:00",
+  "gap_count": 0,
+  "max_gap_hours": 0.0,
+  "gaps": [],
+  "invalid_ohlc": 0,
+  "sha256": "c9ad8c1fc1a0d123d29abb947618840ce13433582f2dc92e50e78b0428cbb86a",
+  "policy": "Delta Exchange India SOLUSD is a canonical market-data source for QuantEdge AI V2.",
+  "quality_report": {
+    "gap_count": 0,
+    "max_gap_hours": 0.0,
+    "invalid_ohlc_count": 0,
+    "duplicate_count": 0,
+    "is_sorted_ascending": true,
+    "status": "VALIDATED_CLEAN"
+  }
+}

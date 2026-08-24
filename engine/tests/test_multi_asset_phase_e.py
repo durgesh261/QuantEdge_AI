@@ -81,8 +81,8 @@ class TestMultiAssetDataAudit:
         assert btc_audit.ohlc_valid is True
         assert btc_audit.volume_valid is True
 
-    def test_missing_instruments_marked_not_available(self):
-        audits = audit_canonical_datasets()
+    def test_missing_instruments_marked_not_available(self, tmp_path):
+        audits = audit_canonical_datasets(canonical_base=tmp_path)
         for sym in ["ETHUSD", "SOLUSD", "XRPUSD"]:
             audit = next(a for a in audits if a.symbol == sym)
             assert audit.available is False
@@ -90,6 +90,7 @@ class TestMultiAssetDataAudit:
             assert audit.training_status == "NOT_TRAINABLE"
             assert audit.execution_authority == "BLOCKED"
             assert audit.candle_count == 0
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

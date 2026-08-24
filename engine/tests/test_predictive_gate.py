@@ -238,21 +238,24 @@ class TestDiagnosticsAndBaselines:
 class TestFourInstrumentAudit:
     """Verifies four instrument audit correctly identifies BTC and flags missing symbols."""
 
-    def test_four_instrument_audit_integrity(self):
+    def test_four_instrument_audit_integrity(self, tmp_path):
         records = audit_four_instruments()
         assert len(records) == 4
         symbols = [r.symbol for r in records]
         assert symbols == ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]
 
-        btc_rec = next(r for r in records if r.symbol == "BTCUSD")
-        assert btc_rec.available is True
-        assert btc_rec.candle_count > 5000
+        # When canonical data is present, all 4 instruments report available
+        for rec in records:
+            assert rec.available is True
+            assert rec.candle_count > 5000
 
-        # ETH, SOL, XRP are not in canonical folder and must report available=False
-        for sym in ["ETHUSD", "SOLUSD", "XRPUSD"]:
-            rec = next(r for r in records if r.symbol == sym)
+        # When directory is empty, instruments must report available=False
+        empty_records = audit_four_instruments(base_dir=tmp_path)
+        for sym in ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]:
+            rec = next(r for r in empty_records if r.symbol == sym)
             assert rec.available is False
             assert rec.candle_count == 0
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
