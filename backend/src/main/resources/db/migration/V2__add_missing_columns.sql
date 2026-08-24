@@ -50,7 +50,8 @@ ALTER TABLE audit_logs
     ADD COLUMN IF NOT EXISTS details    TEXT;
 
 ALTER TABLE audit_logs
-    ALTER COLUMN resource_id TYPE VARCHAR(100) USING resource_id::text;
+    ALTER COLUMN resource_id TYPE VARCHAR(100) USING resource_id::text,
+    ALTER COLUMN ip_address TYPE VARCHAR(50) USING ip_address::text;
 
 CREATE TRIGGER update_audit_logs_updated_at
     BEFORE UPDATE ON audit_logs

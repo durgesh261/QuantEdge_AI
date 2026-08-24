@@ -234,7 +234,7 @@ CREATE TABLE audit_logs (
     resource_id UUID,
     old_values JSONB,
     new_values JSONB,
-    ip_address INET,
+    ip_address VARCHAR(50),
     user_agent TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
