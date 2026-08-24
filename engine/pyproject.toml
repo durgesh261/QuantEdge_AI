@@ -27,6 +27,13 @@ dev = [
     "isort>=5.13.0",
     "pre-commit>=3.7.0",
 ]
+ml = [
+    # Training pipeline dependencies (Phase B)
+    "scikit-learn>=1.5.0",
+    "skl2onnx>=1.17.0",
+    "onnxruntime>=1.18.0",
+]
+
 
 [build-system]
 requires = ["setuptools>=69.0", "wheel"]

@@ -109,9 +109,11 @@ public class OnnxModelInferenceService {
         }
 
         try {
-            // Convert feature vector to float array (normalized)
-            float[] inputArray = featuresToNormalizedArray(features);
-            
+            // Delegate encoding to AiFeatureVector — the authoritative encoder.
+            // This ensures the feature order and encoding logic can never diverge
+            // between the DTO and the ONNX inference layer.
+            float[] inputArray = features.toFloat32Array();
+
             // Create input tensor
             long[] inputShape = new long[]{1, inputFeatureCount};
             OnnxTensor inputTensor = OnnxTensor.createTensor(ortEnvironment, FloatBuffer.wrap(inputArray), inputShape);
@@ -124,8 +126,8 @@ public class OnnxModelInferenceService {
 
             // Parse outputs
             OnnxInferenceResult inferenceResult = parseOutputs(result);
-            
-            log.debug("ONNX inference completed: patternScore={}, signalScore={}, confidence={}", 
+
+            log.debug("ONNX inference completed: patternScore={}, signalScore={}, confidence={}",
                     inferenceResult.patternScore(), inferenceResult.signalScore(), inferenceResult.confidence());
 
             return Optional.of(inferenceResult);
@@ -134,62 +136,6 @@ public class OnnxModelInferenceService {
             log.error("ONNX inference failed: {}", e.getMessage());
             return Optional.empty();
         }
-    }
-
-    /**
-     * Converts feature vector to normalized float array for model input.
-     * Features must match training preprocessing exactly.
-     */
-    private float[] featuresToNormalizedArray(AiFeatureVector f) {
-        float[] arr = new float[inputFeatureCount];
-        int idx = 0;
-
-        // SMC Structural Features (normalized 0-1)
-        arr[idx++] = f.bosStrength().floatValue();
-        arr[idx++] = f.chochStrength().floatValue();
-        arr[idx++] = f.orderBlockStrength().floatValue();
-        arr[idx++] = f.fvgStrength().floatValue();
-        arr[idx++] = f.liquidityProximity().floatValue();
-
-        // Market Context Features
-        arr[idx++] = f.trendStrength1h().floatValue();
-        arr[idx++] = f.trendStrength15m().floatValue();
-        arr[idx++] = f.trendStrength4h().floatValue();
-        arr[idx++] = f.volatility1h().floatValue();
-        arr[idx++] = f.volatility15m().floatValue();
-        arr[idx++] = f.volumeProfile().floatValue();
-        arr[idx++] = f.momentum1h().floatValue();
-        arr[idx++] = f.momentum15m().floatValue();
-
-        // Setup Geometry
-        arr[idx++] = f.riskReward().floatValue();
-        arr[idx++] = f.riskDistance().floatValue();
-        arr[idx++] = f.entryPrecision().floatValue();
-
-        // Account Context
-        arr[idx++] = f.accountUtilization().floatValue();
-        arr[idx++] = f.leverageRatio().floatValue();
-
-        // Multi-timeframe Regime (one-hot encoded)
-        // Regime 1h: BULLISH, BEARISH, RANGING, TRANSITIONAL, UNKNOWN
-        String r1h = f.regime1h();
-        arr[idx++] = "TRENDING_BULLISH".equals(r1h) || "STRONG_BULLISH_TREND".equals(r1h) || "BULLISH_TRENDING".equals(r1h) ? 1.0f : 0.0f;
-        arr[idx++] = "TRENDING_BEARISH".equals(r1h) || "STRONG_BEARISH_TREND".equals(r1h) || "BEARISH_TRENDING".equals(r1h) ? 1.0f : 0.0f;
-        arr[idx++] = "RANGING".equals(r1h) || "CLEAR_RANGE".equals(r1h) ? 1.0f : 0.0f;
-        arr[idx++] = "TRANSITIONAL".equals(r1h) || "CONFLICTING_TIMEFRAMES".equals(r1h) ? 1.0f : 0.0f;
-
-        // Regime alignment
-        arr[idx++] = f.regimeAlignment() ? 1.0f : 0.0f;
-
-        // Direction encoding
-        arr[idx++] = "BUY".equalsIgnoreCase(f.direction()) || "LONG".equalsIgnoreCase(f.direction()) ? 1.0f : 0.0f;
-
-        // Pad or truncate to expected size
-        if (arr.length != inputFeatureCount) {
-            log.warn("Feature array size mismatch: expected {}, got {}", inputFeatureCount, arr.length);
-        }
-
-        return arr;
     }
 
     /**
