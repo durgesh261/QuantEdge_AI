@@ -10,12 +10,14 @@ import java.time.Instant;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import org.hibernate.annotations.JavaType;
+
 @MappedSuperclass
 @EntityListeners(AuditingEntityListener.class)
 public abstract class BaseEntity {
 
     @Id
-    @Convert(converter = StringUuidConverter.class)
+    @JavaType(StringAsUuidJavaType.class)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 

@@ -22,7 +22,7 @@ import java.time.Instant;
 public class PasswordResetToken {
 
     @Id
-    @Convert(converter = com.quantedge.common.entity.StringUuidConverter.class)
+    @org.hibernate.annotations.JavaType(com.quantedge.common.entity.StringAsUuidJavaType.class)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 
