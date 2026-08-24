@@ -2,6 +2,9 @@ package com.quantedge.auth.entity;
 
 import jakarta.persistence.*;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
 
 /**
@@ -22,13 +25,15 @@ public class RefreshSession {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @JdbcTypeCode(SqlTypes.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 
     @Column(name = "token_hash", nullable = false, unique = true, length = 64)
     private String tokenHash;
 
-    @Column(name = "user_id", nullable = false, length = 36)
+    @JdbcTypeCode(SqlTypes.UUID)
+    @Column(name = "user_id", nullable = false)
     private String userId;
 
     @Column(name = "created_at", nullable = false, updatable = false)

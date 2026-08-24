@@ -3,6 +3,9 @@ package com.quantedge.auth.entity;
 import com.quantedge.auth.entity.User;
 import jakarta.persistence.*;
 
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
 import java.time.Instant;
 
 /**
@@ -20,6 +23,7 @@ public class PasswordResetToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
+    @JdbcTypeCode(SqlTypes.UUID)
     @Column(name = "id", updatable = false, nullable = false)
     private String id;
 

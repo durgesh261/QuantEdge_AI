@@ -11,7 +11,7 @@
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS ai_signal_enrichments (
-    id                     VARCHAR(36)    PRIMARY KEY,
+    id                     UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
     trading_account_id     UUID           NOT NULL REFERENCES trading_accounts(id) ON DELETE CASCADE,
     setup_id               VARCHAR(100)   NOT NULL,
     symbol                 VARCHAR(20)    NOT NULL,

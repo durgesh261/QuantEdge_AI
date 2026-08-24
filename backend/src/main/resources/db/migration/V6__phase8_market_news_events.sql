@@ -4,7 +4,7 @@
 
 -- 1. News Articles Table (7-Day Retention Policy)
 CREATE TABLE IF NOT EXISTS news_articles (
-    id                VARCHAR(36)    PRIMARY KEY,
+    id                UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
     title             VARCHAR(500)   NOT NULL,
     summary           TEXT,
     source            VARCHAR(100)   NOT NULL,
@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS news_articles (
     fingerprint       VARCHAR(64)    NOT NULL UNIQUE,
     published_at      TIMESTAMP WITH TIME ZONE NOT NULL,
     expires_at        TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_news_published_at ON news_articles(published_at DESC);
@@ -27,7 +28,7 @@ CREATE INDEX IF NOT EXISTS idx_news_fingerprint ON news_articles(fingerprint);
 
 -- 2. Economic Events Table (15-Day Window + 24-Hour Post-Event Retention)
 CREATE TABLE IF NOT EXISTS economic_events (
-    id                VARCHAR(36)    PRIMARY KEY,
+    id                UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
     event_name        VARCHAR(255)   NOT NULL,
     country           VARCHAR(10)    NOT NULL,
     currency          VARCHAR(10)    NOT NULL,
@@ -55,7 +56,7 @@ CREATE INDEX IF NOT EXISTS idx_economic_status ON economic_events(status);
 
 -- 3. In-App Notification Events Table
 CREATE TABLE IF NOT EXISTS notification_events (
-    id                VARCHAR(36)    PRIMARY KEY,
+    id                UUID           PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id           UUID           REFERENCES users(id) ON DELETE CASCADE,
     type              VARCHAR(50)    NOT NULL,
     title             VARCHAR(255)   NOT NULL,
@@ -63,7 +64,8 @@ CREATE TABLE IF NOT EXISTS notification_events (
     reference_id      VARCHAR(100),
     severity          VARCHAR(20)    NOT NULL DEFAULT 'INFO',
     is_read           BOOLEAN        NOT NULL DEFAULT FALSE,
-    created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    created_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notification_events(user_id);

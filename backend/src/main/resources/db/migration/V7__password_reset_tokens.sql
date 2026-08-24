@@ -1,6 +1,6 @@
 -- V7: Add password_reset_tokens table
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
-    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    id          UUID         PRIMARY KEY DEFAULT uuid_generate_v4(),
     token_hash  VARCHAR(64)  NOT NULL UNIQUE,
     user_id     UUID         NOT NULL,
     expires_at  TIMESTAMPTZ  NOT NULL,
