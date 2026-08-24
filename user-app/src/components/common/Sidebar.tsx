@@ -33,7 +33,7 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside
-      className={`fixed lg:static top-14 bottom-0 left-0 z-20 flex flex-col justify-between bg-background-surface border-r border-terminal-border transition-all duration-300 ${
+      className={`h-full flex flex-col justify-between bg-background-surface border-r border-terminal-border transition-all duration-300 shrink-0 select-none overflow-y-auto ${
         sidebarOpen ? 'w-56' : 'w-16'
       }`}
     >

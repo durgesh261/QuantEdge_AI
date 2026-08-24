@@ -42,7 +42,13 @@ apiClient.interceptors.response.use(
     const message = error.response.data?.message || error.response.data?.error || error.message
 
     // 3. Status-Specific Notifications (suppress on quiet background probes)
-    const isQuietEndpoint = originalRequest?.url?.includes('/api/v1/market/ticker') || originalRequest?.url?.includes('/api/v1/auth/me')
+    const isQuietEndpoint =
+      originalRequest?.url?.includes('/api/v1/market/ticker') ||
+      originalRequest?.url?.includes('/api/v1/market/tickers') ||
+      originalRequest?.url?.includes('/api/v1/market/candles') ||
+      originalRequest?.url?.includes('/api/v1/auth/me') ||
+      originalRequest?.url?.includes('/api/v1/system/diagnostics') ||
+      originalRequest?.url?.includes('/api/v1/notifications')
 
     if (!isQuietEndpoint) {
       switch (status) {

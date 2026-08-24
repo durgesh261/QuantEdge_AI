@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -83,6 +84,34 @@ public class TradingQueryService {
     // Tenant Verification Helper
     // ─────────────────────────────────────────────────────────────────────────
 
+    public Optional<TradingAccount> findAuthorizedAccount(User user, String accountId) {
+        if (user == null || user.getId() == null) {
+            throw new AccessDeniedException("Authentication required to access trading state.");
+        }
+
+        if (accountId != null && !accountId.isBlank()) {
+            TradingAccount account = accountRepository.findById(accountId)
+                    .orElseThrow(() -> new IllegalArgumentException("Trading account not found: " + accountId));
+
+            if (account.getUser() == null || !user.getId().equals(account.getUser().getId())) {
+                log.warn("IDOR attempt detected: User {} tried to access Account {} owned by {}",
+                        user.getId(), accountId, account.getUser() != null ? account.getUser().getId() : "null");
+                throw new AccessDeniedException("Access denied: You do not own trading account " + accountId);
+            }
+            return Optional.of(account);
+        }
+
+        List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
+        if (accounts.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return accounts.stream()
+                .filter(a -> Boolean.TRUE.equals(a.getIsActive()))
+                .findFirst()
+                .or(() -> Optional.of(accounts.getFirst()));
+    }
+
     public TradingAccount resolveAndVerifyAccount(User user, String accountId) {
         if (user == null || user.getId() == null) {
             throw new AccessDeniedException("Authentication required to access trading state.");
@@ -118,7 +147,35 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public TradingSystemStatusDto getTradingSystemStatus(User user, String accountId) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return new TradingSystemStatusDto(
+                    null,
+                    "Unconfigured Account",
+                    "USD",
+                    false,
+                    "NOT_CONFIGURED",
+                    "LIVE",
+                    null,
+                    false,
+                    false,
+                    false,
+                    null,
+                    null,
+                    null,
+                    null,
+                    0,
+                    0,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    null,
+                    null
+            );
+        }
+
+        TradingAccount account = accountOpt.get();
 
         Optional<DeltaConnection> connOpt = deltaConnectionRepository.findByTradingAccountIdAndEnvironment(account.getId(), "LIVE");
         if (connOpt.isEmpty()) {
@@ -189,7 +246,11 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public List<OrderDto> getOrders(User user, String accountId, String symbol, String status, Integer limit) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
         List<Order> orders;
 
         if (symbol != null && !symbol.isBlank() && status != null && !status.isBlank()) {
@@ -207,6 +268,19 @@ public class TradingQueryService {
 
         int max = (limit != null && limit > 0) ? limit : 100;
         return orders.stream().limit(max).map(OrderDto::fromEntity).toList();
+    }
+
+    public List<OrderDto> getActiveOrders(User user, String accountId) {
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
+        List<Order> orders = orderRepository.findByTradingAccountIdAndStatusInOrderByPlacedAtDesc(
+                account.getId(),
+                List.of(OrderStatus.OPEN.name(), OrderStatus.SUBMITTED.name(), OrderStatus.PARTIALLY_FILLED.name())
+        );
+        return orders.stream().map(OrderDto::fromEntity).toList();
     }
 
     public OrderDto getOrderById(User user, String accountId, String orderIdOrClientOrderId) {
@@ -227,7 +301,11 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public List<PositionDto> getPositions(User user, String accountId, String status) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
         List<Position> positions;
 
         if (status != null && !status.isBlank() && !"ALL".equalsIgnoreCase(status)) {
@@ -254,7 +332,11 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public List<OrderFillDto> getFills(User user, String accountId, String orderId, String symbol, Integer limit) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
         List<OrderFill> fills;
 
         if (orderId != null && !orderId.isBlank()) {
@@ -288,7 +370,11 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public List<TradeHistoryDto> getTradeHistory(User user, String accountId, Integer limit) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
         List<TradeRecord> trades = tradeRecordRepository.findByAccountIdOrderByOpenedAtDesc(account.getId());
 
         int max = (limit != null && limit > 0) ? limit : 100;
@@ -309,7 +395,11 @@ public class TradingQueryService {
     // ─────────────────────────────────────────────────────────────────────────
 
     public List<SignalSetupDto> getSignals(User user, String accountId, String state, String symbol, Integer limit) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
         List<StrategySetupRecord> setups;
 
         boolean hasState = state != null && !state.isBlank() && !"ALL".equalsIgnoreCase(state.trim());

@@ -43,6 +43,33 @@ public class AiEnrichmentService {
     }
 
     /**
+     * Resolves trading account optionally without throwing if not configured.
+     */
+    public java.util.Optional<TradingAccount> findAuthorizedAccount(User user, String accountId) {
+        if (user == null || user.getId() == null) {
+            return java.util.Optional.empty();
+        }
+
+        if (accountId != null && !accountId.isBlank()) {
+            TradingAccount account = accountRepository.findById(accountId).orElse(null);
+            if (account != null && account.getUser() != null && user.getId().equals(account.getUser().getId())) {
+                return java.util.Optional.of(account);
+            }
+            return java.util.Optional.empty();
+        }
+
+        List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
+        if (accounts.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+
+        return accounts.stream()
+                .filter(a -> Boolean.TRUE.equals(a.getIsActive()))
+                .findFirst()
+                .or(() -> java.util.Optional.of(accounts.getFirst()));
+    }
+
+    /**
      * Resolves trading account and verifies authenticated user ownership.
      */
     private TradingAccount resolveAndVerifyAccount(User user, String accountId) {
@@ -50,20 +77,26 @@ public class AiEnrichmentService {
             throw new AccessDeniedException("Unauthenticated: User context missing");
         }
 
-        TradingAccount account;
         if (accountId != null && !accountId.isBlank()) {
-            account = accountRepository.findById(accountId)
+            TradingAccount account = accountRepository.findById(accountId)
                     .orElseThrow(() -> new ResourceNotFoundException("Trading account not found: " + accountId));
-        } else {
-            List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
-            account = accounts.stream()
-                    .filter(a -> Boolean.TRUE.equals(a.getIsActive()))
-                    .findFirst()
-                    .orElseGet(() -> accounts.isEmpty() ? null : accounts.getFirst());
 
-            if (account == null) {
-                throw new ResourceNotFoundException("No trading account found for user " + user.getId());
+            if (account.getUser() == null || !user.getId().equals(account.getUser().getId())) {
+                log.warn("IDOR attempt detected in AI Enrichment: User {} tried to access Account {} owned by {}",
+                        user.getId(), account.getId(), account.getUser() != null ? account.getUser().getId() : "null");
+                throw new AccessDeniedException("Access denied: You do not own trading account " + account.getId());
             }
+            return account;
+        }
+
+        List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
+        TradingAccount account = accounts.stream()
+                .filter(a -> Boolean.TRUE.equals(a.getIsActive()))
+                .findFirst()
+                .orElseGet(() -> accounts.isEmpty() ? null : accounts.getFirst());
+
+        if (account == null) {
+            throw new ResourceNotFoundException("No trading account found for user " + user.getId());
         }
 
         if (account.getUser() == null || !user.getId().equals(account.getUser().getId())) {
@@ -118,7 +151,11 @@ public class AiEnrichmentService {
      */
     @Transactional(readOnly = true)
     public List<AiEnrichmentDto> getEnrichmentsByAccount(User user, String accountId, String symbol, int limit) {
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        java.util.Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        TradingAccount account = accountOpt.get();
 
         List<AiSignalEnrichment> list;
         if (symbol != null && !symbol.isBlank()) {
@@ -141,7 +178,11 @@ public class AiEnrichmentService {
         if (setupIds == null || setupIds.isEmpty()) {
             return java.util.Collections.emptyMap();
         }
-        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        java.util.Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        TradingAccount account = accountOpt.get();
         java.util.Map<String, AiEnrichmentDto> resultMap = new java.util.HashMap<>();
 
         for (String setupId : setupIds) {
