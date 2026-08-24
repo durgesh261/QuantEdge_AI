@@ -30,7 +30,7 @@ class MarketDataServiceTest {
 
     @BeforeEach
     void setUp() {
-        marketDataService = new MarketDataService(deltaClient);
+        marketDataService = new MarketDataService(deltaClient, new com.quantedge.market.service.InstrumentRegistry());
     }
 
     @Nested

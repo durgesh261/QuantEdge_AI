@@ -5,6 +5,7 @@ import { useMarketStore } from '../../stores/marketStore'
 import { PositionDto, TradeHistoryDto } from '../../types/trading'
 import { SkeletonTable } from '../../components/common/Skeleton'
 import { EmptyState } from '../../components/common/EmptyState'
+import { formatPrice } from '../../constants/instruments'
 import {
   Layers,
   RefreshCw,
@@ -218,8 +219,8 @@ export const PositionsPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="py-3 px-3 font-bold">{p.quantity}</td>
-                            <td className="py-3 px-3">${p.entryPrice.toFixed(2)}</td>
-                            <td className="py-3 px-3 font-bold text-white">${mark.toFixed(2)}</td>
+                            <td className="py-3 px-3">${formatPrice(p.entryPrice, p.symbol)}</td>
+                            <td className="py-3 px-3 font-bold text-white">${formatPrice(mark, p.symbol)}</td>
                             <td className="py-3 px-3">
                               <div className={`font-bold ${pnl >= 0 ? 'text-bullish' : 'text-bearish'}`}>
                                 {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
@@ -228,7 +229,7 @@ export const PositionsPage: React.FC = () => {
                             <td className="py-3 px-3">${(p.marginUsed ?? 0).toFixed(2)}</td>
                             <td className="py-3 px-3">{p.leverage}x</td>
                             <td className="py-3 px-3 text-bearish font-semibold">
-                              ${p.liquidationPrice ? p.liquidationPrice.toFixed(2) : '—'}
+                              ${p.liquidationPrice ? formatPrice(p.liquidationPrice, p.symbol) : '—'}
                             </td>
                             <td className="py-3 px-3 text-right">
                               <button

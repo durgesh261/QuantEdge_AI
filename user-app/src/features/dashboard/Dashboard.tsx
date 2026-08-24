@@ -8,24 +8,24 @@ import {
   Radio,
   Newspaper,
   Cpu,
-  Lock
+  Lock,
 } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { useMarketStore } from '../../stores/marketStore'
 import { apiClient } from '../../services/apiClient'
 import { TradingSystemStatusDto, AccountSummaryDto } from '../../types/trading'
-
 import { SkeletonStat, SkeletonCard } from '../../components/common/Skeleton'
+import { formatPrice } from '../../constants/instruments'
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuthStore()
-  const { tickers, fetchTicker } = useMarketStore()
+  const { tickers, fetchAllTickers } = useMarketStore()
   const [tradingStatus, setTradingStatus] = useState<TradingSystemStatusDto | null>(null)
   const [accountSummary, setAccountSummary] = useState<AccountSummaryDto | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    fetchTicker('BTCUSD')
+    fetchAllTickers()
 
     const loadData = async () => {
       try {
@@ -49,7 +49,7 @@ export const Dashboard: React.FC = () => {
     }
 
     loadData()
-  }, [fetchTicker])
+  }, [fetchAllTickers])
 
   const btc = tickers['BTCUSD']
 
@@ -203,13 +203,13 @@ export const Dashboard: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Live Mark Price:</span>
-                <span className="text-white">${(btc?.markPrice ?? btc?.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 }) || '65,000.00'}</span>
+                <span className="text-white">${formatPrice(btc?.markPrice ?? btc?.lastPrice, 'BTCUSD')}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-400">Order Authority Invariant:</span>
                 <span className="text-brand-cyan font-bold flex items-center gap-1">
                   <Lock className="w-3 h-3" />
-                  OrderExecutionService.java (Enforced)
+                  Spring Boot Gateway (Enforced)
                 </span>
               </div>
             </div>

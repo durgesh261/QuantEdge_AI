@@ -22,8 +22,13 @@ public interface NewsArticleRepository extends JpaRepository<NewsArticle, String
 
     @Query("SELECT n FROM NewsArticle n WHERE (:category IS NULL OR n.category = :category) " +
            "AND (:importance IS NULL OR n.importance = :importance) " +
+           "AND (n.expiresAt IS NULL OR n.expiresAt > :now) " +
            "ORDER BY n.publishedAt DESC")
-    List<NewsArticle> findWithFilters(@Param("category") String category, @Param("importance") String importance);
+    List<NewsArticle> findWithFilters(
+            @Param("category") String category,
+            @Param("importance") String importance,
+            @Param("now") Instant now
+    );
 
     @Modifying
     @Query("DELETE FROM NewsArticle n WHERE n.expiresAt <= :now")

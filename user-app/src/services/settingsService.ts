@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient'
 import { DeltaSettingsDto, DeltaConnectRequest } from '../types/settings'
+import { SystemDiagnosticsDto } from '../types/system'
 
 export const settingsService = {
   async getDeltaSettings(): Promise<DeltaSettingsDto> {
@@ -19,6 +20,11 @@ export const settingsService = {
 
   async testDeltaConnection(): Promise<DeltaSettingsDto> {
     const { data } = await apiClient.post<DeltaSettingsDto>('/api/v1/settings/delta/test', {})
+    return data
+  },
+
+  async getSystemDiagnostics(): Promise<SystemDiagnosticsDto> {
+    const { data } = await apiClient.get<SystemDiagnosticsDto>('/api/v1/system/diagnostics')
     return data
   },
 }

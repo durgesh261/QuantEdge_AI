@@ -446,14 +446,14 @@ export const RiskAlgoPage: React.FC = () => {
               <input
                 type="range"
                 min="1"
-                max="50"
+                max="100"
                 step="1"
                 value={maxLeverage}
                 onChange={(e) => setMaxLeverage(parseInt(e.target.value))}
                 className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-brand-cyan"
               />
               <p className="text-[11px] text-slate-500 font-sans">
-                Hard ceiling for order leverage dispatched to the exchange. Orders exceeding this limit are rejected by the backend pre-trade filter.
+                Hard ceiling for order leverage dispatched to the exchange (up to 100x on BTC/ETH, 50x on SOL/XRP). Orders exceeding limit are rejected by pre-trade risk filter.
               </p>
             </div>
 

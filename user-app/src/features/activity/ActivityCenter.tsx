@@ -316,7 +316,7 @@ export const ActivityCenter: React.FC = () => {
           <div className="flex items-center gap-1.5">
             <span className="text-slate-400">Symbol:</span>
             <div className="flex items-center p-0.5 rounded bg-background/80 border border-terminal-border">
-              {['ALL', 'BTCUSD', 'ETHUSD', 'SOLUSD'].map((sym) => (
+              {['ALL', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'].map((sym) => (
                 <button
                   key={sym}
                   onClick={() => setSymbolFilter(sym)}

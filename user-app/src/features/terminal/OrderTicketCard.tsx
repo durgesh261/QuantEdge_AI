@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Shield, AlertCircle, Info, Lock } from 'lucide-react'
+import { getInstrumentMeta, formatPrice } from '../../constants/instruments'
 
 interface OrderTicketCardProps {
   symbol: string
@@ -14,6 +15,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   balance,
   currency,
 }) => {
+  const meta = getInstrumentMeta(symbol)
   const [side, setSide] = useState<'BUY' | 'SELL'>('BUY')
   const [orderType, setOrderType] = useState<'LIMIT' | 'MARKET'>('LIMIT')
   const [price, setPrice] = useState<string>(currentPrice ? String(currentPrice) : '65000')
@@ -21,6 +23,13 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   const [leverage, setLeverage] = useState<number>(10)
   const [showConfirmModal, setShowConfirmModal] = useState(false)
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null)
+
+  // Clamp leverage when symbol changes if it exceeds instrument max
+  useEffect(() => {
+    if (leverage > meta.maxLeverage) {
+      setLeverage(meta.maxLeverage)
+    }
+  }, [meta.maxLeverage, leverage])
 
   // Calculations
   const numericPrice = orderType === 'MARKET' ? currentPrice || 65000 : Number(price) || currentPrice || 65000
@@ -31,7 +40,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   const handlePercentage = (pct: number) => {
     if (currentPrice > 0 && leverage > 0) {
       const maxNotional = balance * leverage * (pct / 100)
-      const calculatedQty = (maxNotional / currentPrice).toFixed(4)
+      const calculatedQty = (maxNotional / currentPrice).toFixed(meta.qtyPrecision)
       setQuantity(calculatedQty)
     }
   }
@@ -44,7 +53,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
   const handleConfirmOrder = () => {
     setShowConfirmModal(false)
     setNoticeMessage(
-      `Order preview calculated: ${side} ${quantity} ${symbol} @ ${orderType === 'MARKET' ? 'MARKET' : '$' + price}. (Safety Invariant: Real orders dispatch strictly through OrderExecutionService.java:312).`
+      `Order preview calculated: ${side} ${quantity} ${meta.displaySymbol} @ ${orderType === 'MARKET' ? 'MARKET' : '$' + formatPrice(price, symbol)}. Authoritative execution is dispatched through backend risk gateway.`
     )
     setTimeout(() => setNoticeMessage(null), 6000)
   }
@@ -184,7 +193,7 @@ export const OrderTicketCard: React.FC<OrderTicketCardProps> = ({
           <input
             type="range"
             min="1"
-            max="100"
+            max={meta.maxLeverage}
             step="1"
             value={leverage}
             onChange={(e) => setLeverage(Number(e.target.value))}

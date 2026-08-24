@@ -97,6 +97,13 @@ export const MarketIntelligence: React.FC = () => {
     return `in ${hours}h ${minutes}m`
   }
 
+  // Periodic timer for live countdown updates
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 30000)
+    return () => clearInterval(timer)
+  }, [])
+
   // Country Flags
   const countryFlags: Record<string, string> = {
     US: '🇺🇸',
@@ -163,7 +170,7 @@ export const MarketIntelligence: React.FC = () => {
                 <span>Category:</span>
               </div>
               <div className="flex flex-wrap items-center p-0.5 rounded bg-background/80 border border-terminal-border">
-                {['ALL', 'CRYPTO', 'FINANCE', 'MARKETS', 'CENTRAL_BANKS', 'REGULATION', 'ECONOMY', 'MACRO'].map((cat) => (
+                {['ALL', 'CRYPTO', 'FINANCE', 'MARKETS', 'CENTRAL_BANKS', 'REGULATION', 'ECONOMY', 'COMMODITIES', 'MACRO'].map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setNewsCategory(cat)}

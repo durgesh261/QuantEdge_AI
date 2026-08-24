@@ -73,6 +73,15 @@ export const tradingService = {
     return data
   },
 
+  async getBulkAiIntelligence(setupIds: string[], accountId?: string): Promise<Record<string, AiEnrichmentDto>> {
+    if (!setupIds.length) return {}
+    const { data } = await apiClient.post<Record<string, AiEnrichmentDto>>('/api/v1/ai/enrichments/bulk', {
+      setupIds,
+      accountId,
+    })
+    return data
+  },
+
   async getRecentAiEnrichments(symbol?: string, limit = 20): Promise<AiEnrichmentDto[]> {
     const { data } = await apiClient.get<AiEnrichmentDto[]>('/api/v1/ai/enrichments', {
       params: { symbol, limit },

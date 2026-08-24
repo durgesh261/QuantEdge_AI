@@ -117,7 +117,8 @@ public class NewsIngestionService {
     public List<NewsArticleDto> getNewsArticles(String category, String importance, String symbol, int limit) {
         List<NewsArticle> articles = newsRepository.findWithFilters(
                 category != null && !category.isBlank() ? category.trim().toUpperCase() : null,
-                importance != null && !importance.isBlank() ? importance.trim().toUpperCase() : null
+                importance != null && !importance.isBlank() ? importance.trim().toUpperCase() : null,
+                java.time.Instant.now()
         );
 
         return articles.stream()

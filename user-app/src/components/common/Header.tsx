@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { 
   Bell, 
   LogOut, 
@@ -11,10 +11,12 @@ import { useMarketStore } from '../../stores/marketStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useNotificationStore } from '../../stores/notificationStore'
 import { NotificationDropdown } from '../notifications/NotificationDropdown'
+import { SUPPORTED_SYMBOLS, formatPrice, getInstrumentMeta } from '../../constants/instruments'
 
 export const Header: React.FC = () => {
+  const navigate = useNavigate()
   const { user, logout } = useAuthStore()
-  const { tickers, fetchTicker } = useMarketStore()
+  const { tickers, fetchAllTickers, setActiveSymbol, activeSymbol } = useMarketStore()
   const { toggleSidebar } = useUIStore()
   const { unreadCount, fetchNotifications } = useNotificationStore()
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false)
@@ -23,26 +25,21 @@ export const Header: React.FC = () => {
   useEffect(() => {
     const syncAll = async () => {
       await Promise.allSettled([
-        fetchTicker('BTCUSD'),
-        fetchTicker('ETHUSD'),
-        fetchTicker('SOLUSD'),
+        fetchAllTickers(),
         fetchNotifications(),
       ])
       setLastSyncTime(new Date().toLocaleTimeString())
     }
 
     syncAll()
-
     const tickerInterval = setInterval(syncAll, 5000)
+    return () => clearInterval(tickerInterval)
+  }, [fetchAllTickers, fetchNotifications])
 
-    return () => {
-      clearInterval(tickerInterval)
-    }
-  }, [fetchTicker, fetchNotifications])
-
-  const btc = tickers['BTCUSD']
-  const eth = tickers['ETHUSD']
-  const sol = tickers['SOLUSD']
+  const handleTickerClick = (sym: string) => {
+    setActiveSymbol(sym)
+    navigate('/terminal')
+  }
 
   return (
     <header className="h-14 border-b border-terminal-border bg-background-surface/90 backdrop-blur-md px-4 flex items-center justify-between sticky top-0 z-30">
@@ -68,37 +65,33 @@ export const Header: React.FC = () => {
         </Link>
       </div>
 
-      {/* Middle: Live Market Ticker Marquee */}
-      <div className="hidden md:flex items-center gap-6 text-xs font-mono">
-        {btc && (
-          <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
-            <span className="text-slate-400 font-semibold">BTC/USD</span>
-            <span className="text-white font-bold">${(btc.markPrice ?? btc.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${(btc.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {(btc.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{btc.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
-            </span>
-          </div>
-        )}
+      {/* Middle: Live Market Ticker Marquee (All 4 Canonical Instruments) */}
+      <div className="hidden xl:flex items-center gap-3 text-xs font-mono">
+        {SUPPORTED_SYMBOLS.map((sym) => {
+          const t = tickers[sym]
+          const meta = getInstrumentMeta(sym)
+          if (!t) return null
+          const isPos = (t.priceChangePercent24h ?? 0) >= 0
+          const isCurrent = activeSymbol === sym
 
-        {eth && (
-          <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
-            <span className="text-slate-400 font-semibold">ETH/USD</span>
-            <span className="text-white font-bold">${(eth.markPrice ?? eth.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${(eth.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {(eth.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{eth.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
-            </span>
-          </div>
-        )}
-
-        {sol && (
-          <div className="flex items-center gap-2 bg-background/60 px-2.5 py-1 rounded-md border border-terminal-border/80">
-            <span className="text-slate-400 font-semibold">SOL/USD</span>
-            <span className="text-white font-bold">${(sol.markPrice ?? sol.lastPrice)?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-            <span className={`flex items-center ${(sol.priceChangePercent24h ?? 0) >= 0 ? 'text-bullish' : 'text-bearish'}`}>
-              {(sol.priceChangePercent24h ?? 0) >= 0 ? '+' : ''}{sol.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
-            </span>
-          </div>
-        )}
+          return (
+            <button
+              key={sym}
+              onClick={() => handleTickerClick(sym)}
+              className={`flex items-center gap-2 px-2.5 py-1 rounded-md border transition-all ${
+                isCurrent
+                  ? 'bg-brand-cyan/15 border-brand-cyan/40 text-white font-bold'
+                  : 'bg-background/60 border-terminal-border/80 text-slate-300 hover:border-slate-600'
+              }`}
+            >
+              <span className="text-slate-400 font-semibold">{meta.displaySymbol}</span>
+              <span className="text-white font-bold">${formatPrice(t.markPrice ?? t.lastPrice, sym)}</span>
+              <span className={`text-[11px] ${isPos ? 'text-bullish font-bold' : 'text-bearish font-bold'}`}>
+                {isPos ? '+' : ''}{t.priceChangePercent24h?.toFixed(2) ?? '0.00'}%
+              </span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Right: User Status & Actions */}

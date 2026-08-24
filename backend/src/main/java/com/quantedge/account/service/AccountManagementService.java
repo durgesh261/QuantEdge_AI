@@ -354,7 +354,28 @@ public class AccountManagementService {
 
     @Transactional(readOnly = true)
     public AccountStatusResponse getAccountStatus(User user, String accountId) {
-        TradingAccount account = getAuthorizedAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return new AccountStatusResponse(
+                    null,
+                    "Not Configured",
+                    false,
+                    "NOT_CONFIGURED",
+                    "DISCONNECTED",
+                    "OFFLINE",
+                    null,
+                    "LIVE",
+                    null,
+                    null,
+                    null,
+                    0,
+                    false,
+                    true,
+                    "No trading account configured"
+            );
+        }
+
+        TradingAccount account = accountOpt.get();
         Optional<DeltaConnection> connOpt = connectionRepository.findByTradingAccountIdAndEnvironment(account.getId(), "LIVE");
 
         String maskedKey = null;
@@ -376,10 +397,12 @@ public class AccountManagementService {
                 wsStatus = "ERROR";
                 streamHealth = "DEGRADED";
             }
-            try {
-                maskedKey = maskApiKey(credentialService.decrypt(conn.getEncryptedApiKey()));
-            } catch (Exception ignored) {
-                maskedKey = "********";
+            if (conn.getEncryptedApiKey() != null && !conn.getEncryptedApiKey().isBlank()) {
+                try {
+                    maskedKey = maskApiKey(credentialService.decrypt(conn.getEncryptedApiKey()));
+                } catch (Exception ignored) {
+                    maskedKey = "********";
+                }
             }
         }
 
@@ -404,16 +427,44 @@ public class AccountManagementService {
 
     @Transactional(readOnly = true)
     public AccountSummaryResponse getAccountSummary(User user, String accountId) {
-        TradingAccount account = getAuthorizedAccount(user, accountId);
+        Optional<TradingAccount> accountOpt = findAuthorizedAccount(user, accountId);
+        if (accountOpt.isEmpty()) {
+            return new AccountSummaryResponse(
+                    true,
+                    null,
+                    "Not Configured",
+                    "NOT_CONFIGURED",
+                    "DISCONNECTED",
+                    "OFFLINE",
+                    null,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
+                    "USDT",
+                    false,
+                    true,
+                    null,
+                    null,
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    Collections.emptyList(),
+                    null
+            );
+        }
+
+        TradingAccount account = accountOpt.get();
         Optional<DeltaConnection> connOpt = connectionRepository.findByTradingAccountIdAndEnvironment(account.getId(), "LIVE");
 
         if (connOpt.isEmpty() || !"CONNECTED".equalsIgnoreCase(connOpt.get().getConnectionStatus())) {
             String maskedKey = null;
             if (connOpt.isPresent()) {
-                try {
-                    maskedKey = maskApiKey(credentialService.decrypt(connOpt.get().getEncryptedApiKey()));
-                } catch (Exception ignored) {
-                    maskedKey = "********";
+                DeltaConnection conn = connOpt.get();
+                if (conn.getEncryptedApiKey() != null && !conn.getEncryptedApiKey().isBlank()) {
+                    try {
+                        maskedKey = maskApiKey(credentialService.decrypt(conn.getEncryptedApiKey()));
+                    } catch (Exception ignored) {
+                        maskedKey = "********";
+                    }
                 }
             }
             String connStatus = connOpt.map(DeltaConnection::getConnectionStatus).orElse("DISCONNECTED");
@@ -503,6 +554,9 @@ public class AccountManagementService {
         if (connOpt.isPresent()) {
             DeltaConnection conn = connOpt.get();
             conn.setConnectionStatus("DISCONNECTED");
+            conn.setEncryptedApiKey("");
+            conn.setEncryptedApiSecret("");
+            conn.setLastError(null);
             connectionRepository.save(conn);
         }
 
@@ -512,10 +566,10 @@ public class AccountManagementService {
 
         auditLogRepository.save(new AuditLog(
                 user, account, "DELTA_ACCOUNT_DISCONNECTED",
-                "SUCCESS", account.getId(), "Delta Exchange India account disconnected."
+                "SUCCESS", account.getId(), "Delta Exchange India account disconnected and credentials safely cleared."
         ));
 
-        log.info("Delta account disconnected for user {}", user.getId());
+        log.info("Delta account disconnected and credentials safely cleared for user {}", user.getId());
 
         return getAccountStatus(user, account.getId());
     }
@@ -533,7 +587,7 @@ public class AccountManagementService {
         }
     }
 
-    private TradingAccount getAuthorizedAccount(User user, String accountId) {
+    public Optional<TradingAccount> findAuthorizedAccount(User user, String accountId) {
         if (user == null) {
             throw new SecurityException("User authentication required");
         }
@@ -543,22 +597,16 @@ public class AccountManagementService {
             if (!account.getUser().getId().equals(user.getId())) {
                 throw new SecurityException("Unauthorized access to trading account");
             }
-            return account;
+            return Optional.of(account);
         }
 
         List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
-        if (accounts.isEmpty()) {
-            TradingAccount newAccount = new TradingAccount(user, "Delta Live Account", "LIVE", "USDT");
-            // Fail-safe defaults are enforced by constructor; these are explicit safety assertions:
-            if (Boolean.TRUE.equals(newAccount.getAlgoEnabled())) {
-                throw new IllegalStateException("SAFETY VIOLATION: New account algoEnabled must default to false");
-            }
-            if (!Boolean.TRUE.equals(newAccount.getKillSwitchActive())) {
-                throw new IllegalStateException("SAFETY VIOLATION: New account killSwitchActive must default to true");
-            }
-            return accountRepository.save(newAccount);
-        }
-        return accounts.get(0);
+        return accounts.isEmpty() ? Optional.empty() : Optional.of(accounts.getFirst());
+    }
+
+    private TradingAccount getAuthorizedAccount(User user, String accountId) {
+        return findAuthorizedAccount(user, accountId)
+                .orElseThrow(() -> new IllegalArgumentException("No trading account configured for this user."));
     }
 
     private void syncPositionsToDatabase(TradingAccount account, List<LiveAccountSyncService.PositionDetail> positions) {

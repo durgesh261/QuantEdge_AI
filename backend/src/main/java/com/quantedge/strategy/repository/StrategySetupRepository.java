@@ -18,4 +18,6 @@ public interface StrategySetupRepository extends JpaRepository<StrategySetupReco
     java.util.List<StrategySetupRecord> findByTradingAccountIdAndSetupStateOrderByCreatedAtDesc(String tradingAccountId, String setupState);
 
     java.util.List<StrategySetupRecord> findByTradingAccountIdAndSymbolOrderByCreatedAtDesc(String tradingAccountId, String symbol);
+
+    java.util.List<StrategySetupRecord> findByTradingAccountIdAndSetupStateAndSymbolOrderByCreatedAtDesc(String tradingAccountId, String setupState, String symbol);
 }

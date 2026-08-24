@@ -6,6 +6,7 @@ import com.quantedge.auth.entity.User;
 import com.quantedge.exchange.entity.DeltaConnection;
 import com.quantedge.exchange.repository.DeltaConnectionRepository;
 import com.quantedge.exchange.service.DeltaCredentialService;
+import com.quantedge.market.service.InstrumentRegistry;
 import com.quantedge.strategy.entity.StrategySetupRecord;
 import com.quantedge.strategy.repository.StrategySetupRepository;
 import com.quantedge.trading.dto.*;
@@ -102,7 +103,8 @@ public class TradingQueryService {
         // Default to user's first active account or any account
         List<TradingAccount> accounts = accountRepository.findByUserId(user.getId());
         if (accounts.isEmpty()) {
-            throw new IllegalArgumentException("No trading account found for user: " + user.getId());
+            log.warn("No trading account configured for user: {}", user.getId());
+            throw new IllegalArgumentException("No trading account is configured for this account.");
         }
 
         return accounts.stream()
@@ -310,12 +312,21 @@ public class TradingQueryService {
         TradingAccount account = resolveAndVerifyAccount(user, accountId);
         List<StrategySetupRecord> setups;
 
-        if (state != null && !state.isBlank()) {
+        boolean hasState = state != null && !state.isBlank() && !"ALL".equalsIgnoreCase(state.trim());
+        boolean hasSymbol = symbol != null && !symbol.isBlank() && !"ALL".equalsIgnoreCase(symbol.trim());
+
+        String cleanSymbol = hasSymbol ? InstrumentRegistry.normalize(symbol) : null;
+        String cleanState = hasState ? state.trim().toUpperCase() : null;
+
+        if (cleanState != null && cleanSymbol != null) {
+            setups = strategySetupRepository.findByTradingAccountIdAndSetupStateAndSymbolOrderByCreatedAtDesc(
+                    account.getId(), cleanState, cleanSymbol);
+        } else if (cleanState != null) {
             setups = strategySetupRepository.findByTradingAccountIdAndSetupStateOrderByCreatedAtDesc(
-                    account.getId(), state.trim().toUpperCase());
-        } else if (symbol != null && !symbol.isBlank()) {
+                    account.getId(), cleanState);
+        } else if (cleanSymbol != null) {
             setups = strategySetupRepository.findByTradingAccountIdAndSymbolOrderByCreatedAtDesc(
-                    account.getId(), symbol.trim().toUpperCase());
+                    account.getId(), cleanSymbol);
         } else {
             setups = strategySetupRepository.findByTradingAccountIdOrderByCreatedAtDesc(account.getId());
         }

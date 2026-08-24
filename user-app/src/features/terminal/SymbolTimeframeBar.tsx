@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react'
 import { useMarketStore } from '../../stores/marketStore'
 import { TickerDto } from '../../types/market'
+import { SUPPORTED_SYMBOLS, formatPrice, getInstrumentMeta } from '../../constants/instruments'
 import { TrendingUp, TrendingDown, ShieldCheck, RefreshCw } from 'lucide-react'
 
 interface SymbolTimeframeBarProps {
@@ -11,7 +12,7 @@ interface SymbolTimeframeBarProps {
 export const SymbolTimeframeBar: React.FC<SymbolTimeframeBarProps> = ({ onRefresh, isLoading }) => {
   const { activeSymbol, activeInterval, setActiveSymbol, setActiveInterval, tickers, fetchTicker } = useMarketStore()
 
-  const symbols = ['BTCUSD', 'ETHUSD', 'SOLUSD']
+  const symbols = SUPPORTED_SYMBOLS
   const intervals = [
     { label: '1m', value: '1m' },
     { label: '5m', value: '5m' },
@@ -39,19 +40,22 @@ export const SymbolTimeframeBar: React.FC<SymbolTimeframeBarProps> = ({ onRefres
       <div className="flex flex-wrap items-center gap-2 sm:gap-4">
         {/* Symbol Selector Pills */}
         <div className="flex items-center p-0.5 rounded-md bg-background/80 border border-terminal-border">
-          {symbols.map((sym) => (
-            <button
-              key={sym}
-              onClick={() => setActiveSymbol(sym)}
-              className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all ${
-                activeSymbol === sym
-                  ? 'bg-brand-cyan text-background shadow-sm'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              {sym}
-            </button>
-          ))}
+          {symbols.map((sym) => {
+            const symMeta = getInstrumentMeta(sym)
+            return (
+              <button
+                key={sym}
+                onClick={() => setActiveSymbol(sym)}
+                className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all ${
+                  activeSymbol === sym
+                    ? 'bg-brand-cyan text-background shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {symMeta.displaySymbol}
+              </button>
+            )
+          })}
         </div>
 
         {/* Timeframe Selector Pills */}
@@ -93,9 +97,7 @@ export const SymbolTimeframeBar: React.FC<SymbolTimeframeBarProps> = ({ onRefres
         <div>
           <div className="text-[10px] text-slate-400 uppercase font-sans">Mark Price</div>
           <div className="font-bold text-white text-sm">
-            ${currentTicker?.markPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ||
-              currentTicker?.lastPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 }) ||
-              '—'}
+            ${formatPrice(currentTicker?.markPrice ?? currentTicker?.lastPrice, activeSymbol)}
           </div>
         </div>
 
@@ -113,8 +115,8 @@ export const SymbolTimeframeBar: React.FC<SymbolTimeframeBarProps> = ({ onRefres
         <div className="hidden md:block">
           <div className="text-[10px] text-slate-400 uppercase font-sans">24h High / Low</div>
           <div className="text-slate-300">
-            <span className="text-white">${currentTicker?.high24h?.toLocaleString() ?? '—'}</span> /{' '}
-            <span className="text-slate-400">${currentTicker?.low24h?.toLocaleString() ?? '—'}</span>
+            <span className="text-white">${formatPrice(currentTicker?.high24h, activeSymbol)}</span> /{' '}
+            <span className="text-slate-400">${formatPrice(currentTicker?.low24h, activeSymbol)}</span>
           </div>
         </div>
 

@@ -197,7 +197,7 @@ export const OrdersPage: React.FC = () => {
                 Symbol:
               </span>
               <div className="flex items-center p-0.5 rounded bg-background/80 border border-terminal-border">
-                {['ALL', 'BTCUSD', 'ETHUSD', 'SOLUSD'].map((sym) => (
+                {['ALL', 'BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD'].map((sym) => (
                   <button
                     key={sym}
                     onClick={() => setSymbolFilter(sym)}

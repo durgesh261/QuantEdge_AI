@@ -4,9 +4,11 @@ import { useMarketStore } from '../../stores/marketStore'
 import { accountService } from '../../services/accountService'
 import { tradingService } from '../../services/tradingService'
 import { marketService } from '../../services/marketService'
+import { settingsService } from '../../services/settingsService'
 import { AccountStatusResponse } from '../../types/account'
-import { TradingSystemStatusDto } from '../../types/trading'
 import { MarketStatusDto } from '../../types/market'
+import { SystemDiagnosticsDto } from '../../types/system'
+import { SUPPORTED_SYMBOLS, getInstrumentMeta } from '../../constants/instruments'
 import { DeltaExchangeSettings } from './DeltaExchangeSettings'
 import {
   Settings as SettingsIcon,
@@ -17,6 +19,12 @@ import {
   CheckCircle2,
   RefreshCw,
   LogOut,
+  Database,
+  Server,
+  Cpu,
+  Radio,
+  Clock,
+  Sparkles,
 } from 'lucide-react'
 
 export const SettingsPage: React.FC = () => {
@@ -25,8 +33,8 @@ export const SettingsPage: React.FC = () => {
 
   // Diagnostic states
   const [accountStatus, setAccountStatus] = useState<AccountStatusResponse | null>(null)
-  const [tradingStatus, setTradingStatus] = useState<TradingSystemStatusDto | null>(null)
   const [marketStatus, setMarketStatus] = useState<MarketStatusDto | null>(null)
+  const [diagnostics, setDiagnostics] = useState<SystemDiagnosticsDto | null>(null)
   const [isRefreshingProfile, setIsRefreshingProfile] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null)
 
@@ -56,15 +64,16 @@ export const SettingsPage: React.FC = () => {
   // Fetch Live Diagnostics
   const fetchDiagnostics = useCallback(async () => {
     try {
-      const [accRes, tradeRes, marketRes] = await Promise.allSettled([
+      const [accRes, , marketRes, diagRes] = await Promise.allSettled([
         accountService.getAccountStatus(),
         tradingService.getTradingStatus(),
         marketService.getMarketStatus(activeSymbol || 'BTCUSD'),
+        settingsService.getSystemDiagnostics(),
       ])
 
       if (accRes.status === 'fulfilled') setAccountStatus(accRes.value)
-      if (tradeRes.status === 'fulfilled') setTradingStatus(tradeRes.value)
       if (marketRes.status === 'fulfilled') setMarketStatus(marketRes.value)
+      if (diagRes.status === 'fulfilled') setDiagnostics(diagRes.value)
     } catch (err) {
       console.warn('Diagnostics fetch notice', err)
     }
@@ -72,6 +81,8 @@ export const SettingsPage: React.FC = () => {
 
   useEffect(() => {
     fetchDiagnostics()
+    const interval = setInterval(fetchDiagnostics, 10000)
+    return () => clearInterval(interval)
   }, [fetchDiagnostics])
 
   const handleRefreshProfile = async () => {
@@ -264,9 +275,14 @@ export const SettingsPage: React.FC = () => {
                   onChange={(e) => setPrefSymbol(e.target.value)}
                   className="w-full px-3 py-2 rounded bg-background border border-terminal-border font-mono text-xs text-white focus:outline-none focus:border-brand-cyan"
                 >
-                  <option value="BTCUSD">BTCUSD (Bitcoin Perpetual)</option>
-                  <option value="ETHUSD">ETHUSD (Ethereum Perpetual)</option>
-                  <option value="SOLUSD">SOLUSD (Solana Perpetual)</option>
+                  {SUPPORTED_SYMBOLS.map((sym) => {
+                    const symMeta = getInstrumentMeta(sym)
+                    return (
+                      <option key={sym} value={sym}>
+                        {sym} ({symMeta.name})
+                      </option>
+                    )
+                  })}
                 </select>
                 <p className="text-[11px] text-slate-500 font-sans">
                   The initial pair loaded when opening the Trading Terminal.
@@ -341,78 +357,109 @@ export const SettingsPage: React.FC = () => {
           <div className="glass-panel p-5 rounded-lg space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-terminal-border">
               <div className="flex items-center gap-2">
-                <Activity className="w-5 h-5 text-bullish" />
+                <Activity className="w-5 h-5 text-brand-cyan" />
                 <h3 className="text-sm font-bold text-white font-mono">Live System Health & Diagnostics</h3>
               </div>
-              <span className="flex items-center gap-1.5 text-xs font-mono text-bullish">
-                <span className="w-2 h-2 rounded-full bg-bullish animate-pulse"></span>
-                <span>SYSTEM ONLINE</span>
+              <span className={`flex items-center gap-1.5 text-xs font-mono font-bold ${
+                diagnostics?.overallStatus === 'HEALTHY' ? 'text-bullish' : diagnostics?.overallStatus === 'DEGRADED' ? 'text-warning' : 'text-bearish'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  diagnostics?.overallStatus === 'HEALTHY' ? 'bg-bullish animate-pulse' : 'bg-warning animate-ping'
+                }`}></span>
+                <span>{diagnostics?.overallStatus || 'CHECKING...'}</span>
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+              {/* Spring Boot API */}
               <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
                 <div className="text-slate-400 flex items-center justify-between">
-                  <span>Spring Boot REST API</span>
-                  <span className="text-bullish font-bold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    200 OK
+                  <span className="flex items-center gap-1.5">
+                    <Server className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>Spring Boot API</span>
+                  </span>
+                  <span className={`font-bold ${diagnostics?.api.status === 'ONLINE' ? 'text-bullish' : 'text-bearish'}`}>
+                    {diagnostics?.api.status || 'CONNECTING'}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-500 truncate">Gateway Latency: ~12ms</div>
-              </div>
-
-              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
-                <div className="text-slate-400 flex items-center justify-between">
-                  <span>Delta Market Feed</span>
-                  <span className="text-brand-cyan font-bold">
-                    {marketStatus?.connected ? 'CONNECTED' : 'STREAMING'}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  Latency: {marketStatus?.latencyMs ? `${marketStatus.latencyMs}ms` : '< 45ms'}
+                <div className="text-[11px] text-slate-400 truncate">
+                  {diagnostics?.api.details || 'Heap active'}
                 </div>
               </div>
 
+              {/* PostgreSQL Database */}
               <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
                 <div className="text-slate-400 flex items-center justify-between">
-                  <span>SMC Python Engine</span>
-                  <span className="text-bullish font-bold">DETERMINISTIC</span>
-                </div>
-                <div className="text-[11px] text-slate-500">1H Stream Invariant Active</div>
-              </div>
-
-              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
-                <div className="text-slate-400 flex items-center justify-between">
-                  <span>Execution Authority</span>
-                  <span className="text-brand-cyan font-bold truncate max-w-[120px]">
-                    OrderExecution.java
+                  <span className="flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>PostgreSQL Database</span>
+                  </span>
+                  <span className={`font-bold ${diagnostics?.database.status === 'ONLINE' ? 'text-bullish' : 'text-bearish'}`}>
+                    {diagnostics?.database.status || 'CHECKING'}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-500">POST /v2/orders Enforced</div>
-              </div>
-
-              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
-                <div className="text-slate-400 flex items-center justify-between">
-                  <span>Algo Engine Status</span>
-                  <span className={tradingStatus?.algoEnabled ? 'text-bullish font-bold' : 'text-slate-400 font-bold'}>
-                    {tradingStatus?.algoEnabled ? 'ACTIVE (1H SCAN)' : 'PAUSED'}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-500">
-                  {tradingStatus?.hasActiveTradeLock ? `Lock: ${tradingStatus.activeLockSetupId}` : '0/1 Active Locks'}
+                <div className="text-[11px] text-slate-400">
+                  Latency: {diagnostics?.database.latencyMs !== undefined ? `${diagnostics.database.latencyMs}ms` : '—'}
                 </div>
               </div>
 
+              {/* Delta REST Gateway */}
               <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
                 <div className="text-slate-400 flex items-center justify-between">
-                  <span>Circuit Breaker</span>
-                  <span className={tradingStatus?.killSwitchActive ? 'text-bearish font-bold' : 'text-bullish font-bold'}>
-                    {tradingStatus?.killSwitchActive ? 'ENGAGED (LOCKED)' : 'ARMED & NORMAL'}
+                  <span className="flex items-center gap-1.5">
+                    <Radio className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>Delta REST API</span>
+                  </span>
+                  <span className={`font-bold ${diagnostics?.deltaExchange.status === 'ONLINE' ? 'text-bullish' : 'text-warning'}`}>
+                    {diagnostics?.deltaExchange.status || (marketStatus?.connected ? 'ONLINE' : 'DEGRADED')}
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-500">
-                  Reconnections: {accountStatus?.reconnectCount ?? 0}
+                <div className="text-[11px] text-slate-400">
+                  Latency: {diagnostics?.deltaExchange.latencyMs !== undefined ? `${diagnostics.deltaExchange.latencyMs}ms` : marketStatus?.latencyMs ? `${marketStatus.latencyMs}ms` : '< 50ms'}
+                </div>
+              </div>
+
+              {/* Python SMC Engine */}
+              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
+                <div className="text-slate-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>Python SMC Engine</span>
+                  </span>
+                  <span className={`font-bold ${diagnostics?.pythonEngine.status === 'ONLINE' ? 'text-bullish' : 'text-slate-400'}`}>
+                    {diagnostics?.pythonEngine.status || 'DETERMINISTIC'}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  {diagnostics?.pythonEngine.details || '1H Canonical Stream Invariant'}
+                </div>
+              </div>
+
+              {/* AI Enrichment Layer */}
+              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
+                <div className="text-slate-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>AI Layer</span>
+                  </span>
+                  <span className="text-bullish font-bold">ACTIVE</span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {diagnostics?.aiEngine.details || 'Additive Conviction Scoring'}
+                </div>
+              </div>
+
+              {/* Financial News & Macro Ingestion */}
+              <div className="p-3 rounded bg-background/70 border border-terminal-border space-y-1">
+                <div className="text-slate-400 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-brand-cyan" />
+                    <span>News & Macro</span>
+                  </span>
+                  <span className="text-brand-cyan font-bold">SYNCED</span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate">
+                  {diagnostics?.newsService.details || 'Financial Ingestion Active'}
                 </div>
               </div>
             </div>
@@ -420,16 +467,18 @@ export const SettingsPage: React.FC = () => {
             {/* Application Build & Release Info */}
             <div className="p-3 rounded bg-background/40 border border-terminal-border/80 text-[11px] font-mono text-slate-400 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <span>QuantEdge Suite: </span>
-                <strong className="text-white">v2.0.0-PROD</strong>
+                <span>Build Version: </span>
+                <strong className="text-white">{diagnostics?.buildVersion || '2.0.0-SNAPSHOT'}</strong>
               </div>
               <div>
-                <span>Frontend: </span>
-                <strong className="text-slate-300">Vite 5 / React 18 / Tailwind</strong>
+                <span>Uptime: </span>
+                <strong className="text-slate-300">
+                  {diagnostics?.uptimeSeconds ? `${Math.floor(diagnostics.uptimeSeconds / 60)}m ${diagnostics.uptimeSeconds % 60}s` : 'Active'}
+                </strong>
               </div>
               <div>
-                <span>Backend: </span>
-                <strong className="text-slate-300">Spring Boot 3.2 (Java 21)</strong>
+                <span>Authority: </span>
+                <strong className="text-brand-cyan">Spring Boot (Port 8080)</strong>
               </div>
             </div>
           </div>

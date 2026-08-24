@@ -24,21 +24,20 @@ public class MarketDataService {
     private static final String EXCHANGE_NAME = "DELTAIN";
 
     private final DeltaMarketDataClient deltaClient;
+    private final InstrumentRegistry instrumentRegistry;
     private final Map<String, ProductDto> productCache = new ConcurrentHashMap<>();
     private volatile Instant lastProductFetch = Instant.MIN;
 
-    public MarketDataService(DeltaMarketDataClient deltaClient) {
+    public MarketDataService(DeltaMarketDataClient deltaClient, InstrumentRegistry instrumentRegistry) {
         this.deltaClient = deltaClient;
+        this.instrumentRegistry = instrumentRegistry;
     }
 
     /**
      * Normalizes trading symbol (e.g. BTCUSD.P -> BTCUSD).
      */
     public String normalizeSymbol(String symbol) {
-        if (symbol == null || symbol.isBlank()) return "BTCUSD";
-        String s = symbol.trim().toUpperCase();
-        if (s.endsWith(".P")) s = s.substring(0, s.length() - 2);
-        return s;
+        return InstrumentRegistry.normalize(symbol);
     }
 
     /**
@@ -180,6 +179,10 @@ public class MarketDataService {
 
         if (list.isEmpty() && !productCache.isEmpty()) {
             return new ArrayList<>(productCache.values());
+        }
+
+        if (list.isEmpty()) {
+            return instrumentRegistry.getDefaultProducts();
         }
 
         return list;

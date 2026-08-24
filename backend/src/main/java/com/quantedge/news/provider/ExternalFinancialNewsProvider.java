@@ -276,7 +276,7 @@ public class ExternalFinancialNewsProvider implements NewsProvider {
                 matched.add(sym);
             }
         }
-        if (matched.isEmpty()) return "BTC,ETH";
+        if (matched.isEmpty()) return "";
         return String.join(",", matched);
     }
 

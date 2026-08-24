@@ -132,4 +132,35 @@ public class AiEnrichmentService {
                 .map(AiEnrichmentDto::fromEntity)
                 .toList();
     }
+
+    /**
+     * Retrieves AI intelligence in bulk for a list of setup IDs.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<String, AiEnrichmentDto> getBulkEnrichments(User user, List<String> setupIds, String accountId) {
+        if (setupIds == null || setupIds.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        TradingAccount account = resolveAndVerifyAccount(user, accountId);
+        java.util.Map<String, AiEnrichmentDto> resultMap = new java.util.HashMap<>();
+
+        for (String setupId : setupIds) {
+            try {
+                List<AiSignalEnrichment> list = enrichmentRepository.findBySetupIdAndTradingAccountId(setupId, account.getId());
+                if (!list.isEmpty()) {
+                    resultMap.put(setupId, AiEnrichmentDto.fromEntity(list.getFirst()));
+                } else {
+                    java.util.Optional<StrategySetupRecord> setupOpt = setupRepository.findBySetupId(setupId);
+                    if (setupOpt.isPresent() && setupOpt.get().getTradingAccount() != null &&
+                            account.getId().equals(setupOpt.get().getTradingAccount().getId())) {
+                        AiSignalEnrichment enrichment = intelligenceEngine.evaluate(account, setupOpt.get());
+                        resultMap.put(setupId, AiEnrichmentDto.fromEntity(enrichment));
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Could not enrich setup {}: {}", setupId, e.getMessage());
+            }
+        }
+        return resultMap;
+    }
 }

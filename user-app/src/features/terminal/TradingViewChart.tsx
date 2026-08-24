@@ -13,7 +13,8 @@ import {
 } from 'lightweight-charts'
 import { CandleDto } from '../../types/market'
 import { SignalSetupDto } from '../../types/trading'
-import { AlertCircle, RefreshCw } from 'lucide-react'
+import { formatPrice, getInstrumentMeta } from '../../constants/instruments'
+import { AlertCircle, RefreshCw, Activity, ShieldCheck } from 'lucide-react'
 
 interface TradingViewChartProps {
   candles: CandleDto[]
@@ -48,6 +49,8 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     close: number
     volume: number
   } | null>(null)
+
+  const meta = getInstrumentMeta(symbol)
 
   // Initialize Lightweight Charts
   useEffect(() => {
@@ -144,7 +147,9 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     const resizeObserver = new ResizeObserver((entries) => {
       if (entries.length > 0 && chartContainerRef.current) {
         const { width, height } = entries[0].contentRect
-        chart.applyOptions({ width, height })
+        if (width > 0 && height > 0) {
+          chart.applyOptions({ width, height })
+        }
       }
     })
     resizeObserver.observe(chartContainerRef.current)
@@ -155,6 +160,21 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
       chartRef.current = null
     }
   }, [])
+
+  // Clear chart on symbol switch before loading new data
+  useEffect(() => {
+    if (candleSeriesRef.current && volumeSeriesRef.current) {
+      candleSeriesRef.current.setData([])
+      volumeSeriesRef.current.setData([])
+      setHoveredCandle(null)
+      priceLinesRef.current.forEach((line) => {
+        try {
+          candleSeriesRef.current?.removePriceLine(line)
+        } catch {}
+      })
+      priceLinesRef.current = []
+    }
+  }, [symbol, interval])
 
   // Update Candle & Volume Data
   useEffect(() => {
@@ -204,7 +224,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     }
   }, [candles])
 
-  // Update SMC Visual Overlays (Entry, SL, TP Lines & Order Block bounds from authoritative setup)
+  // Update SMC Visual Overlays (Entry, SL, TP Lines from authoritative setup)
   useEffect(() => {
     if (!candleSeriesRef.current) return
 
@@ -212,9 +232,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     priceLinesRef.current.forEach((line) => {
       try {
         candleSeriesRef.current?.removePriceLine(line)
-      } catch (e) {
-        // Ignore removal error
-      }
+      } catch {}
     })
     priceLinesRef.current = []
 
@@ -255,7 +273,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
           lineWidth: 2,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: `TAKE PROFIT (RR ${activeSetup.riskReward?.toFixed(2) || '2.00'})`,
+          title: `TAKE PROFIT (RR ${activeSetup.riskReward ? activeSetup.riskReward.toFixed(2) : '2.00'})`,
         })
         priceLinesRef.current.push(tpLine)
       }
@@ -264,32 +282,47 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
     }
   }, [activeSetup])
 
+  const latestCandle = candles && candles.length > 0 ? candles[candles.length - 1] : null
+  const isLive = latestCandle && (Date.now() / 1000 - (latestCandle.timestamp > 2000000000 ? latestCandle.timestamp / 1000 : latestCandle.timestamp) < 7200)
+
   return (
     <div className="glass-panel rounded-lg overflow-hidden flex flex-col h-[520px] relative">
       {/* Top Chart Floating Bar with OHLC Tracker & Active SMC Overlay Badge */}
       <div className="h-9 px-3 border-b border-terminal-border/80 flex items-center justify-between text-xs font-mono bg-background-surface/80 select-none">
         <div className="flex items-center gap-3">
-          <span className="font-bold text-white">{symbol}</span>
+          <span className="font-bold text-white">{meta.displaySymbol}</span>
           <span className="text-slate-400 font-sans text-[11px] px-1.5 py-0.5 rounded bg-background border border-terminal-border">
             {interval.toUpperCase()}
           </span>
 
+          {/* Freshness Badge */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-background border border-terminal-border text-[10px]">
+            <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-bullish animate-pulse' : 'bg-slate-400'}`}></span>
+            <span className={isLive ? 'text-bullish font-bold' : 'text-slate-400'}>{isLive ? 'FEED LIVE' : 'SYNCED'}</span>
+          </div>
+
+          {/* SMC 1H Invariant Notice */}
+          <div className="hidden lg:flex items-center gap-1 text-[10px] text-slate-400 font-sans">
+            <ShieldCheck className="w-3 h-3 text-brand-cyan" />
+            <span>1H Canonical SMC Invariant</span>
+          </div>
+
           {hoveredCandle ? (
             <div className="hidden sm:flex items-center gap-3 text-[11px]">
-              <span>O: <strong className="text-white">${hoveredCandle.open.toFixed(2)}</strong></span>
-              <span>H: <strong className="text-white">${hoveredCandle.high.toFixed(2)}</strong></span>
-              <span>L: <strong className="text-white">${hoveredCandle.low.toFixed(2)}</strong></span>
-              <span>C: <strong className={hoveredCandle.close >= hoveredCandle.open ? 'text-bullish' : 'text-bearish'}>${hoveredCandle.close.toFixed(2)}</strong></span>
+              <span>O: <strong className="text-white">${formatPrice(hoveredCandle.open, symbol)}</strong></span>
+              <span>H: <strong className="text-white">${formatPrice(hoveredCandle.high, symbol)}</strong></span>
+              <span>L: <strong className="text-white">${formatPrice(hoveredCandle.low, symbol)}</strong></span>
+              <span>C: <strong className={hoveredCandle.close >= hoveredCandle.open ? 'text-bullish' : 'text-bearish'}>${formatPrice(hoveredCandle.close, symbol)}</strong></span>
               <span>Vol: <strong className="text-slate-300">{hoveredCandle.volume.toLocaleString()}</strong></span>
             </div>
           ) : (
-            <span className="text-slate-500 text-[11px] hidden sm:inline">Hover over chart to view OHLCV data</span>
+            <span className="text-slate-500 text-[11px] hidden xl:inline">Hover over chart to inspect candle values</span>
           )}
         </div>
 
         {activeSetup && (
           <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-brand-cyan/10 border border-brand-cyan/20 text-brand-cyan text-[11px]">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-cyan animate-ping"></span>
+            <Activity className="w-3.5 h-3.5 animate-pulse text-brand-cyan" />
             <span>SMC SETUP: {activeSetup.setupId}</span>
           </div>
         )}
@@ -303,7 +336,7 @@ export const TradingViewChart: React.FC<TradingViewChartProps> = ({
         <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-10 font-mono text-xs text-slate-300">
           <div className="flex flex-col items-center gap-3">
             <RefreshCw className="w-6 h-6 animate-spin text-brand-cyan" />
-            <span>Loading {symbol} OHLCV Candlestick Feed...</span>
+            <span>Loading {meta.displaySymbol} OHLCV Candlestick Feed...</span>
           </div>
         </div>
       )}

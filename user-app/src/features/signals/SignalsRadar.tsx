@@ -6,6 +6,7 @@ import { SignalSetupDto } from '../../types/trading'
 import { AiEnrichmentDto } from '../../types/ai'
 import { SkeletonCard } from '../../components/common/Skeleton'
 import { EmptyState } from '../../components/common/EmptyState'
+import { SUPPORTED_SYMBOLS, formatPrice } from '../../constants/instruments'
 import {
   Radio,
   Filter,
@@ -17,6 +18,7 @@ import {
   AlertCircle,
   Sparkles,
   X,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 
 export const SignalsRadar: React.FC = () => {
@@ -44,22 +46,24 @@ export const SignalsRadar: React.FC = () => {
         stateFilter !== 'ALL' ? stateFilter : undefined,
         50
       )
-      setSignals(data)
+      setSignals(data || [])
 
-      // Fetch AI enrichments for qualified/active setups
-      const enrichmentMap: Record<string, AiEnrichmentDto> = {}
-      for (const s of data) {
+      // Fetch AI enrichments in a single bulk request (eliminates N+1 loop)
+      if (data && data.length > 0) {
+        const setupIds = data.map((s) => s.setupId)
         try {
-          const ai = await tradingService.getAiIntelligence(s.setupId)
-          if (ai) enrichmentMap[s.setupId] = ai
-        } catch (e) {
-          // AI enrichment is optional per setup
+          const bulkAi = await tradingService.getBulkAiIntelligence(setupIds)
+          setAiEnrichments(bulkAi || {})
+        } catch {
+          // AI intelligence is additive; graceful degradation
         }
+      } else {
+        setAiEnrichments({})
       }
-      setAiEnrichments(enrichmentMap)
     } catch (err: any) {
       console.warn('Failed to load signals radar', err)
-      setError(err.response?.data?.message || 'Unable to connect to SMC signals service')
+      const msg = err.response?.data?.message || err.message || 'Unable to connect to SMC signals service'
+      setError(msg)
     } finally {
       setIsLoading(false)
     }
@@ -83,14 +87,19 @@ export const SignalsRadar: React.FC = () => {
     return true
   })
 
-  // Summary Metrics
-  const activeCount = signals.filter((s) => s.setupState === 'ACTIVE' || s.setupState === 'QUALIFIED').length
+  // Summary Metrics (Honest: no fake 2.00 or fake 0% when empty)
+  const activeCount = signals.filter((s) => s.setupState === 'ACTIVE' || s.setupState === 'QUALIFIED' || s.setupState === 'TRADE_SETUP_READY').length
   const avgRR = signals.length > 0
     ? (signals.reduce((acc, s) => acc + (s.riskReward || 0), 0) / signals.length).toFixed(2)
-    : '2.00'
+    : '—'
   const avgConfidence = signals.length > 0
-    ? Math.round(signals.reduce((acc, s) => acc + (s.confidence || 0), 0) / signals.length * (signals[0]?.confidence <= 1 ? 100 : 1))
-    : 0
+    ? Math.round(
+        signals.reduce((acc, s) => {
+          const conf = Number(s.confidence || 0)
+          return acc + (conf <= 1 ? conf * 100 : conf)
+        }, 0) / signals.length
+      )
+    : null
 
   const handleOpenTerminal = (symbol: string) => {
     setActiveSymbol(symbol)
@@ -139,13 +148,15 @@ export const SignalsRadar: React.FC = () => {
 
         <div className="glass-panel p-4 rounded-lg">
           <div className="text-xs text-slate-400 font-medium">Average Risk/Reward</div>
-          <div className="mt-2 text-2xl font-bold font-mono text-white">{avgRR} : 1</div>
+          <div className="mt-2 text-2xl font-bold font-mono text-white">{avgRR === '—' ? '—' : `${avgRR} : 1`}</div>
           <div className="mt-1 text-[11px] font-mono text-slate-400">Minimum RR ≥ 2.0 filter</div>
         </div>
 
         <div className="glass-panel p-4 rounded-lg">
           <div className="text-xs text-slate-400 font-medium">Mean AI Confidence</div>
-          <div className="mt-2 text-2xl font-bold font-mono text-brand-cyan">{avgConfidence}%</div>
+          <div className="mt-2 text-2xl font-bold font-mono text-brand-cyan">
+            {avgConfidence !== null ? `${avgConfidence}%` : '—'}
+          </div>
           <div className="mt-1 text-[11px] font-mono text-slate-400">Technical + Regime composite</div>
         </div>
       </div>
@@ -160,7 +171,7 @@ export const SignalsRadar: React.FC = () => {
 
           {/* Symbol Filter */}
           <div className="flex items-center p-0.5 rounded-md bg-background/80 border border-terminal-border font-mono text-xs">
-            {['ALL', 'BTCUSD', 'ETHUSD', 'SOLUSD'].map((sym) => (
+            {['ALL', ...SUPPORTED_SYMBOLS].map((sym) => (
               <button
                 key={sym}
                 onClick={() => setSymbolFilter(sym)}
@@ -194,7 +205,7 @@ export const SignalsRadar: React.FC = () => {
 
           {/* State Filter */}
           <div className="flex items-center p-0.5 rounded-md bg-background/80 border border-terminal-border font-mono text-xs">
-            {['ALL', 'QUALIFIED', 'ACTIVE', 'COMPLETED', 'INVALIDATED'].map((st) => (
+            {['ALL', 'TRADE_SETUP_READY', 'QUALIFIED', 'ACTIVE', 'COMPLETED', 'INVALIDATED'].map((st) => (
               <button
                 key={st}
                 onClick={() => setStateFilter(st)}
@@ -204,7 +215,7 @@ export const SignalsRadar: React.FC = () => {
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                {st}
+                {st === 'TRADE_SETUP_READY' ? 'READY' : st}
               </button>
             ))}
           </div>
@@ -222,12 +233,23 @@ export const SignalsRadar: React.FC = () => {
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{error}</span>
           </div>
-          <button
-            onClick={fetchSignals}
-            className="px-2.5 py-1 rounded bg-bearish/20 hover:bg-bearish/30 text-white font-bold transition-all font-mono"
-          >
-            Retry
-          </button>
+          <div className="flex items-center gap-2">
+            {error.toLowerCase().includes('account') && (
+              <button
+                onClick={() => navigate('/settings')}
+                className="px-2.5 py-1 rounded bg-brand-cyan text-background font-bold transition-all font-mono flex items-center gap-1"
+              >
+                <SettingsIcon className="w-3 h-3" />
+                <span>Configure Account</span>
+              </button>
+            )}
+            <button
+              onClick={fetchSignals}
+              className="px-2.5 py-1 rounded bg-bearish/20 hover:bg-bearish/30 text-white font-bold transition-all font-mono"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
 
@@ -243,9 +265,10 @@ export const SignalsRadar: React.FC = () => {
           {filteredSignals.map((setup) => {
             const isLong = setup.direction?.toUpperCase() === 'LONG' || setup.direction?.toUpperCase() === 'BUY'
             const ai = aiEnrichments[setup.setupId]
-            const confidence = ai?.confidence
-              ? Math.round(Number(ai.confidence) * (Number(ai.confidence) <= 1 ? 100 : 1))
-              : Math.round(setup.confidence * (setup.confidence <= 1 ? 100 : 1))
+            const rawConf = ai?.confidence ?? setup.confidence
+            const confidence = rawConf != null
+              ? Math.round(Number(rawConf) <= 1 ? Number(rawConf) * 100 : Number(rawConf))
+              : null
 
             return (
               <div
@@ -275,22 +298,22 @@ export const SignalsRadar: React.FC = () => {
                 {/* Setup ID & Timeframe */}
                 <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
                   <span className="truncate max-w-[200px] text-brand-cyan font-semibold">{setup.setupId}</span>
-                  <span>1H STREAM</span>
+                  <span>1H CANONICAL</span>
                 </div>
 
                 {/* Price Metrics Grid */}
                 <div className="grid grid-cols-3 gap-2 p-2.5 rounded bg-background/60 border border-terminal-border text-center font-mono text-xs">
                   <div>
                     <div className="text-[10px] text-slate-400 uppercase">Entry</div>
-                    <div className="font-bold text-white mt-0.5">${setup.entryPrice?.toFixed(2)}</div>
+                    <div className="font-bold text-white mt-0.5">${formatPrice(setup.entryPrice, setup.symbol)}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 uppercase">Stop Loss</div>
-                    <div className="font-bold text-bearish mt-0.5">${setup.stopLoss?.toFixed(2)}</div>
+                    <div className="font-bold text-bearish mt-0.5">${formatPrice(setup.stopLoss, setup.symbol)}</div>
                   </div>
                   <div>
                     <div className="text-[10px] text-slate-400 uppercase">Take Profit</div>
-                    <div className="font-bold text-bullish mt-0.5">${setup.takeProfit?.toFixed(2)}</div>
+                    <div className="font-bold text-bullish mt-0.5">${formatPrice(setup.takeProfit, setup.symbol)}</div>
                   </div>
                 </div>
 
@@ -299,11 +322,11 @@ export const SignalsRadar: React.FC = () => {
                   <div className="flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-brand-cyan" />
                     <span className="text-slate-400">AI Conviction:</span>
-                    <strong className="text-brand-cyan font-bold">{confidence}%</strong>
+                    <strong className="text-brand-cyan font-bold">{confidence !== null ? `${confidence}%` : '—'}</strong>
                   </div>
                   <div>
                     <span className="text-slate-400">RR: </span>
-                    <strong className="text-white font-bold">{setup.riskReward?.toFixed(2) || '2.00'}</strong>
+                    <strong className="text-white font-bold">{setup.riskReward ? setup.riskReward.toFixed(2) : '—'}</strong>
                   </div>
                 </div>
 
@@ -317,7 +340,7 @@ export const SignalsRadar: React.FC = () => {
                 {/* Bottom Action Button */}
                 <div className="pt-2 border-t border-terminal-border/60 flex items-center justify-between">
                   <span className="text-[10px] font-mono text-slate-500">
-                    {new Date(setup.createdAt).toLocaleTimeString()}
+                    {setup.createdAt ? new Date(setup.createdAt).toLocaleTimeString() : '—'}
                   </span>
                   <button
                     onClick={(e) => {
@@ -338,13 +361,21 @@ export const SignalsRadar: React.FC = () => {
         <div className="glass-panel rounded-lg">
           <EmptyState
             icon={Radio}
-            title="No Matching SMC Setups Found"
-            description="The 1H deterministic SMC engine is actively monitoring order blocks and structure breaks. Try adjusting your filter criteria above."
-            actionLabel="Reset Filters"
+            title={error?.toLowerCase().includes('account') ? 'No Trading Account Configured' : 'No Matching SMC Setups Found'}
+            description={
+              error?.toLowerCase().includes('account')
+                ? 'Connect your Delta Exchange India credentials in Settings to start receiving authoritative strategy setups and AI conviction scoring.'
+                : 'The 1H deterministic SMC engine is actively monitoring market structure, order blocks, and liquidity. Try clearing or adjusting your filters.'
+            }
+            actionLabel={error?.toLowerCase().includes('account') ? 'Go to Settings' : 'Reset Filters'}
             onAction={() => {
-              setSymbolFilter('ALL')
-              setDirectionFilter('ALL')
-              setStateFilter('ALL')
+              if (error?.toLowerCase().includes('account')) {
+                navigate('/settings')
+              } else {
+                setSymbolFilter('ALL')
+                setDirectionFilter('ALL')
+                setStateFilter('ALL')
+              }
             }}
           />
         </div>
@@ -415,15 +446,15 @@ export const SignalsRadar: React.FC = () => {
               <div className="grid grid-cols-3 gap-2 p-3 rounded bg-background/80 border border-terminal-border text-center">
                 <div>
                   <div className="text-[10px] text-slate-400">ENTRY</div>
-                  <div className="text-sm font-bold text-white">${selectedSignal.entryPrice?.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-white">${formatPrice(selectedSignal.entryPrice, selectedSignal.symbol)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400">STOP LOSS</div>
-                  <div className="text-sm font-bold text-bearish">${selectedSignal.stopLoss?.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-bearish">${formatPrice(selectedSignal.stopLoss, selectedSignal.symbol)}</div>
                 </div>
                 <div>
                   <div className="text-[10px] text-slate-400">TAKE PROFIT</div>
-                  <div className="text-sm font-bold text-bullish">${selectedSignal.takeProfit?.toFixed(2)}</div>
+                  <div className="text-sm font-bold text-bullish">${formatPrice(selectedSignal.takeProfit, selectedSignal.symbol)}</div>
                 </div>
               </div>
             </div>

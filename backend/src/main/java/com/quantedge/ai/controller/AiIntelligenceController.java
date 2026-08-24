@@ -52,4 +52,25 @@ public class AiIntelligenceController {
         List<AiEnrichmentDto> list = enrichmentService.getEnrichmentsByAccount(effectiveUser, accountId, symbol, limit);
         return ResponseEntity.ok(list);
     }
+
+    public record BulkIntelligenceRequest(
+            List<String> setupIds,
+            String accountId
+    ) {}
+
+    /**
+     * Retrieves AI signal enrichments in bulk for a list of setup IDs.
+     */
+    @PostMapping({"/v1/ai/enrichments/bulk", "/v1/trade/signals/intelligence/bulk"})
+    public ResponseEntity<java.util.Map<String, AiEnrichmentDto>> getBulkSetupIntelligence(
+            @AuthenticationPrincipal User user,
+            @RequestAttribute(value = "currentUser", required = false) User requestUser,
+            @RequestBody BulkIntelligenceRequest request
+    ) {
+        User effectiveUser = user != null ? user : requestUser;
+        List<String> ids = request != null && request.setupIds() != null ? request.setupIds() : List.of();
+        String accountId = request != null ? request.accountId() : null;
+        java.util.Map<String, AiEnrichmentDto> map = enrichmentService.getBulkEnrichments(effectiveUser, ids, accountId);
+        return ResponseEntity.ok(map);
+    }
 }
