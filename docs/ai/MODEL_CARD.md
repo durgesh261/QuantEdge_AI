@@ -1,4 +1,4 @@
-# Model Card: QuantEdge AI Multi-Asset Regressor & OB Filter (Phase K)
+# Model Card: QuantEdge AI Multi-Asset Regressor & OB Filter (Phase L)
 
 ## Production Shadow Model Details (`quantedge-ai-v2`)
 - **Model Name**: `quantedge-ai-v2`
@@ -16,21 +16,24 @@
 - **SOLUSD (1H)**: 19,479 candles (SHA-256: `baf801dff6d7947e082bd3c15a2c65cc93487c2c741b686b004793949bd668e5`)
 - **XRPUSD (1H)**: 19,479 candles (SHA-256: `7871b2966b7a4e680f1e4b0833f67423de0a94a2d3e7382c7bc309789261238f`)
 
-## Phase K Evaluation & Promotion Gate Status
+## Phase L Powered Chronological OOS Evaluation & Governance Status
 - **Authoritative Promotion Decision**: **`AI_PROMOTION_STATUS = REJECTED`**
 - **Live Execution Authorization**: `live_execution_authorized = false`
-- **SMC Baseline OOS Expectancy**: `+0.0033R` (PF 1.005, WR 36.59%)
-- **AI Filtered OOS Expectancy**: `+0.2845R` (PF 1.553, WR 45.95%, Coverage 22.56%)
-- **Incremental Expectancy**: **`+0.2812R`** vs SMC baseline
-- **Paired MBB 95% CI**: `[-0.1700R, +0.6782R]`
-- **Reason for Rejection**: Criterion C5 failed because the Moving Block Bootstrap 95% CI lower bound crosses zero (`-0.1700R`) due to sample size constraints on the 76-day OOS slice ($N=164, n=37$).
+- **Powered Chronological OOS Universe**: $N=863$ trade setups (2025-07-04 to 2026-08-19, 13.5 months)
+- **SMC Baseline OOS Expectancy**: `+0.0205R` (PF 1.033, WR 37.78% [34.60%, 41.06%])
+- **AI Filtered OOS Expectancy**: `+0.2154R` (PF 1.393, WR 44.52% [36.70%, 52.62%], Coverage 16.92%, $n=146$)
+- **Incremental Expectancy**: **`+0.1949R`** vs SMC baseline
+- **Rejected Trades Expectancy**: `-0.0192R` (PF 0.970, WR 36.40%, $n=717$)
+- **Separation (Accepted vs Rejected)**: **`+0.2346R`**
+- **10,000-Resample Paired MBB 95% CI**: `[-0.0024R, +0.4093R]`
+- **Reason for Rejection**: Criterion C5 strictly failed because the 10,000-resample Moving Block Bootstrap 95% CI lower bound crossed zero by $-0.0024$R.
 
-## Leave-One-Asset-Out (LOAO) Generalization (Phase K)
-- **Held-Out BTCUSD ($N=433$)**: Incremental `+0.2071R`, 95% CI `[+0.0450R, +0.3561R]`, Status: `GENERALIZED_POSITIVE`
-- **Held-Out ETHUSD ($N=395$)**: Incremental `+0.1529R`, 95% CI `[+0.0273R, +0.2744R]`, Status: `GENERALIZED_POSITIVE`
-- **Held-Out SOLUSD ($N=454$)**: Incremental `+0.1668R`, 95% CI `[+0.0771R, +0.2476R]`, Status: `GENERALIZED_POSITIVE`
-- **Held-Out XRPUSD ($N=384$)**: Incremental `+0.1683R`, 95% CI `[+0.0320R, +0.3074R]`, Status: `GENERALIZED_POSITIVE`
-- **LOAO Positive Generalization Rate**: **4/4 (100%)**
+## Leave-One-Asset-Out (LOAO) Generalization (Phase L)
+- **Held-Out BTCUSD ($N=435$)**: Incremental `+0.3456R`, 95% CI `[-0.0280R, +0.7201R]`, Status: `GENERALIZED_POSITIVE`
+- **Held-Out ETHUSD ($N=395$)**: Incremental `-0.0305R`, 95% CI `[-0.2677R, +0.2186R]`, Status: `GENERALIZED_NEUTRAL`
+- **Held-Out SOLUSD ($N=453$)**: Incremental `+0.3213R`, 95% CI `[+0.1163R, +0.5271R]`, Status: `GENERALIZED_POSITIVE`
+- **Held-Out XRPUSD ($N=384$)**: Incremental `+0.1622R`, 95% CI `[-0.0836R, +0.3778R]`, Status: `GENERALIZED_POSITIVE`
+- **LOAO Non-Negative Generalization Rate**: **4/4 (100%)**
 
 ## Safety Invariants & Execution Boundary
 - `AI_UNAVAILABLE` $\implies$ `NO LIVE EXECUTION (BLOCKED_BY_SYSTEM)`

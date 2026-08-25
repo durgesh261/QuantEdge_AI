@@ -1,7 +1,7 @@
 {
-  "manifest_version": "3.0.0",
-  "phase": "K",
-  "generated_at_utc": "2026-08-25T07:55:11.422856+00:00",
+  "manifest_version": "3.1.0",
+  "phase": "L",
+  "generated_at_utc": "2026-08-25T08:54:41.717548+00:00",
   "model_name": "quantedge-ai-v2",
   "model_type": "RandomForestRegressor",
   "model_hyperparameters": {
@@ -48,10 +48,10 @@
   "threshold": 0.5,
   "dataset_fingerprint": "020dda52614a1dd08b8e8885af2d30d75aa2c44fede91cc7f56d005686d4e862",
   "canonical_asset_hashes": {
-    "BTCUSD": "9774e176db71b367aec26728546a53484b56cbf96f0331209fa324d7b6e5c27b",
-    "ETHUSD": "8644a3bf853915e412f4881d76d52432b96d643e0d0562c4989cec3f3b5b90ab",
-    "SOLUSD": "c9ad8c1fc1a0d123d29abb947618840ce13433582f2dc92e50e78b0428cbb86a",
-    "XRPUSD": "72d2be15477673ec412a41b79da774cbbf63b94440b5bee19c8fd0f3e93bf862"
+    "BTCUSD": "5e7bbab57e308b97e80980286690229fbc56db3263d19039303f32777c1e0ee9",
+    "ETHUSD": "0ca80cbe3b83870f68ecc7cdd2ee00c4eb38b3f5145eb051ad5d3c187d30cb0f",
+    "SOLUSD": "baf801dff6d7947e082bd3c15a2c65cc93487c2c741b686b004793949bd668e5",
+    "XRPUSD": "7871b2966b7a4e680f1e4b0833f67423de0a94a2d3e7382c7bc309789261238f"
   },
   "training_configuration": {
     "assets": [
@@ -111,35 +111,18 @@
       "win_rate_pct": 40.43,
       "max_drawdown_r": 14.0,
       "coverage_pct": 14.69
-    },
-    "confidence_intervals": {
-      "smc_mean_r_95ci": [
-        -0.3012,
-        -0.0125
-      ],
-      "ai_mean_r_95ci": [
-        -0.2045,
-        0.685
-      ],
-      "incremental_mean_r_95ci": [
-        -0.3434,
-        1.1401
-      ],
-      "mbb_block_size": 7,
-      "n_bootstraps": 1000
     }
   },
-  "phase_k_expanded_research": {
-    "total_setups": 1666,
-    "train_setups": 1205,
-    "val_setups": 297,
-    "oos_setups": 164,
-    "oos_smc_expectancy_r": 0.0033,
-    "oos_ai_expectancy_r": 0.2845,
-    "oos_incremental_expectancy_r": 0.2812,
-    "oos_bootstrap_95ci": [
-      -0.17,
-      0.6782
+  "phase_l_powered_research": {
+    "total_setups": 1667,
+    "train_setups": 804,
+    "oos_setups": 863,
+    "oos_smc_expectancy_r": 0.0205,
+    "oos_ai_expectancy_r": 0.2154,
+    "oos_incremental_expectancy_r": 0.1949,
+    "oos_bootstrap_10k_95ci": [
+      -0.0024,
+      0.4093
     ],
     "loao_positive_rate": "4/4 (100%)",
     "gate_decision": "REJECTED"
