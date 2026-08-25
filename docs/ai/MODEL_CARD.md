@@ -1,6 +1,6 @@
-# Model Card: QuantEdge AI v2 Multi-Asset Regressor (Phase H)
+# Model Card: QuantEdge AI Multi-Asset Regressor & OB Filter (Phase K)
 
-## Model Details
+## Production Shadow Model Details (`quantedge-ai-v2`)
 - **Model Name**: `quantedge-ai-v2`
 - **Model Architecture**: Multi-Output Random Forest Regressor (`n_estimators=100`, `max_depth=4`, `min_samples_leaf=5`, `max_features=0.5`, `random_state=42`)
 - **Input Features**: 24 canonical features (`canonical-24-v2` / `canonical-24-h1`)
@@ -11,42 +11,29 @@
 - **Inference Latency**: p50 = 0.034ms, p95 = 0.041ms (Target $\le 5.0$ms PASS)
 
 ## Multi-Asset Scope & Canonical Data Provenance
-- **BTCUSD (1H)**: Available (5,583 real Delta Exchange India candles)
-- **ETHUSD (1H)**: Available (5,583 real Delta Exchange India candles)
-- **SOLUSD (1H)**: Available (5,583 real Delta Exchange India candles)
-- **XRPUSD (1H)**: Available (5,583 real Delta Exchange India candles)
+- **BTCUSD (1H)**: 19,479 candles (SHA-256: `5e7bbab57e308b97e80980286690229fbc56db3263d19039303f32777c1e0ee9`)
+- **ETHUSD (1H)**: 19,479 candles (SHA-256: `0ca80cbe3b83870f68ecc7cdd2ee00c4eb38b3f5145eb051ad5d3c187d30cb0f`)
+- **SOLUSD (1H)**: 19,479 candles (SHA-256: `baf801dff6d7947e082bd3c15a2c65cc93487c2c741b686b004793949bd668e5`)
+- **XRPUSD (1H)**: 19,479 candles (SHA-256: `7871b2966b7a4e680f1e4b0833f67423de0a94a2d3e7382c7bc309789261238f`)
 
-## Phase H Evaluation & Promotion Gate Status
+## Phase K Evaluation & Promotion Gate Status
 - **Authoritative Promotion Decision**: **`AI_PROMOTION_STATUS = REJECTED`**
 - **Live Execution Authorization**: `live_execution_authorized = false`
-- **Frozen Validation Threshold**: `+0.50R`
-- **Pooled OOS SMC Expectancy**: `-0.1532R`
-- **Pooled OOS AI Expectancy (Baseline)**: `+0.0242R`
-- **Pooled OOS AI Expectancy (Scale-Invariant)**: `+0.2146R`
-- **Incremental Expectancy 95% CI (MBB)**: `[-0.3434R, +1.1401R]` (Lower bound $< 0.0$R $\implies$ Promotion Blocked)
+- **SMC Baseline OOS Expectancy**: `+0.0033R` (PF 1.005, WR 36.59%)
+- **AI Filtered OOS Expectancy**: `+0.2845R` (PF 1.553, WR 45.95%, Coverage 22.56%)
+- **Incremental Expectancy**: **`+0.2812R`** vs SMC baseline
+- **Paired MBB 95% CI**: `[-0.1700R, +0.6782R]`
+- **Reason for Rejection**: Criterion C5 failed because the Moving Block Bootstrap 95% CI lower bound crosses zero (`-0.1700R`) due to sample size constraints on the 76-day OOS slice ($N=164, n=37$).
 
-## Leave-One-Asset-Out (LOAO) Summary (Phase H Scale-Invariant Strategy)
-- **Held-Out BTCUSD**: SMC `+0.1356R` $\to$ AI `+1.4000R` (Incremental: `+1.2644R`, 95% CI: `[+0.6335R, +1.9187R]`, Status: `GENERALIZED_POSITIVE`)
-- **Held-Out ETHUSD**: SMC `-0.0145R` $\to$ AI `-0.0252R` (Incremental: `-0.0107R`, 95% CI: `[-0.5629R, +0.4458R]`, Status: `GENERALIZED_NEUTRAL`)
-- **Held-Out SOLUSD**: SMC `+0.2543R` $\to$ AI `+0.5012R` (Incremental: `+0.2469R`, 95% CI: `[-0.7940R, +1.3295R]`, Status: `GENERALIZED_NEUTRAL`)
-- **Held-Out XRPUSD**: SMC `-0.4109R` $\to$ AI `-0.2899R` (Incremental: `+0.1210R`, 95% CI: `[-0.4202R, +0.8583R]`, Status: `GENERALIZED_NEUTRAL`)
-- **LOAO Non-Negative Generalization Rate**: **4/4 (100%)**
+## Leave-One-Asset-Out (LOAO) Generalization (Phase K)
+- **Held-Out BTCUSD ($N=433$)**: Incremental `+0.2071R`, 95% CI `[+0.0450R, +0.3561R]`, Status: `GENERALIZED_POSITIVE`
+- **Held-Out ETHUSD ($N=395$)**: Incremental `+0.1529R`, 95% CI `[+0.0273R, +0.2744R]`, Status: `GENERALIZED_POSITIVE`
+- **Held-Out SOLUSD ($N=454$)**: Incremental `+0.1668R`, 95% CI `[+0.0771R, +0.2476R]`, Status: `GENERALIZED_POSITIVE`
+- **Held-Out XRPUSD ($N=384$)**: Incremental `+0.1683R`, 95% CI `[+0.0320R, +0.3074R]`, Status: `GENERALIZED_POSITIVE`
+- **LOAO Positive Generalization Rate**: **4/4 (100%)**
 
 ## Safety Invariants & Execution Boundary
 - `AI_UNAVAILABLE` $\implies$ `NO LIVE EXECUTION (BLOCKED_BY_SYSTEM)`
 - `AI_PROMOTION_REJECTED` $\implies$ `NO LIVE EXECUTION (BLOCKED_BY_SYSTEM)`
-- Emergency kill switch and risk caps remain strictly enforced on server-side and cannot be bypassed.
+- Live order dispatch remains strictly locked at `0` live orders dispatched.
 - Sole authorized production execution engine: **Deterministic SMC Engine**.
-
-## Phase H Shadow Execution & Governance Invariants
-- **Runtime Mode**: `NON_AUTHORITATIVE_SHADOW`
-- **Shadow Inference Status**: Active across all live Delta WebSocket & historical SMC setups.
-- **Order Placement Dispatch**: Strictly `0` live orders dispatched (`AiShadowResult.executionAuthorized = false`).
-- **Feature & Output Parity**: Python scikit-learn $\leftrightarrow$ Python ONNX $\leftrightarrow$ Java ONNX verified across golden vectors ($\le 10^{-4}$ numeric parity).
-- **Inference Robustness**: Hardened against missing features, NaN, $\pm\infty$, and dimensionality mismatches.
-
-## Critical Limitations & Disclaimers
-> [!IMPORTANT]
-> - **Correlation does not imply causation.**
-> - **Historical backtest performance does not guarantee future live performance.**
-> - **The AI model does not independently authorize live trading unless governance promotion succeeds.**

@@ -1,0 +1,61 @@
+{
+  "manifest_version": "3.0.0",
+  "phase": "K",
+  "exchange": "Delta Exchange India (api.india.delta.exchange)",
+  "updated_at_utc": "2026-08-25T07:51:38.252974+00:00",
+  "policy": "100% genuine real historical market data. Zero synthetic interpolation.",
+  "datasets": {
+    "BTCUSD": {
+      "symbol": "BTCUSD",
+      "timeframe": "1h",
+      "full_history_file": "data/canonical/delta_exchange_india/BTCUSD/1h/full_history.csv",
+      "candle_count": 19479,
+      "first_timestamp": "2024-06-01T00:00:00+00:00",
+      "last_timestamp": "2026-08-21T14:00:00+00:00",
+      "sha256": "5e7bbab57e308b97e80980286690229fbc56db3263d19039303f32777c1e0ee9",
+      "file_size_bytes": 1341927,
+      "is_valid_ohlc": true,
+      "is_sorted_ascending": true,
+      "status": "VALIDATED_CLEAN"
+    },
+    "ETHUSD": {
+      "symbol": "ETHUSD",
+      "timeframe": "1h",
+      "full_history_file": "data/canonical/delta_exchange_india/ETHUSD/1h/full_history.csv",
+      "candle_count": 19479,
+      "first_timestamp": "2024-06-01T00:00:00+00:00",
+      "last_timestamp": "2026-08-21T14:00:00+00:00",
+      "sha256": "0ca80cbe3b83870f68ecc7cdd2ee00c4eb38b3f5145eb051ad5d3c187d30cb0f",
+      "file_size_bytes": 1282558,
+      "is_valid_ohlc": true,
+      "is_sorted_ascending": true,
+      "status": "VALIDATED_CLEAN"
+    },
+    "SOLUSD": {
+      "symbol": "SOLUSD",
+      "timeframe": "1h",
+      "full_history_file": "data/canonical/delta_exchange_india/SOLUSD/1h/full_history.csv",
+      "candle_count": 19479,
+      "first_timestamp": "2024-06-01T00:00:00+00:00",
+      "last_timestamp": "2026-08-21T14:00:00+00:00",
+      "sha256": "baf801dff6d7947e082bd3c15a2c65cc93487c2c741b686b004793949bd668e5",
+      "file_size_bytes": 1258843,
+      "is_valid_ohlc": true,
+      "is_sorted_ascending": true,
+      "status": "VALIDATED_CLEAN"
+    },
+    "XRPUSD": {
+      "symbol": "XRPUSD",
+      "timeframe": "1h",
+      "full_history_file": "data/canonical/delta_exchange_india/XRPUSD/1h/full_history.csv",
+      "candle_count": 19479,
+      "first_timestamp": "2024-06-01T00:00:00+00:00",
+      "last_timestamp": "2026-08-21T14:00:00+00:00",
+      "sha256": "7871b2966b7a4e680f1e4b0833f67423de0a94a2d3e7382c7bc309789261238f",
+      "file_size_bytes": 1235087,
+      "is_valid_ohlc": true,
+      "is_sorted_ascending": true,
+      "status": "VALIDATED_CLEAN"
+    }
+  }
+}

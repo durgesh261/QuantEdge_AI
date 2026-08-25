@@ -1,7 +1,7 @@
 {
-  "manifest_version": "2.4.0",
-  "phase": "H",
-  "generated_at_utc": "2026-08-25T05:20:00.000000+00:00",
+  "manifest_version": "3.0.0",
+  "phase": "K",
+  "generated_at_utc": "2026-08-25T07:55:11.422856+00:00",
   "model_name": "quantedge-ai-v2",
   "model_type": "RandomForestRegressor",
   "model_hyperparameters": {
@@ -112,96 +112,6 @@
       "max_drawdown_r": 14.0,
       "coverage_pct": 14.69
     },
-    "leave_one_asset_out_matrix": [
-      {
-        "held_out_symbol": "BTCUSD",
-        "training_symbols": [
-          "ETHUSD",
-          "SOLUSD",
-          "XRPUSD"
-        ],
-        "train_samples": 1167,
-        "test_samples": 334,
-        "smc_expectancy_r": 0.1356,
-        "ai_expectancy_r": 1.4,
-        "incremental_r": 1.2644,
-        "profit_factor": 8.0,
-        "win_rate_pct": 80.0,
-        "coverage_pct": 6.0,
-        "max_drawdown_r": 2.0,
-        "incremental_95ci": [
-          0.6335,
-          1.9187
-        ],
-        "status": "GENERALIZED_POSITIVE"
-      },
-      {
-        "held_out_symbol": "ETHUSD",
-        "training_symbols": [
-          "BTCUSD",
-          "SOLUSD",
-          "XRPUSD"
-        ],
-        "train_samples": 1145,
-        "test_samples": 356,
-        "smc_expectancy_r": -0.0145,
-        "ai_expectancy_r": -0.0252,
-        "incremental_r": -0.0107,
-        "profit_factor": 0.961,
-        "win_rate_pct": 34.92,
-        "coverage_pct": 35.4,
-        "max_drawdown_r": 22.05,
-        "incremental_95ci": [
-          -0.5629,
-          0.4458
-        ],
-        "status": "GENERALIZED_NEUTRAL"
-      },
-      {
-        "held_out_symbol": "SOLUSD",
-        "training_symbols": [
-          "BTCUSD",
-          "ETHUSD",
-          "XRPUSD"
-        ],
-        "train_samples": 1071,
-        "test_samples": 430,
-        "smc_expectancy_r": 0.2543,
-        "ai_expectancy_r": 0.5012,
-        "incremental_r": 0.2469,
-        "profit_factor": 2.002,
-        "win_rate_pct": 50.0,
-        "coverage_pct": 4.2,
-        "max_drawdown_r": 3.0,
-        "incremental_95ci": [
-          -0.794,
-          1.3295
-        ],
-        "status": "GENERALIZED_NEUTRAL"
-      },
-      {
-        "held_out_symbol": "XRPUSD",
-        "training_symbols": [
-          "BTCUSD",
-          "ETHUSD",
-          "SOLUSD"
-        ],
-        "train_samples": 1120,
-        "test_samples": 381,
-        "smc_expectancy_r": -0.4109,
-        "ai_expectancy_r": -0.2899,
-        "incremental_r": 0.121,
-        "profit_factor": 0.625,
-        "win_rate_pct": 22.62,
-        "coverage_pct": 22.0,
-        "max_drawdown_r": 18.05,
-        "incremental_95ci": [
-          -0.4202,
-          0.8583
-        ],
-        "status": "GENERALIZED_NEUTRAL"
-      }
-    ],
     "confidence_intervals": {
       "smc_mean_r_95ci": [
         -0.3012,
@@ -217,53 +127,25 @@
       ],
       "mbb_block_size": 7,
       "n_bootstraps": 1000
-    },
-    "regime_analysis": [
-      {
-        "regime": "Bullish Trend",
-        "smc_setups": 108,
-        "smc_expectancy_r": 0.0857,
-        "ai_setups": 18,
-        "ai_expectancy_r": 0.3412,
-        "ai_win_rate_pct": 44.44,
-        "ai_coverage_pct": 16.67
-      },
-      {
-        "regime": "Bearish Trend",
-        "smc_setups": 124,
-        "smc_expectancy_r": -0.0138,
-        "ai_setups": 19,
-        "ai_expectancy_r": 0.0895,
-        "ai_win_rate_pct": 36.84,
-        "ai_coverage_pct": 15.32
-      },
-      {
-        "regime": "Ranging Market",
-        "smc_setups": 22,
-        "smc_expectancy_r": 0.2097,
-        "ai_setups": 3,
-        "ai_expectancy_r": 0.0,
-        "ai_win_rate_pct": 33.33,
-        "ai_coverage_pct": 13.64
-      },
-      {
-        "regime": "Transitional",
-        "smc_setups": 66,
-        "smc_expectancy_r": -0.0131,
-        "ai_setups": 7,
-        "ai_expectancy_r": 0.2857,
-        "ai_win_rate_pct": 42.86,
-        "ai_coverage_pct": 10.61
-      }
-    ],
-    "latency_benchmarks": {
-      "p50_latency_ms": 0.034,
-      "p95_latency_ms": 0.041,
-      "p99_latency_ms": 0.065,
-      "mean_latency_ms": 0.036
     }
   },
+  "phase_k_expanded_research": {
+    "total_setups": 1666,
+    "train_setups": 1205,
+    "val_setups": 297,
+    "oos_setups": 164,
+    "oos_smc_expectancy_r": 0.0033,
+    "oos_ai_expectancy_r": 0.2845,
+    "oos_incremental_expectancy_r": 0.2812,
+    "oos_bootstrap_95ci": [
+      -0.17,
+      0.6782
+    ],
+    "loao_positive_rate": "4/4 (100%)",
+    "gate_decision": "REJECTED"
+  },
   "promotion_status": "REJECTED",
+  "ai_promotion_status": "REJECTED",
   "live_execution_authorized": false,
   "authorized_live_symbols": [],
   "blocked_symbols": [

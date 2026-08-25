@@ -1,0 +1,545 @@
+{
+  "timestamp_utc": "2026-08-25T07:55:11.422856+00:00",
+  "dataset_summary": {
+    "total_setups": 1666,
+    "train_setups": 1205,
+    "val_setups": 297,
+    "oos_setups": 164,
+    "per_asset": {
+      "BTCUSD": 433,
+      "ETHUSD": 395,
+      "SOLUSD": 454,
+      "XRPUSD": 384
+    },
+    "train_dates": "2024-06-10T14:00:00+00:00 -> 2025-12-31T14:00:00+00:00",
+    "val_dates": "2026-01-05T13:00:00+00:00 -> 2026-05-31T16:00:00+00:00",
+    "oos_dates": "2026-06-05T04:00:00+00:00 -> 2026-08-19T06:00:00+00:00"
+  },
+  "models_benchmark": {
+    "candidates": {
+      "ridge": {
+        "threshold": 0.2,
+        "threshold_source": "rule_primary",
+        "val_coverage": 17.51,
+        "val_expectancy": 0.2957,
+        "val_inc_exp": 0.3258,
+        "val_pf": 1.57,
+        "oos_n": 37,
+        "oos_coverage": 22.56,
+        "oos_expectancy": 0.2845,
+        "oos_inc_exp": 0.2812,
+        "oos_pf": 1.553,
+        "oos_wr": 45.95,
+        "oos_mdd": 7.24,
+        "incremental_95ci": [
+          -0.17,
+          0.6782
+        ]
+      },
+      "elastic_net": {
+        "threshold": 0.5,
+        "threshold_source": "fallback_default",
+        "val_coverage": 0.0,
+        "val_expectancy": 0.0,
+        "val_inc_exp": 0.0301,
+        "val_pf": 0.0,
+        "oos_n": 1,
+        "oos_coverage": 0.61,
+        "oos_expectancy": 1.7143,
+        "oos_inc_exp": 1.711,
+        "oos_pf": 99.0,
+        "oos_wr": 100.0,
+        "oos_mdd": 0.0,
+        "incremental_95ci": [
+          -0.1303,
+          1.8961
+        ]
+      },
+      "random_forest": {
+        "threshold": 0.2,
+        "threshold_source": "rule_primary",
+        "val_coverage": 15.49,
+        "val_expectancy": 0.1922,
+        "val_inc_exp": 0.2223,
+        "val_pf": 1.354,
+        "oos_n": 26,
+        "oos_coverage": 15.85,
+        "oos_expectancy": 0.2634,
+        "oos_inc_exp": 0.2601,
+        "oos_pf": 1.489,
+        "oos_wr": 46.15,
+        "oos_mdd": 5.94,
+        "incremental_95ci": [
+          -0.333,
+          0.7112
+        ]
+      },
+      "extra_trees": {
+        "threshold": 0.0,
+        "threshold_source": "rule_primary",
+        "val_coverage": 49.83,
+        "val_expectancy": 0.1819,
+        "val_inc_exp": 0.212,
+        "val_pf": 1.328,
+        "oos_n": 98,
+        "oos_coverage": 59.76,
+        "oos_expectancy": 0.1848,
+        "oos_inc_exp": 0.1815,
+        "oos_pf": 1.329,
+        "oos_wr": 42.86,
+        "oos_mdd": 11.45,
+        "incremental_95ci": [
+          -0.0081,
+          0.3548
+        ]
+      },
+      "hist_gbdt": {
+        "threshold": 0.3,
+        "threshold_source": "rule_primary",
+        "val_coverage": 16.84,
+        "val_expectancy": 0.208,
+        "val_inc_exp": 0.2381,
+        "val_pf": 1.385,
+        "oos_n": 27,
+        "oos_coverage": 16.46,
+        "oos_expectancy": 0.0048,
+        "oos_inc_exp": 0.0015,
+        "oos_pf": 1.008,
+        "oos_wr": 37.04,
+        "oos_mdd": 7.28,
+        "incremental_95ci": [
+          -0.5425,
+          0.4627
+        ]
+      }
+    },
+    "primary_model_name": "ridge",
+    "selection_rationale": "Highest validation incremental expectancy (+0.3258R) among pre-declared models."
+  },
+  "primary_oos_results": {
+    "smc_baseline": {
+      "n": 164,
+      "coverage_pct": 100.0,
+      "win_rate_pct": 36.59,
+      "expectancy_r": 0.0033,
+      "profit_factor": 1.005,
+      "max_drawdown_r": 20.08,
+      "total_r": 0.54,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.161,
+      "mean_mae_r": 1.161
+    },
+    "ai_filtered": {
+      "n": 37,
+      "coverage_pct": 22.56,
+      "win_rate_pct": 45.95,
+      "expectancy_r": 0.2845,
+      "profit_factor": 1.553,
+      "max_drawdown_r": 7.24,
+      "total_r": 10.53,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.648,
+      "mean_mae_r": 0.965
+    },
+    "ai_rejected": {
+      "n": 127,
+      "coverage_pct": 77.44,
+      "win_rate_pct": 33.86,
+      "expectancy_r": -0.0787,
+      "profit_factor": 0.881,
+      "max_drawdown_r": 18.22,
+      "total_r": -9.99,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.02,
+      "mean_mae_r": 1.218
+    },
+    "incremental_expectancy_r": 0.2812,
+    "per_asset": {
+      "BTCUSD": {
+        "total_setups": 43,
+        "accepted_trades": 8,
+        "coverage_pct": 18.6,
+        "smc_expectancy": 0.2625,
+        "ai_expectancy": 0.3571,
+        "incremental_exp": 0.0946,
+        "smc_pf": 1.491,
+        "ai_pf": 1.714,
+        "ai_wr": 50.0,
+        "smc_mdd": 10.0,
+        "ai_mdd": 2.0
+      },
+      "ETHUSD": {
+        "total_setups": 40,
+        "accepted_trades": 13,
+        "coverage_pct": 32.5,
+        "smc_expectancy": -0.0262,
+        "ai_expectancy": 0.326,
+        "incremental_exp": 0.3522,
+        "smc_pf": 0.958,
+        "ai_pf": 1.701,
+        "ai_wr": 46.15,
+        "smc_mdd": 12.29,
+        "ai_mdd": 5.0
+      },
+      "SOLUSD": {
+        "total_setups": 48,
+        "accepted_trades": 7,
+        "coverage_pct": 14.58,
+        "smc_expectancy": -0.0956,
+        "ai_expectancy": 0.5503,
+        "incremental_exp": 0.6459,
+        "smc_pf": 0.857,
+        "ai_pf": 2.284,
+        "ai_wr": 57.14,
+        "smc_mdd": 7.56,
+        "ai_mdd": 2.0
+      },
+      "XRPUSD": {
+        "total_setups": 33,
+        "accepted_trades": 9,
+        "coverage_pct": 27.27,
+        "smc_expectancy": -0.155,
+        "ai_expectancy": -0.0469,
+        "incremental_exp": 0.1081,
+        "smc_pf": 0.778,
+        "ai_pf": 0.93,
+        "ai_wr": 33.33,
+        "smc_mdd": 6.89,
+        "ai_mdd": 4.0
+      }
+    }
+  },
+  "bootstrap_ci": {
+    "incremental_95ci": [
+      -0.17,
+      0.6782
+    ],
+    "smc_95ci": [
+      -0.2065,
+      0.1852
+    ],
+    "ai_95ci": [
+      -0.2187,
+      0.7112
+    ]
+  },
+  "statistical_power": {
+    "current_oos_setups": 164,
+    "current_ai_accepted_trades": 37,
+    "effective_sample_size_n_eff": 0.2,
+    "observed_trade_std_r": 1.315,
+    "ci_95_width": 0.8482,
+    "estimated_trades_needed_for_significance": 85,
+    "estimated_oos_setups_needed": 377,
+    "is_statistically_powered": false
+  },
+  "walk_forward": [
+    {
+      "fold": 1,
+      "train_n": 666,
+      "test_n": 333,
+      "test_dates": "2025-05-06 -> 2025-10-08",
+      "coverage_pct": 38.44,
+      "smc_expectancy": 0.024,
+      "ai_expectancy": 0.1584,
+      "incremental_expectancy": 0.1344,
+      "status": "POSITIVE"
+    },
+    {
+      "fold": 2,
+      "train_n": 999,
+      "test_n": 333,
+      "test_dates": "2025-10-09 -> 2026-03-14",
+      "coverage_pct": 51.95,
+      "smc_expectancy": 0.0175,
+      "ai_expectancy": 0.1497,
+      "incremental_expectancy": 0.1322,
+      "status": "POSITIVE"
+    },
+    {
+      "fold": 3,
+      "train_n": 1332,
+      "test_n": 329,
+      "test_dates": "2026-03-14 -> 2026-08-19",
+      "coverage_pct": 53.19,
+      "smc_expectancy": -0.0214,
+      "ai_expectancy": 0.2099,
+      "incremental_expectancy": 0.2313,
+      "status": "POSITIVE"
+    }
+  ],
+  "loao_matrix": [
+    {
+      "held_out_symbol": "BTCUSD",
+      "train_samples": 1233,
+      "test_samples": 433,
+      "coverage_pct": 39.26,
+      "smc_expectancy": -0.0735,
+      "ai_expectancy": 0.1336,
+      "incremental_expectancy": 0.2071,
+      "ai_profit_factor": 1.229,
+      "ai_win_rate_pct": 41.76,
+      "ai_max_drawdown_r": 18.57,
+      "incremental_95ci": [
+        0.045,
+        0.3561
+      ],
+      "status": "GENERALIZED_POSITIVE"
+    },
+    {
+      "held_out_symbol": "ETHUSD",
+      "train_samples": 1271,
+      "test_samples": 395,
+      "coverage_pct": 51.39,
+      "smc_expectancy": 0.0017,
+      "ai_expectancy": 0.1546,
+      "incremental_expectancy": 0.1529,
+      "ai_profit_factor": 1.27,
+      "ai_win_rate_pct": 42.36,
+      "ai_max_drawdown_r": 15.71,
+      "incremental_95ci": [
+        0.0273,
+        0.2744
+      ],
+      "status": "GENERALIZED_POSITIVE"
+    },
+    {
+      "held_out_symbol": "SOLUSD",
+      "train_samples": 1212,
+      "test_samples": 454,
+      "coverage_pct": 62.11,
+      "smc_expectancy": 0.0151,
+      "ai_expectancy": 0.1819,
+      "incremental_expectancy": 0.1668,
+      "ai_profit_factor": 1.323,
+      "ai_win_rate_pct": 43.62,
+      "ai_max_drawdown_r": 18.14,
+      "incremental_95ci": [
+        0.0771,
+        0.2476
+      ],
+      "status": "GENERALIZED_POSITIVE"
+    },
+    {
+      "held_out_symbol": "XRPUSD",
+      "train_samples": 1282,
+      "test_samples": 384,
+      "coverage_pct": 50.0,
+      "smc_expectancy": -0.0336,
+      "ai_expectancy": 0.1347,
+      "incremental_expectancy": 0.1683,
+      "ai_profit_factor": 1.235,
+      "ai_win_rate_pct": 42.71,
+      "ai_max_drawdown_r": 11.83,
+      "incremental_95ci": [
+        0.032,
+        0.3074
+      ],
+      "status": "GENERALIZED_POSITIVE"
+    }
+  ],
+  "regime_robustness": [
+    {
+      "regime": "LONG_Setups",
+      "smc_setups": 94,
+      "ai_setups": 18,
+      "smc_exp": 0.1663,
+      "ai_exp": 0.3664,
+      "incremental_r": 0.2001,
+      "ai_pf": 1.733,
+      "ai_wr": 50.0
+    },
+    {
+      "regime": "SHORT_Setups",
+      "smc_setups": 70,
+      "ai_setups": 19,
+      "smc_exp": -0.2156,
+      "ai_exp": 0.2069,
+      "incremental_r": 0.4225,
+      "ai_pf": 1.391,
+      "ai_wr": 42.11
+    },
+    {
+      "regime": "Trend_Aligned",
+      "smc_setups": 44,
+      "ai_setups": 13,
+      "smc_exp": 0.1134,
+      "ai_exp": 0.2536,
+      "incremental_r": 0.1402,
+      "ai_pf": 1.471,
+      "ai_wr": 46.15
+    },
+    {
+      "regime": "Counter_Trend",
+      "smc_setups": 120,
+      "ai_setups": 24,
+      "smc_exp": -0.0371,
+      "ai_exp": 0.3012,
+      "incremental_r": 0.3383,
+      "ai_pf": 1.6,
+      "ai_wr": 45.83
+    },
+    {
+      "regime": "High_Volatility",
+      "smc_setups": 82,
+      "ai_setups": 26,
+      "smc_exp": 0.0475,
+      "ai_exp": 0.2991,
+      "incremental_r": 0.2516,
+      "ai_pf": 1.596,
+      "ai_wr": 46.15
+    },
+    {
+      "regime": "Low_Volatility",
+      "smc_setups": 82,
+      "ai_setups": 11,
+      "smc_exp": -0.041,
+      "ai_exp": 0.2498,
+      "incremental_r": 0.2908,
+      "ai_pf": 1.458,
+      "ai_wr": 45.45
+    }
+  ],
+  "cost_sensitivity": [
+    {
+      "scenario": "Gross (Zero Fees/Slippage)",
+      "mean_net_r": 0.2845,
+      "profit_factor": 1.553,
+      "win_rate_pct": 45.95,
+      "total_net_r": 10.53,
+      "survives_edge": true
+    },
+    {
+      "scenario": "Base (0.05% Taker, 0.01% Slip, 0.01%/8h Fund)",
+      "mean_net_r": 0.0909,
+      "profit_factor": 1.15,
+      "win_rate_pct": 45.95,
+      "total_net_r": 3.36,
+      "survives_edge": true
+    },
+    {
+      "scenario": "2x Slippage (0.02% Slip)",
+      "mean_net_r": 0.0607,
+      "profit_factor": 1.098,
+      "win_rate_pct": 45.95,
+      "total_net_r": 2.25,
+      "survives_edge": true
+    },
+    {
+      "scenario": "2x Taker Fee (0.10% Fee)",
+      "mean_net_r": -0.0601,
+      "profit_factor": 0.911,
+      "win_rate_pct": 45.95,
+      "total_net_r": -2.22,
+      "survives_edge": false
+    },
+    {
+      "scenario": "Stress (2x Fee + 2x Slip + 2x Fund)",
+      "mean_net_r": -0.1027,
+      "profit_factor": 0.853,
+      "win_rate_pct": 45.95,
+      "total_net_r": -3.8,
+      "survives_edge": false
+    }
+  ],
+  "leverage_analysis": {
+    "universe_avg_leverage": 49.8,
+    "universe_median_leverage": 47.0,
+    "universe_max_leverage": 100,
+    "oos_ai_avg_leverage": 48.6,
+    "oos_ai_median_leverage": 48.0,
+    "liquidation_before_sl_count": 0,
+    "tail_risk_assessment": "ACCEPTABLE (0 liquidations before SL; isolated margin preserves stop barrier)"
+  },
+  "ablation_study": [
+    {
+      "feature_set": "A_SMC_Baseline",
+      "num_features": 0,
+      "threshold": "N/A",
+      "val_inc_exp": 0.0,
+      "oos_coverage": 100.0,
+      "oos_expectancy": 0.0033,
+      "oos_inc_exp": 0.0,
+      "oos_pf": 1.005
+    },
+    {
+      "feature_set": "B_OB_Geometry_Only",
+      "num_features": 14,
+      "threshold": 0.2,
+      "val_inc_exp": 0.3762,
+      "oos_coverage": 18.29,
+      "oos_expectancy": 0.2222,
+      "oos_inc_exp": 0.2189,
+      "oos_pf": 1.415
+    },
+    {
+      "feature_set": "C_Candle_Only",
+      "num_features": 10,
+      "threshold": 0.0,
+      "val_inc_exp": 0.2109,
+      "oos_coverage": 27.44,
+      "oos_expectancy": 0.1583,
+      "oos_inc_exp": 0.155,
+      "oos_pf": 1.274
+    },
+    {
+      "feature_set": "D_Geometry_Plus_Structure",
+      "num_features": 19,
+      "threshold": 0.2,
+      "val_inc_exp": 0.3769,
+      "oos_coverage": 19.51,
+      "oos_expectancy": 0.1405,
+      "oos_inc_exp": 0.1372,
+      "oos_pf": 1.249
+    },
+    {
+      "feature_set": "E_Full_Causal_OB",
+      "num_features": 29,
+      "threshold": 0.2,
+      "val_inc_exp": 0.3258,
+      "oos_coverage": 22.56,
+      "oos_expectancy": 0.2845,
+      "oos_inc_exp": 0.2812,
+      "oos_pf": 1.553
+    }
+  ],
+  "promotion_gate": {
+    "status": "REJECTED",
+    "live_execution_authorized": false,
+    "criteria": {
+      "C1_oos_incremental_expectancy_positive": {
+        "passed": true,
+        "val": "+0.2812R"
+      },
+      "C2_oos_profit_factor_improvement": {
+        "passed": true,
+        "val": "1.553 vs 1.005"
+      },
+      "C3_oos_drawdown_improvement": {
+        "passed": true,
+        "val": "7.24R vs 20.08R"
+      },
+      "C4_minimum_ai_coverage": {
+        "passed": true,
+        "val": "22.56% (floor 15.0%)"
+      },
+      "C5_bootstrap_ci_lower_bound_positive": {
+        "passed": false,
+        "val": "CI: [-0.1700, +0.6782]"
+      },
+      "C6_cross_asset_robustness": {
+        "passed": true,
+        "val": "4/4 non-negative"
+      },
+      "C7_rejected_trades_materially_worse": {
+        "passed": true,
+        "val": "Accept 0.2845R vs Reject -0.0787R"
+      },
+      "C8_no_unacceptable_liquidation_risk": {
+        "passed": true,
+        "val": "0 liquidations before SL"
+      }
+    },
+    "verdict_summary": "REJECTED by Statistical Significance (C5) or Approved only for shadow review."
+  }
+}
