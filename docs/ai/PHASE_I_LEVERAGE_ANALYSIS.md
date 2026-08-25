@@ -1,6 +1,6 @@
 # Phase I — Leverage & Liquidation Analysis
 
-Generated (UTC): 2026-08-25T06:25:30.595429+00:00
+Generated (UTC): 2026-08-25T07:12:55.137985+00:00
 
 ## Intended formula (verified against repository conventions)
 

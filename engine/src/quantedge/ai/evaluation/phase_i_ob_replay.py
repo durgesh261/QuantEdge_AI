@@ -162,6 +162,9 @@ class PhaseISetup:
     leverage: int                       # dynamic production formula, capped
     structural_event_id: str
     features_24: Tuple[float, ...]      # causal canonical-24 vector (data <= T)
+    formation_index: int = -1           # OB extreme candle index (-1 for legacy records)
+    break_index: int = -1               # structural break candle index
+    structure_origin: str = "internal"  # "internal" | "swing"
 
 
 @dataclass(frozen=True)
@@ -384,7 +387,15 @@ def extract_phase_i_setups(
             continue
 
         ob = decision.order_block
-        ob_key = id(ob)
+        # Value-based OB identity (deterministic across runs/processes).
+        # NOTE: id(ob) is NOT safe — CPython may recycle addresses of previously
+        # freed OB objects, silently dropping valid setups depending on GC timing.
+        ob_key = (
+            ctx.ob_structure_origin.get(id(ob), "internal"),
+            ob.type,
+            ob.formation_index,
+            ob.break_index,
+        )
         if ob_key in seen_ob_ids:
             duplicates_skipped += 1
             continue
@@ -443,6 +454,9 @@ def extract_phase_i_setups(
                 leverage=compute_dynamic_leverage(stop_frac * 100.0),
                 structural_event_id=structural_event_id,
                 features_24=features,
+                formation_index=ob.formation_index,
+                break_index=ob.break_index,
+                structure_origin=structure_type,
             )
         )
 
