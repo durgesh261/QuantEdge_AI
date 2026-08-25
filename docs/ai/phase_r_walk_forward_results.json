@@ -1,0 +1,554 @@
+{
+  "timestamp_utc": "2026-08-25T13:59:49.982078+00:00",
+  "population_summary": {
+    "total_2026_obs": 465,
+    "seed_population_jan_mar": 167,
+    "walk_forward_oos_setups": 298,
+    "total_unique_evaluated_obs": 298,
+    "per_asset_total": {
+      "BTCUSD": 127,
+      "ETHUSD": 104,
+      "SOLUSD": 135,
+      "XRPUSD": 99
+    },
+    "per_asset_oos": {
+      "BTCUSD": 79,
+      "ETHUSD": 74,
+      "SOLUSD": 82,
+      "XRPUSD": 63
+    }
+  },
+  "walk_forward_schedule": [
+    {
+      "window_id": "WF_WINDOW_1",
+      "train_start_utc": "2026-01-01T00:00:00+00:00",
+      "train_end_utc": "2026-03-31T23:59:59+00:00",
+      "test_start_utc": "2026-04-01T00:00:00+00:00",
+      "test_end_utc": "2026-04-30T23:59:59+00:00",
+      "test_month": "2026-04"
+    },
+    {
+      "window_id": "WF_WINDOW_2",
+      "train_start_utc": "2026-01-01T00:00:00+00:00",
+      "train_end_utc": "2026-04-30T23:59:59+00:00",
+      "test_start_utc": "2026-05-01T00:00:00+00:00",
+      "test_end_utc": "2026-05-31T23:59:59+00:00",
+      "test_month": "2026-05"
+    },
+    {
+      "window_id": "WF_WINDOW_3",
+      "train_start_utc": "2026-01-01T00:00:00+00:00",
+      "train_end_utc": "2026-05-31T23:59:59+00:00",
+      "test_start_utc": "2026-06-01T00:00:00+00:00",
+      "test_end_utc": "2026-06-30T23:59:59+00:00",
+      "test_month": "2026-06"
+    },
+    {
+      "window_id": "WF_WINDOW_4",
+      "train_start_utc": "2026-01-01T00:00:00+00:00",
+      "train_end_utc": "2026-06-30T23:59:59+00:00",
+      "test_start_utc": "2026-07-01T00:00:00+00:00",
+      "test_end_utc": "2026-07-31T23:59:59+00:00",
+      "test_month": "2026-07"
+    },
+    {
+      "window_id": "WF_WINDOW_5",
+      "train_start_utc": "2026-01-01T00:00:00+00:00",
+      "train_end_utc": "2026-07-31T23:59:59+00:00",
+      "test_start_utc": "2026-08-01T00:00:00+00:00",
+      "test_end_utc": "2026-08-21T23:59:59+00:00",
+      "test_month": "2026-08"
+    }
+  ],
+  "window_results": [
+    {
+      "window_id": "WF_WINDOW_1",
+      "test_month": "2026-04",
+      "training_period": "2026-01-01T00:00:00+00:00 -> 2026-03-31T23:59:59+00:00",
+      "test_period": "2026-04-01T00:00:00+00:00 -> 2026-04-30T23:59:59+00:00",
+      "training_rows": 167,
+      "test_rows": 69,
+      "model_id": "Ridge_a1.0_WF_WINDOW_1_21569d3a7d2f6bd9",
+      "model_hash": "21569d3a7d2f6bd9",
+      "accepted_count": 26,
+      "rejected_count": 43,
+      "acceptance_rate_pct": 37.68,
+      "smc_baseline": {
+        "n": 69,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 30.43,
+        "win_rate_95ci": [
+          20.85,
+          42.08
+        ],
+        "expectancy_r": -0.2055,
+        "profit_factor": 0.705,
+        "max_drawdown_r": 20.74,
+        "total_r": -14.18,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.041,
+        "mean_mae_r": 1.419
+      },
+      "ai_filtered": {
+        "n": 26,
+        "coverage_pct": 37.68,
+        "win_rate_pct": 19.23,
+        "win_rate_95ci": [
+          8.51,
+          37.88
+        ],
+        "expectancy_r": -0.486,
+        "profit_factor": 0.398,
+        "max_drawdown_r": 11.64,
+        "total_r": -12.64,
+        "median_r": -1.0,
+        "mean_mfe_r": 0.867,
+        "mean_mae_r": 1.537
+      },
+      "incremental_expectancy_r": -0.2805
+    },
+    {
+      "window_id": "WF_WINDOW_2",
+      "test_month": "2026-05",
+      "training_period": "2026-01-01T00:00:00+00:00 -> 2026-04-30T23:59:59+00:00",
+      "test_period": "2026-05-01T00:00:00+00:00 -> 2026-05-31T23:59:59+00:00",
+      "training_rows": 236,
+      "test_rows": 63,
+      "model_id": "Ridge_a1.0_WF_WINDOW_2_0d9a0c808abe9027",
+      "model_hash": "0d9a0c808abe9027",
+      "accepted_count": 11,
+      "rejected_count": 52,
+      "acceptance_rate_pct": 17.46,
+      "smc_baseline": {
+        "n": 63,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 38.1,
+        "win_rate_95ci": [
+          27.12,
+          50.44
+        ],
+        "expectancy_r": 0.0188,
+        "profit_factor": 1.03,
+        "max_drawdown_r": 13.84,
+        "total_r": 1.18,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.163,
+        "mean_mae_r": 1.147
+      },
+      "ai_filtered": {
+        "n": 11,
+        "coverage_pct": 17.46,
+        "win_rate_pct": 54.55,
+        "win_rate_95ci": [
+          28.01,
+          78.73
+        ],
+        "expectancy_r": 0.4488,
+        "profit_factor": 1.987,
+        "max_drawdown_r": 2.29,
+        "total_r": 4.94,
+        "median_r": 1.3682,
+        "mean_mfe_r": 1.523,
+        "mean_mae_r": 0.833
+      },
+      "incremental_expectancy_r": 0.43
+    },
+    {
+      "window_id": "WF_WINDOW_3",
+      "test_month": "2026-06",
+      "training_period": "2026-01-01T00:00:00+00:00 -> 2026-05-31T23:59:59+00:00",
+      "test_period": "2026-06-01T00:00:00+00:00 -> 2026-06-30T23:59:59+00:00",
+      "training_rows": 298,
+      "test_rows": 55,
+      "model_id": "Ridge_a1.0_WF_WINDOW_3_7882210265bc4685",
+      "model_hash": "7882210265bc4685",
+      "accepted_count": 31,
+      "rejected_count": 24,
+      "acceptance_rate_pct": 56.36,
+      "smc_baseline": {
+        "n": 55,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 41.82,
+        "win_rate_95ci": [
+          29.74,
+          54.97
+        ],
+        "expectancy_r": 0.1636,
+        "profit_factor": 1.29,
+        "max_drawdown_r": 10.0,
+        "total_r": 9.0,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.424,
+        "mean_mae_r": 0.928
+      },
+      "ai_filtered": {
+        "n": 31,
+        "coverage_pct": 56.36,
+        "win_rate_pct": 45.16,
+        "win_rate_95ci": [
+          29.16,
+          62.23
+        ],
+        "expectancy_r": 0.2643,
+        "profit_factor": 1.511,
+        "max_drawdown_r": 6.0,
+        "total_r": 8.19,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.617,
+        "mean_mae_r": 0.831
+      },
+      "incremental_expectancy_r": 0.1007
+    },
+    {
+      "window_id": "WF_WINDOW_4",
+      "test_month": "2026-07",
+      "training_period": "2026-01-01T00:00:00+00:00 -> 2026-06-30T23:59:59+00:00",
+      "test_period": "2026-07-01T00:00:00+00:00 -> 2026-07-31T23:59:59+00:00",
+      "training_rows": 354,
+      "test_rows": 75,
+      "model_id": "Ridge_a1.0_WF_WINDOW_4_ee7dde6e0742fb22",
+      "model_hash": "ee7dde6e0742fb22",
+      "accepted_count": 24,
+      "rejected_count": 51,
+      "acceptance_rate_pct": 32.0,
+      "smc_baseline": {
+        "n": 75,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 37.33,
+        "win_rate_95ci": [
+          27.26,
+          48.65
+        ],
+        "expectancy_r": 0.0148,
+        "profit_factor": 1.024,
+        "max_drawdown_r": 11.57,
+        "total_r": 1.11,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.116,
+        "mean_mae_r": 1.261
+      },
+      "ai_filtered": {
+        "n": 24,
+        "coverage_pct": 32.0,
+        "win_rate_pct": 41.67,
+        "win_rate_95ci": [
+          24.47,
+          61.17
+        ],
+        "expectancy_r": 0.1449,
+        "profit_factor": 1.248,
+        "max_drawdown_r": 5.22,
+        "total_r": 3.48,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.124,
+        "mean_mae_r": 1.135
+      },
+      "incremental_expectancy_r": 0.1301
+    },
+    {
+      "window_id": "WF_WINDOW_5",
+      "test_month": "2026-08",
+      "training_period": "2026-01-01T00:00:00+00:00 -> 2026-07-31T23:59:59+00:00",
+      "test_period": "2026-08-01T00:00:00+00:00 -> 2026-08-21T23:59:59+00:00",
+      "training_rows": 428,
+      "test_rows": 36,
+      "model_id": "Ridge_a1.0_WF_WINDOW_5_69ab325fa7645e3a",
+      "model_hash": "69ab325fa7645e3a",
+      "accepted_count": 9,
+      "rejected_count": 27,
+      "acceptance_rate_pct": 25.0,
+      "smc_baseline": {
+        "n": 36,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 30.56,
+        "win_rate_95ci": [
+          18.0,
+          46.86
+        ],
+        "expectancy_r": -0.1707,
+        "profit_factor": 0.754,
+        "max_drawdown_r": 10.87,
+        "total_r": -6.15,
+        "median_r": -1.0,
+        "mean_mfe_r": 0.927,
+        "mean_mae_r": 1.27
+      },
+      "ai_filtered": {
+        "n": 9,
+        "coverage_pct": 25.0,
+        "win_rate_pct": 33.33,
+        "win_rate_95ci": [
+          12.06,
+          64.58
+        ],
+        "expectancy_r": -0.0953,
+        "profit_factor": 0.857,
+        "max_drawdown_r": 2.0,
+        "total_r": -0.86,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.138,
+        "mean_mae_r": 0.972
+      },
+      "incremental_expectancy_r": 0.0754
+    }
+  ],
+  "aggregate_oos_performance": {
+    "smc_baseline": {
+      "n": 298,
+      "coverage_pct": 100.0,
+      "win_rate_pct": 35.91,
+      "win_rate_95ci": [
+        30.67,
+        41.5
+      ],
+      "expectancy_r": -0.0303,
+      "profit_factor": 0.952,
+      "max_drawdown_r": 29.72,
+      "total_r": -9.03,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.142,
+      "mean_mae_r": 1.213
+    },
+    "ai_filtered": {
+      "n": 101,
+      "coverage_pct": 33.89,
+      "win_rate_pct": 37.62,
+      "win_rate_95ci": [
+        28.79,
+        47.36
+      ],
+      "expectancy_r": 0.0308,
+      "profit_factor": 1.05,
+      "max_drawdown_r": 11.64,
+      "total_r": 3.12,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.254,
+      "mean_mae_r": 1.098
+    },
+    "ai_rejected": {
+      "n": 197,
+      "coverage_pct": 66.11,
+      "win_rate_pct": 35.03,
+      "win_rate_95ci": [
+        28.71,
+        41.92
+      ],
+      "expectancy_r": -0.0617,
+      "profit_factor": 0.905,
+      "max_drawdown_r": 21.28,
+      "total_r": -12.15,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.085,
+      "mean_mae_r": 1.272
+    },
+    "incremental_expectancy_r": 0.0611,
+    "bootstrap_95ci": {
+      "lower_95ci": -0.0742,
+      "upper_95ci": 0.2498,
+      "p_value_greater_than_zero": 0.826
+    },
+    "per_asset": {
+      "BTCUSD": {
+        "total_oos_setups": 79,
+        "accepted_trades": 22,
+        "coverage_pct": 27.85,
+        "smc_expectancy": 0.0241,
+        "ai_expectancy": 0.3571,
+        "incremental_exp": 0.333,
+        "smc_pf": 1.039,
+        "ai_pf": 1.714,
+        "ai_wr": 50.0,
+        "smc_mdd": 13.95,
+        "ai_mdd": 5.0
+      },
+      "ETHUSD": {
+        "total_oos_setups": 74,
+        "accepted_trades": 27,
+        "coverage_pct": 36.49,
+        "smc_expectancy": -0.0335,
+        "ai_expectancy": -0.1605,
+        "incremental_exp": -0.127,
+        "smc_pf": 0.947,
+        "ai_pf": 0.76,
+        "ai_wr": 29.63,
+        "smc_mdd": 12.29,
+        "ai_mdd": 7.29
+      },
+      "SOLUSD": {
+        "total_oos_setups": 82,
+        "accepted_trades": 28,
+        "coverage_pct": 34.15,
+        "smc_expectancy": 0.0521,
+        "ai_expectancy": 0.2595,
+        "incremental_exp": 0.2074,
+        "smc_pf": 1.086,
+        "ai_pf": 1.484,
+        "ai_wr": 46.43,
+        "smc_mdd": 7.72,
+        "ai_mdd": 3.0
+      },
+      "XRPUSD": {
+        "total_oos_setups": 63,
+        "accepted_trades": 24,
+        "coverage_pct": 38.1,
+        "smc_expectancy": -0.2021,
+        "ai_expectancy": -0.3197,
+        "incremental_exp": -0.1176,
+        "smc_pf": 0.711,
+        "ai_pf": 0.574,
+        "ai_wr": 25.0,
+        "smc_mdd": 12.28,
+        "ai_mdd": 9.33
+      }
+    }
+  },
+  "threshold_sensitivity": [
+    {
+      "threshold_r": -0.25,
+      "n_accepted": 222,
+      "coverage_pct": 74.5,
+      "win_rate_pct": 38.29,
+      "ai_expectancy_r": 0.0449,
+      "incremental_expectancy_r": 0.0752,
+      "profit_factor": 1.073,
+      "max_drawdown_r": 19.46
+    },
+    {
+      "threshold_r": 0.0,
+      "n_accepted": 148,
+      "coverage_pct": 49.66,
+      "win_rate_pct": 42.57,
+      "ai_expectancy_r": 0.1676,
+      "incremental_expectancy_r": 0.1979,
+      "profit_factor": 1.295,
+      "max_drawdown_r": 16.92
+    },
+    {
+      "threshold_r": 0.1,
+      "n_accepted": 126,
+      "coverage_pct": 42.28,
+      "win_rate_pct": 42.86,
+      "ai_expectancy_r": 0.1742,
+      "incremental_expectancy_r": 0.2045,
+      "profit_factor": 1.309,
+      "max_drawdown_r": 16.64
+    },
+    {
+      "threshold_r": 0.2,
+      "n_accepted": 101,
+      "coverage_pct": 33.89,
+      "win_rate_pct": 37.62,
+      "ai_expectancy_r": 0.0308,
+      "incremental_expectancy_r": 0.0611,
+      "profit_factor": 1.05,
+      "max_drawdown_r": 11.64
+    },
+    {
+      "threshold_r": 0.25,
+      "n_accepted": 90,
+      "coverage_pct": 30.2,
+      "win_rate_pct": 38.89,
+      "ai_expectancy_r": 0.0664,
+      "incremental_expectancy_r": 0.0967,
+      "profit_factor": 1.111,
+      "max_drawdown_r": 11.64
+    },
+    {
+      "threshold_r": 0.3,
+      "n_accepted": 71,
+      "coverage_pct": 23.83,
+      "win_rate_pct": 36.62,
+      "ai_expectancy_r": 0.0053,
+      "incremental_expectancy_r": 0.0356,
+      "profit_factor": 1.009,
+      "max_drawdown_r": 13.19
+    },
+    {
+      "threshold_r": 0.4,
+      "n_accepted": 51,
+      "coverage_pct": 17.11,
+      "win_rate_pct": 43.14,
+      "ai_expectancy_r": 0.1949,
+      "incremental_expectancy_r": 0.2252,
+      "profit_factor": 1.354,
+      "max_drawdown_r": 8.0
+    },
+    {
+      "threshold_r": 0.5,
+      "n_accepted": 37,
+      "coverage_pct": 12.42,
+      "win_rate_pct": 37.84,
+      "ai_expectancy_r": 0.0513,
+      "incremental_expectancy_r": 0.0816,
+      "profit_factor": 1.086,
+      "max_drawdown_r": 7.0
+    },
+    {
+      "threshold_r": 0.6,
+      "n_accepted": 29,
+      "coverage_pct": 9.73,
+      "win_rate_pct": 31.03,
+      "ai_expectancy_r": -0.1266,
+      "incremental_expectancy_r": -0.0963,
+      "profit_factor": 0.807,
+      "max_drawdown_r": 5.0
+    }
+  ],
+  "calibration_analysis": [
+    {
+      "bucket": "< -0.10R",
+      "count": 120,
+      "mean_predicted_r": -0.3892,
+      "mean_realized_r": -0.2077,
+      "win_rate_pct": 30.0,
+      "profit_factor": 0.7
+    },
+    {
+      "bucket": "[-0.10R, 0.00R)",
+      "count": 30,
+      "mean_predicted_r": -0.0324,
+      "mean_realized_r": -0.2973,
+      "win_rate_pct": 26.67,
+      "profit_factor": 0.59
+    },
+    {
+      "bucket": "[0.00R, +0.10R)",
+      "count": 22,
+      "mean_predicted_r": 0.0452,
+      "mean_realized_r": 0.1301,
+      "win_rate_pct": 40.91,
+      "profit_factor": 1.22
+    },
+    {
+      "bucket": "[+0.10R, +0.20R)",
+      "count": 25,
+      "mean_predicted_r": 0.1534,
+      "mean_realized_r": 0.7531,
+      "win_rate_pct": 64.0,
+      "profit_factor": 3.09
+    },
+    {
+      "bucket": "[+0.20R, +0.30R)",
+      "count": 30,
+      "mean_predicted_r": 0.2547,
+      "mean_realized_r": 0.0913,
+      "win_rate_pct": 40.0,
+      "profit_factor": 1.15
+    },
+    {
+      "bucket": ">= +0.30R",
+      "count": 71,
+      "mean_predicted_r": 0.638,
+      "mean_realized_r": 0.0053,
+      "win_rate_pct": 36.62,
+      "profit_factor": 1.01
+    }
+  ],
+  "anti_leakage_audit": {
+    "mature_labels_verified": true,
+    "zero_future_feature_leakage": true,
+    "no_test_in_training": true,
+    "single_prediction_per_test_ob": true,
+    "chronological_event_stream_preserved": true
+  }
+}
