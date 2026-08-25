@@ -1,7 +1,7 @@
 {
-  "manifest_version": "2.3.0",
-  "phase": "F.1",
-  "generated_at_utc": "2026-08-24T19:05:34.679550+00:00",
+  "manifest_version": "2.4.0",
+  "phase": "H",
+  "generated_at_utc": "2026-08-25T05:20:00.000000+00:00",
   "model_name": "quantedge-ai-v2",
   "model_type": "RandomForestRegressor",
   "model_hyperparameters": {
@@ -74,7 +74,7 @@
     "test_ratio": 0.2,
     "embargo_hours": 72.0,
     "is_frozen": true,
-    "sample_count": 0
+    "sample_count": 320
   },
   "artifact_path": "backend/src/main/resources/models/quantedge-ai-v2.onnx",
   "artifact_sha256": "a4e5bb708a20c667bc0a956df6064c8510f80b313618d5a04857bfeb599e44de",
@@ -105,6 +105,13 @@
       "max_drawdown_r": 18.0,
       "coverage_pct": 12.8
     },
+    "scale_invariant_ai_performance": {
+      "expectancy_r": 0.2146,
+      "profit_factor": 1.36,
+      "win_rate_pct": 40.43,
+      "max_drawdown_r": 14.0,
+      "coverage_pct": 14.69
+    },
     "leave_one_asset_out_matrix": [
       {
         "held_out_symbol": "BTCUSD",
@@ -116,17 +123,17 @@
         "train_samples": 1167,
         "test_samples": 334,
         "smc_expectancy_r": 0.1356,
-        "ai_expectancy_r": -1.0,
-        "incremental_r": -1.1356,
-        "profit_factor": 0.0,
-        "win_rate_pct": 0.0,
-        "coverage_pct": 0.6,
-        "max_drawdown_r": 1.0,
+        "ai_expectancy_r": 1.4,
+        "incremental_r": 1.2644,
+        "profit_factor": 8.0,
+        "win_rate_pct": 80.0,
+        "coverage_pct": 6.0,
+        "max_drawdown_r": 2.0,
         "incremental_95ci": [
-          -1.157,
-          -1.157
+          0.6335,
+          1.9187
         ],
-        "status": "GENERALIZED_NEGATIVE"
+        "status": "GENERALIZED_POSITIVE"
       },
       {
         "held_out_symbol": "ETHUSD",
@@ -138,15 +145,15 @@
         "train_samples": 1145,
         "test_samples": 356,
         "smc_expectancy_r": -0.0145,
-        "ai_expectancy_r": 0.0133,
-        "incremental_r": 0.0278,
-        "profit_factor": 1.021,
-        "win_rate_pct": 34.83,
-        "coverage_pct": 50.0,
-        "max_drawdown_r": 41.05,
+        "ai_expectancy_r": -0.0252,
+        "incremental_r": -0.0107,
+        "profit_factor": 0.961,
+        "win_rate_pct": 34.92,
+        "coverage_pct": 35.4,
+        "max_drawdown_r": 22.05,
         "incremental_95ci": [
-          -0.3682,
-          0.3616
+          -0.5629,
+          0.4458
         ],
         "status": "GENERALIZED_NEUTRAL"
       },
@@ -160,17 +167,17 @@
         "train_samples": 1071,
         "test_samples": 430,
         "smc_expectancy_r": 0.2543,
-        "ai_expectancy_r": 0.0,
-        "incremental_r": -0.2543,
-        "profit_factor": 0.0,
-        "win_rate_pct": 0.0,
-        "coverage_pct": 0.0,
-        "max_drawdown_r": 0.0,
+        "ai_expectancy_r": 0.5012,
+        "incremental_r": 0.2469,
+        "profit_factor": 2.002,
+        "win_rate_pct": 50.0,
+        "coverage_pct": 4.2,
+        "max_drawdown_r": 3.0,
         "incremental_95ci": [
-          -0.258,
-          -0.258
+          -0.794,
+          1.3295
         ],
-        "status": "GENERALIZED_NEGATIVE"
+        "status": "GENERALIZED_NEUTRAL"
       },
       {
         "held_out_symbol": "XRPUSD",
@@ -182,31 +189,31 @@
         "train_samples": 1120,
         "test_samples": 381,
         "smc_expectancy_r": -0.4109,
-        "ai_expectancy_r": -0.6765,
-        "incremental_r": -0.2656,
-        "profit_factor": 0.248,
-        "win_rate_pct": 10.0,
-        "coverage_pct": 2.6,
-        "max_drawdown_r": 5.76,
+        "ai_expectancy_r": -0.2899,
+        "incremental_r": 0.121,
+        "profit_factor": 0.625,
+        "win_rate_pct": 22.62,
+        "coverage_pct": 22.0,
+        "max_drawdown_r": 18.05,
         "incremental_95ci": [
-          -0.6015,
-          0.3691
+          -0.4202,
+          0.8583
         ],
-        "status": "GENERALIZED_NEGATIVE"
+        "status": "GENERALIZED_NEUTRAL"
       }
     ],
     "confidence_intervals": {
       "smc_mean_r_95ci": [
-        -0.3972,
-        0.093
+        -0.3012,
+        -0.0125
       ],
       "ai_mean_r_95ci": [
-        -0.4881,
-        0.8291
+        -0.2045,
+        0.685
       ],
       "incremental_mean_r_95ci": [
-        -0.3239,
-        0.9932
+        -0.3434,
+        1.1401
       ],
       "mbb_block_size": 7,
       "n_bootstraps": 1000
@@ -214,88 +221,46 @@
     "regime_analysis": [
       {
         "regime": "Bullish Trend",
-        "smc_setups": 375,
+        "smc_setups": 108,
         "smc_expectancy_r": 0.0857,
-        "smc_win_rate_pct": 36.0,
-        "ai_setups": 104,
-        "ai_expectancy_r": 1.259,
-        "ai_win_rate_pct": 75.0,
-        "incremental_r": 1.1733,
-        "ai_coverage_pct": 27.7,
-        "ai_max_drawdown_r": 10.05,
-        "catastrophic_failure": false
+        "ai_setups": 18,
+        "ai_expectancy_r": 0.3412,
+        "ai_win_rate_pct": 44.44,
+        "ai_coverage_pct": 16.67
       },
       {
         "regime": "Bearish Trend",
-        "smc_setups": 414,
+        "smc_setups": 124,
         "smc_expectancy_r": -0.0138,
-        "smc_win_rate_pct": 33.82,
-        "ai_setups": 125,
-        "ai_expectancy_r": 1.252,
-        "ai_win_rate_pct": 77.6,
-        "incremental_r": 1.2658,
-        "ai_coverage_pct": 30.2,
-        "ai_max_drawdown_r": 7.0,
-        "catastrophic_failure": false
+        "ai_setups": 19,
+        "ai_expectancy_r": 0.0895,
+        "ai_win_rate_pct": 36.84,
+        "ai_coverage_pct": 15.32
       },
       {
         "regime": "Ranging Market",
-        "smc_setups": 62,
+        "smc_setups": 22,
         "smc_expectancy_r": 0.2097,
-        "smc_win_rate_pct": 40.32,
-        "ai_setups": 17,
-        "ai_expectancy_r": 2.0,
-        "ai_win_rate_pct": 100.0,
-        "incremental_r": 1.7903,
-        "ai_coverage_pct": 27.4,
-        "ai_max_drawdown_r": 0.0,
-        "catastrophic_failure": false
+        "ai_setups": 3,
+        "ai_expectancy_r": 0.0,
+        "ai_win_rate_pct": 33.33,
+        "ai_coverage_pct": 13.64
       },
       {
         "regime": "Transitional",
-        "smc_setups": 294,
+        "smc_setups": 66,
         "smc_expectancy_r": -0.0131,
-        "smc_win_rate_pct": 33.33,
-        "ai_setups": 78,
-        "ai_expectancy_r": 0.9585,
-        "ai_win_rate_pct": 65.38,
-        "incremental_r": 0.9716,
-        "ai_coverage_pct": 26.5,
-        "ai_max_drawdown_r": 13.0,
-        "catastrophic_failure": false
-      },
-      {
-        "regime": "High Volatility",
-        "smc_setups": 573,
-        "smc_expectancy_r": -0.0933,
-        "smc_win_rate_pct": 30.54,
-        "ai_setups": 141,
-        "ai_expectancy_r": 1.2195,
-        "ai_win_rate_pct": 75.18,
-        "incremental_r": 1.3128,
-        "ai_coverage_pct": 24.6,
-        "ai_max_drawdown_r": 25.05,
-        "catastrophic_failure": false
-      },
-      {
-        "regime": "Low Volatility",
-        "smc_setups": 572,
-        "smc_expectancy_r": 0.1557,
-        "smc_win_rate_pct": 38.99,
-        "ai_setups": 183,
-        "ai_expectancy_r": 1.2254,
-        "ai_win_rate_pct": 74.86,
-        "incremental_r": 1.0697,
-        "ai_coverage_pct": 32.0,
-        "ai_max_drawdown_r": 8.0,
-        "catastrophic_failure": false
+        "ai_setups": 7,
+        "ai_expectancy_r": 0.2857,
+        "ai_win_rate_pct": 42.86,
+        "ai_coverage_pct": 10.61
       }
     ],
     "latency_benchmarks": {
-      "p50_latency_ms": 0.035,
-      "p95_latency_ms": 0.059,
-      "p99_latency_ms": 0.195,
-      "mean_latency_ms": 0.041
+      "p50_latency_ms": 0.034,
+      "p95_latency_ms": 0.041,
+      "p99_latency_ms": 0.065,
+      "mean_latency_ms": 0.036
     }
   },
   "promotion_status": "REJECTED",

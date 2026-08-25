@@ -1,0 +1,745 @@
+{
+  "timestamp_utc": "2026-08-25T04:51:22.072674+00:00",
+  "baseline_reproduction": {
+    "model_type": "RandomForestRegressor (canonical-24-v2)",
+    "train_count": 912,
+    "val_count": 233,
+    "oos_count": 320,
+    "val_smc": "PerformanceMetrics(total_setups=233, executed_setups=233, coverage_pct=100.0, win_count=63, loss_count=170, timeout_count=0, win_rate_pct=27.04, loss_rate_pct=72.96, timeout_rate_pct=0.0, mean_r=-0.1855, median_r=-1.0, total_r=-43.22, profit_factor=0.744, expectancy_r=-0.1855, max_drawdown_r=77.15, mean_mfe_r=1.082, mean_mae_r=1.249, avg_holding_bars=0.0, high_conf_win_rate_pct=None)",
+    "val_ai": "PerformanceMetrics(total_setups=233, executed_setups=63, coverage_pct=27.0, win_count=21, loss_count=42, timeout_count=0, win_rate_pct=33.33, loss_rate_pct=66.67, timeout_rate_pct=0.0, mean_r=0.0151, median_r=-1.0, total_r=0.95, profit_factor=1.023, expectancy_r=0.0151, max_drawdown_r=23.05, mean_mfe_r=1.233, mean_mae_r=1.439, avg_holding_bars=0.0, high_conf_win_rate_pct=None)",
+    "oos_smc": "PerformanceMetrics(total_setups=320, executed_setups=320, coverage_pct=100.0, win_count=91, loss_count=229, timeout_count=0, win_rate_pct=28.44, loss_rate_pct=71.56, timeout_rate_pct=0.0, mean_r=-0.1532, median_r=-1.0, total_r=-49.04, profit_factor=0.786, expectancy_r=-0.1532, max_drawdown_r=56.99, mean_mfe_r=1.159, mean_mae_r=1.321, avg_holding_bars=0.0, high_conf_win_rate_pct=None)",
+    "oos_ai": "PerformanceMetrics(total_setups=320, executed_setups=41, coverage_pct=12.8, win_count=14, loss_count=27, timeout_count=0, win_rate_pct=34.15, loss_rate_pct=65.85, timeout_rate_pct=0.0, mean_r=0.0242, median_r=-1.0, total_r=0.99, profit_factor=1.037, expectancy_r=0.0242, max_drawdown_r=18.0, mean_mfe_r=1.136, mean_mae_r=1.144, avg_holding_bars=0.0, high_conf_win_rate_pct=None)",
+    "incremental_oos_exp": 0.1774,
+    "ci_95": [
+      -0.4193,
+      1.0022
+    ],
+    "loao_matrix": [
+      {
+        "held_out": "BTCUSD",
+        "train_samples": 1167,
+        "test_samples": 334,
+        "smc_exp": 0.1356,
+        "ai_exp": -1.0,
+        "incremental_r": -1.1356,
+        "ai_win_rate": 0.0,
+        "ai_pf": 0.0,
+        "ai_cov": 0.6,
+        "ci_95": [
+          -1.441,
+          -0.8532
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out": "ETHUSD",
+        "train_samples": 1145,
+        "test_samples": 356,
+        "smc_exp": -0.0145,
+        "ai_exp": 0.0133,
+        "incremental_r": 0.0278,
+        "ai_win_rate": 34.83,
+        "ai_pf": 1.021,
+        "ai_cov": 50.0,
+        "ci_95": [
+          -0.4726,
+          0.4476
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out": "SOLUSD",
+        "train_samples": 1071,
+        "test_samples": 430,
+        "smc_exp": 0.2543,
+        "ai_exp": 0.0,
+        "incremental_r": -0.2543,
+        "ai_win_rate": 0.0,
+        "ai_pf": 0.0,
+        "ai_cov": 0.0,
+        "ci_95": [
+          -0.5225,
+          -0.0081
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out": "XRPUSD",
+        "train_samples": 1120,
+        "test_samples": 381,
+        "smc_exp": -0.4109,
+        "ai_exp": -0.6765,
+        "incremental_r": -0.2656,
+        "ai_win_rate": 10.0,
+        "ai_pf": 0.248,
+        "ai_cov": 2.6,
+        "ci_95": [
+          -0.6926,
+          0.4295
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      }
+    ]
+  },
+  "label_audit": {
+    "Formulation_A_Continuous_R": {
+      "type": "Regression",
+      "val_mae": 1.3387345943022135,
+      "val_r2": -0.2224659952972512,
+      "val_exp": 0.0151,
+      "val_pf": 1.023,
+      "val_win_rate": 33.33,
+      "val_cov": 27.0,
+      "val_dd": 23.05
+    },
+    "Formulation_B_Prob_Win": {
+      "type": "Classification",
+      "val_brier": 0.2425746891792412,
+      "val_auc": 0.5028011204481793,
+      "val_exp": -0.1653,
+      "val_pf": 0.769,
+      "val_win_rate": 27.47,
+      "val_cov": 39.1,
+      "val_dd": 27.04
+    },
+    "Formulation_C_Prob_1R_Excursion": {
+      "type": "Classification",
+      "val_brier": 0.2951681711255495,
+      "val_auc": 0.46300533943554534,
+      "val_exp": -0.0213,
+      "val_pf": 0.968,
+      "val_win_rate": 32.37,
+      "val_cov": 59.7,
+      "val_dd": 26.01
+    },
+    "Formulation_D_Expected_R": {
+      "type": "Derived Expectancy",
+      "val_exp": -0.1758,
+      "val_pf": 0.756,
+      "val_win_rate": 27.19,
+      "val_cov": 48.9,
+      "val_dd": 39.04
+    },
+    "Formulation_E_Calibrated_MultiTask": {
+      "type": "Calibrated Probabilistic Filter",
+      "val_brier": 0.21175178019238197,
+      "val_exp": -0.2088,
+      "val_pf": 0.714,
+      "val_win_rate": 26.04,
+      "val_cov": 41.2,
+      "val_dd": 36.05
+    }
+  },
+  "feature_audit": {
+    "features": [
+      {
+        "index": 2,
+        "name": "order_block_strength",
+        "importance": 0.2086,
+        "corr_with_realized_r": -0.2769,
+        "mean": 0.843,
+        "std": 0.1243,
+        "min": 0.4408,
+        "max": 0.9981,
+        "group": "SMC Structure"
+      },
+      {
+        "index": 7,
+        "name": "trend_strength_4h",
+        "importance": 0.1096,
+        "corr_with_realized_r": -0.0367,
+        "mean": 0.5333,
+        "std": 0.3282,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Market Context"
+      },
+      {
+        "index": 14,
+        "name": "risk_distance",
+        "importance": 0.0998,
+        "corr_with_realized_r": 0.1058,
+        "mean": 125.1819,
+        "std": 232.1939,
+        "min": 0.002,
+        "max": 873.375,
+        "group": "Setup Geometry"
+      },
+      {
+        "index": 17,
+        "name": "leverage_ratio",
+        "importance": 0.0998,
+        "corr_with_realized_r": -0.1341,
+        "mean": 0.4581,
+        "std": 0.2093,
+        "min": 0.13,
+        "max": 1.0,
+        "group": "Account Context"
+      },
+      {
+        "index": 13,
+        "name": "risk_reward",
+        "importance": 0.0811,
+        "corr_with_realized_r": -0.0176,
+        "mean": 2.0111,
+        "std": 0.1324,
+        "min": 1.3051,
+        "max": 2.7037,
+        "group": "Setup Geometry"
+      },
+      {
+        "index": 4,
+        "name": "liquidity_proximity",
+        "importance": 0.0743,
+        "corr_with_realized_r": -0.0187,
+        "mean": 0.942,
+        "std": 0.0846,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "SMC Structure"
+      },
+      {
+        "index": 9,
+        "name": "volatility_15m",
+        "importance": 0.0688,
+        "corr_with_realized_r": -0.0536,
+        "mean": 0.3646,
+        "std": 0.185,
+        "min": 0.0617,
+        "max": 1.0,
+        "group": "Market Context"
+      },
+      {
+        "index": 3,
+        "name": "fvg_strength",
+        "importance": 0.0593,
+        "corr_with_realized_r": 0.1596,
+        "mean": 0.3299,
+        "std": 0.3164,
+        "min": 0.0,
+        "max": 0.9991,
+        "group": "SMC Structure"
+      },
+      {
+        "index": 10,
+        "name": "volume_profile",
+        "importance": 0.0473,
+        "corr_with_realized_r": -0.1635,
+        "mean": 0.9174,
+        "std": 0.3969,
+        "min": 0.1958,
+        "max": 2.0,
+        "group": "Market Context"
+      },
+      {
+        "index": 8,
+        "name": "volatility_1h",
+        "importance": 0.0461,
+        "corr_with_realized_r": -0.0257,
+        "mean": 0.305,
+        "std": 0.1046,
+        "min": 0.1466,
+        "max": 0.642,
+        "group": "Market Context"
+      },
+      {
+        "index": 0,
+        "name": "bos_strength",
+        "importance": 0.0316,
+        "corr_with_realized_r": 0.0353,
+        "mean": 0.1695,
+        "std": 0.1862,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "SMC Structure"
+      },
+      {
+        "index": 15,
+        "name": "entry_precision",
+        "importance": 0.0181,
+        "corr_with_realized_r": 0.1235,
+        "mean": 0.7429,
+        "std": 0.1998,
+        "min": 0.0447,
+        "max": 1.0,
+        "group": "Setup Geometry"
+      },
+      {
+        "index": 12,
+        "name": "momentum_15m",
+        "importance": 0.014,
+        "corr_with_realized_r": 0.0338,
+        "mean": -0.0007,
+        "std": 0.0084,
+        "min": -0.0349,
+        "max": 0.0414,
+        "group": "Market Context"
+      },
+      {
+        "index": 5,
+        "name": "trend_strength_1h",
+        "importance": 0.0129,
+        "corr_with_realized_r": 0.0678,
+        "mean": 0.4813,
+        "std": 0.3038,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Market Context"
+      },
+      {
+        "index": 11,
+        "name": "momentum_1h",
+        "importance": 0.0102,
+        "corr_with_realized_r": 0.045,
+        "mean": -0.0009,
+        "std": 0.0119,
+        "min": -0.0437,
+        "max": 0.0721,
+        "group": "Market Context"
+      },
+      {
+        "index": 6,
+        "name": "trend_strength_15m",
+        "importance": 0.0074,
+        "corr_with_realized_r": -0.0264,
+        "mean": 0.4531,
+        "std": 0.3513,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Market Context"
+      },
+      {
+        "index": 22,
+        "name": "regime_alignment",
+        "importance": 0.0035,
+        "corr_with_realized_r": -0.1074,
+        "mean": 0.4638,
+        "std": 0.499,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Binary Flags"
+      },
+      {
+        "index": 1,
+        "name": "choch_strength",
+        "importance": 0.0031,
+        "corr_with_realized_r": 0.0564,
+        "mean": 0.6569,
+        "std": 0.2163,
+        "min": 0.4,
+        "max": 0.85,
+        "group": "SMC Structure"
+      },
+      {
+        "index": 23,
+        "name": "direction_long",
+        "importance": 0.0021,
+        "corr_with_realized_r": 0.0497,
+        "mean": 0.6601,
+        "std": 0.4739,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Binary Flags"
+      },
+      {
+        "index": 21,
+        "name": "regime_1h_transitional",
+        "importance": 0.0014,
+        "corr_with_realized_r": -0.0225,
+        "mean": 0.2522,
+        "std": 0.4345,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Regime One-Hot"
+      },
+      {
+        "index": 18,
+        "name": "regime_1h_bullish",
+        "importance": 0.0007,
+        "corr_with_realized_r": 0.0362,
+        "mean": 0.318,
+        "std": 0.4659,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Regime One-Hot"
+      },
+      {
+        "index": 19,
+        "name": "regime_1h_bearish",
+        "importance": 0.0004,
+        "corr_with_realized_r": -0.0344,
+        "mean": 0.3728,
+        "std": 0.4838,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Regime One-Hot"
+      },
+      {
+        "index": 20,
+        "name": "regime_1h_ranging",
+        "importance": 0.0001,
+        "corr_with_realized_r": 0.0412,
+        "mean": 0.057,
+        "std": 0.232,
+        "min": 0.0,
+        "max": 1.0,
+        "group": "Regime One-Hot"
+      },
+      {
+        "index": 16,
+        "name": "account_utilization",
+        "importance": 0.0,
+        "corr_with_realized_r": 0.0,
+        "mean": 0.2,
+        "std": 0.0,
+        "min": 0.2,
+        "max": 0.2,
+        "group": "Account Context"
+      }
+    ]
+  },
+  "model_research": {
+    "Random_Forest_Regressor": {
+      "metric_name": "Val R\u00b2",
+      "score": -0.2225,
+      "val_expectancy": 0.0151,
+      "val_profit_factor": 1.023,
+      "val_win_rate": 33.33,
+      "val_coverage": 27.0,
+      "val_drawdown": 23.05
+    },
+    "Extra_Trees_Regressor": {
+      "metric_name": "Val R\u00b2",
+      "score": -0.1658,
+      "val_expectancy": -0.307,
+      "val_profit_factor": 0.594,
+      "val_win_rate": 22.45,
+      "val_coverage": 21.0,
+      "val_drawdown": 20.05
+    },
+    "Hist_Gradient_Boosting_Regressor": {
+      "metric_name": "Val R\u00b2",
+      "score": -0.1564,
+      "val_expectancy": -0.134,
+      "val_profit_factor": 0.809,
+      "val_win_rate": 28.33,
+      "val_coverage": 25.8,
+      "val_drawdown": 21.04
+    },
+    "Gradient_Boosting_Regressor": {
+      "metric_name": "Val R\u00b2",
+      "score": -0.3449,
+      "val_expectancy": -0.1545,
+      "val_profit_factor": 0.782,
+      "val_win_rate": 27.69,
+      "val_coverage": 27.9,
+      "val_drawdown": 23.04
+    },
+    "Random_Forest_Classifier": {
+      "metric_name": "Val AUC",
+      "score": 0.5028,
+      "val_expectancy": -0.1685,
+      "val_profit_factor": 0.765,
+      "val_win_rate": 27.43,
+      "val_coverage": 48.5,
+      "val_drawdown": 39.04
+    },
+    "Extra_Trees_Classifier": {
+      "metric_name": "Val AUC",
+      "score": 0.4978,
+      "val_expectancy": -0.0828,
+      "val_profit_factor": 0.88,
+      "val_win_rate": 30.28,
+      "val_coverage": 46.8,
+      "val_drawdown": 31.03
+    },
+    "Hist_Gradient_Boosting_Classifier": {
+      "metric_name": "Val AUC",
+      "score": 0.4826,
+      "val_expectancy": -0.1465,
+      "val_profit_factor": 0.793,
+      "val_win_rate": 28.09,
+      "val_coverage": 38.2,
+      "val_drawdown": 27.04
+    },
+    "Calibrated_Logistic_Regression": {
+      "metric_name": "Val AUC",
+      "score": 0.6014,
+      "val_expectancy": -0.2024,
+      "val_profit_factor": 0.712,
+      "val_win_rate": 25.0,
+      "val_coverage": 8.6,
+      "val_drawdown": 10.05
+    }
+  },
+  "loao_matrix": {
+    "Strategy_A_Pooled_Baseline": [
+      {
+        "held_out": "BTCUSD",
+        "train_count": 1167,
+        "test_count": 334,
+        "smc_exp": 0.1356,
+        "ai_exp": -1.0,
+        "incremental_r": -1.1356,
+        "ai_win_rate": 0.0,
+        "ai_pf": 0.0,
+        "ai_cov": 0.6,
+        "ci_95": [
+          -1.441,
+          -0.8532
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out": "ETHUSD",
+        "train_count": 1145,
+        "test_count": 356,
+        "smc_exp": -0.0145,
+        "ai_exp": 0.0133,
+        "incremental_r": 0.0278,
+        "ai_win_rate": 34.83,
+        "ai_pf": 1.021,
+        "ai_cov": 50.0,
+        "ci_95": [
+          -0.4726,
+          0.4476
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out": "SOLUSD",
+        "train_count": 1071,
+        "test_count": 430,
+        "smc_exp": 0.2543,
+        "ai_exp": 0.0,
+        "incremental_r": -0.2543,
+        "ai_win_rate": 0.0,
+        "ai_pf": 0.0,
+        "ai_cov": 0.0,
+        "ci_95": [
+          -0.5225,
+          -0.0081
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      },
+      {
+        "held_out": "XRPUSD",
+        "train_count": 1120,
+        "test_count": 381,
+        "smc_exp": -0.4109,
+        "ai_exp": -0.6765,
+        "incremental_r": -0.2656,
+        "ai_win_rate": 10.0,
+        "ai_pf": 0.248,
+        "ai_cov": 2.6,
+        "ci_95": [
+          -0.6926,
+          0.4295
+        ],
+        "status": "GENERALIZED_NEGATIVE"
+      }
+    ],
+    "Strategy_B_Scale_Invariant": [
+      {
+        "held_out": "BTCUSD",
+        "train_count": 1167,
+        "test_count": 334,
+        "smc_exp": 0.1356,
+        "ai_exp": 1.4,
+        "incremental_r": 1.2644,
+        "ai_win_rate": 80.0,
+        "ai_pf": 8.0,
+        "ai_cov": 6.0,
+        "ci_95": [
+          0.6335,
+          1.9187
+        ],
+        "status": "GENERALIZED_POSITIVE"
+      },
+      {
+        "held_out": "ETHUSD",
+        "train_count": 1145,
+        "test_count": 356,
+        "smc_exp": -0.0145,
+        "ai_exp": -0.0252,
+        "incremental_r": -0.0107,
+        "ai_win_rate": 34.92,
+        "ai_pf": 0.961,
+        "ai_cov": 35.4,
+        "ci_95": [
+          -0.5629,
+          0.4458
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out": "SOLUSD",
+        "train_count": 1071,
+        "test_count": 430,
+        "smc_exp": 0.2543,
+        "ai_exp": 0.5012,
+        "incremental_r": 0.24689999999999995,
+        "ai_win_rate": 50.0,
+        "ai_pf": 2.002,
+        "ai_cov": 4.2,
+        "ci_95": [
+          -0.794,
+          1.3295
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out": "XRPUSD",
+        "train_count": 1120,
+        "test_count": 381,
+        "smc_exp": -0.4109,
+        "ai_exp": -0.2899,
+        "incremental_r": 0.121,
+        "ai_win_rate": 22.62,
+        "ai_pf": 0.625,
+        "ai_cov": 22.0,
+        "ci_95": [
+          -0.4202,
+          0.8583
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      }
+    ],
+    "Strategy_C_Calibrated_Classifier": [
+      {
+        "held_out": "BTCUSD",
+        "train_count": 1167,
+        "test_count": 334,
+        "smc_exp": 0.1356,
+        "ai_exp": 0.71,
+        "incremental_r": 0.5744,
+        "ai_win_rate": 57.0,
+        "ai_pf": 2.651,
+        "ai_cov": 29.9,
+        "ci_95": [
+          -0.0644,
+          1.0675
+        ],
+        "status": "GENERALIZED_POSITIVE"
+      },
+      {
+        "held_out": "ETHUSD",
+        "train_count": 1145,
+        "test_count": 356,
+        "smc_exp": -0.0145,
+        "ai_exp": -0.0009,
+        "incremental_r": 0.013600000000000001,
+        "ai_win_rate": 34.92,
+        "ai_pf": 0.999,
+        "ai_cov": 53.1,
+        "ci_95": [
+          -0.4282,
+          0.4605
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      },
+      {
+        "held_out": "SOLUSD",
+        "train_count": 1071,
+        "test_count": 430,
+        "smc_exp": 0.2543,
+        "ai_exp": 0.8745,
+        "incremental_r": 0.6202000000000001,
+        "ai_win_rate": 63.16,
+        "ai_pf": 3.374,
+        "ai_cov": 17.7,
+        "ci_95": [
+          0.0544,
+          1.2162
+        ],
+        "status": "GENERALIZED_POSITIVE"
+      },
+      {
+        "held_out": "XRPUSD",
+        "train_count": 1120,
+        "test_count": 381,
+        "smc_exp": -0.4109,
+        "ai_exp": -0.4173,
+        "incremental_r": -0.006400000000000017,
+        "ai_win_rate": 19.27,
+        "ai_pf": 0.483,
+        "ai_cov": 50.4,
+        "ci_95": [
+          -0.3782,
+          0.3912
+        ],
+        "status": "GENERALIZED_NEUTRAL"
+      }
+    ]
+  },
+  "ablation_study": {
+    "A_Candle_Only": {
+      "num_features": 13,
+      "val_exp": -1.0,
+      "val_pf": 0.0,
+      "val_win_rate": 0.0,
+      "val_cov": 3.9,
+      "oos_exp": 1.4068,
+      "oos_pf": 8.034,
+      "oos_win_rate": 80.0,
+      "oos_cov": 3.1,
+      "oos_dd": 2.0,
+      "oos_incremental_r": 1.56,
+      "oos_ci_95": [
+        0.9489,
+        2.3773
+      ]
+    },
+    "B_SMC_OB_Only": {
+      "num_features": 9,
+      "val_exp": -0.1314,
+      "val_pf": 0.811,
+      "val_win_rate": 28.26,
+      "val_cov": 19.7,
+      "oos_exp": 0.154,
+      "oos_pf": 1.25,
+      "oos_win_rate": 38.46,
+      "oos_cov": 12.2,
+      "oos_dd": 19.0,
+      "oos_incremental_r": 0.30720000000000003,
+      "oos_ci_95": [
+        -0.366,
+        1.1231
+      ]
+    },
+    "C_Candle_Plus_SMC": {
+      "num_features": 24,
+      "val_exp": 0.0151,
+      "val_pf": 1.023,
+      "val_win_rate": 33.33,
+      "val_cov": 27.0,
+      "oos_exp": 0.0242,
+      "oos_pf": 1.037,
+      "oos_win_rate": 34.15,
+      "oos_cov": 12.8,
+      "oos_dd": 18.0,
+      "oos_incremental_r": 0.1774,
+      "oos_ci_95": [
+        -0.4193,
+        1.0022
+      ]
+    },
+    "D_Candle_SMC_Scale_Invariant": {
+      "num_features": 24,
+      "val_exp": -0.08,
+      "val_pf": 0.883,
+      "val_win_rate": 30.16,
+      "val_cov": 27.0,
+      "oos_exp": 0.2146,
+      "oos_pf": 1.36,
+      "oos_win_rate": 40.43,
+      "oos_cov": 14.7,
+      "oos_dd": 14.0,
+      "oos_incremental_r": 0.3678,
+      "oos_ci_95": [
+        -0.3434,
+        1.1401
+      ]
+    }
+  }
+}
