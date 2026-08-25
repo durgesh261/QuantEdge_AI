@@ -1,0 +1,2171 @@
+{
+  "timestamp_utc": "2026-08-25T15:30:08.432377+00:00",
+  "framework": "Phase T: Multi-Year Expanding Walk-Forward Evaluation (2024-2026)",
+  "seed_period": "2024-06-01 to 2024-12-31 (429 mature training samples)",
+  "oos_test_period": "2025-01-01 to 2026-08-21 (20 continuous months)",
+  "aggregate_oos_performance": {
+    "total_oos_setups": 1239,
+    "ai_accepted_count": 288,
+    "ai_rejected_count": 951,
+    "smc_baseline": {
+      "n": 1239,
+      "coverage_pct": 100.0,
+      "win_rate_pct": 37.29,
+      "win_rate_95ci": [
+        34.64,
+        40.02
+      ],
+      "expectancy_r": 0.0076,
+      "profit_factor": 1.012,
+      "max_drawdown_r": 36.17,
+      "total_r": 9.39,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.272,
+      "mean_mae_r": 1.229
+    },
+    "ai_filtered": {
+      "n": 288,
+      "coverage_pct": 23.24,
+      "win_rate_pct": 44.44,
+      "win_rate_95ci": [
+        38.82,
+        50.22
+      ],
+      "expectancy_r": 0.2081,
+      "profit_factor": 1.377,
+      "max_drawdown_r": 10.71,
+      "total_r": 59.92,
+      "median_r": -1.0,
+      "mean_mfe_r": 1.478,
+      "mean_mae_r": 1.073
+    },
+    "incremental_expectancy_r": 0.2005
+  },
+  "moving_block_bootstrap": {
+    "n_resamples": 10000,
+    "block_size": 36,
+    "smc_expectancy_95ci": [
+      -0.0609,
+      0.0909
+    ],
+    "ai_expectancy_95ci": [
+      0.0646,
+      0.3638
+    ],
+    "incremental_expectancy_95ci": [
+      0.0778,
+      0.3153
+    ],
+    "p_value_incremental_greater_than_zero": 0.9995,
+    "p_value_incremental_less_equal_zero": 0.0005
+  },
+  "random_coverage_benchmark": {
+    "n_resamples": 10000,
+    "target_trade_count": 288,
+    "ridge_realized_expectancy": 0.2081,
+    "random_benchmark_mean_exp": 0.0075,
+    "random_benchmark_std_exp": 0.0664,
+    "random_benchmark_95ci": [
+      -0.1203,
+      0.139
+    ],
+    "ridge_percentile_rank_in_random_distribution": 99.9,
+    "empirical_p_value_ridge_vs_random": 0.0014
+  },
+  "monthly_consistency": {
+    "total_test_months": 20,
+    "positive_incremental_months": 16,
+    "consistency_fraction_pct": 80.0,
+    "monthly_summaries": [
+      {
+        "window_id": "WF_2025_01",
+        "test_month": "2025-01",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2024-12-31T23:59:59+00:00",
+        "test_range": "2025-01-01T00:00:00+00:00 to 2025-01-31T23:59:59+00:00",
+        "candidate_train_rows": 431,
+        "mature_train_rows": 429,
+        "immature_excluded": 2,
+        "test_rows": 59,
+        "accepted_count": 19,
+        "acceptance_rate_pct": 32.2,
+        "smc_baseline": {
+          "n": 59,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 37.29,
+          "win_rate_95ci": [
+            26.08,
+            50.05
+          ],
+          "expectancy_r": 0.0083,
+          "profit_factor": 1.013,
+          "max_drawdown_r": 6.57,
+          "total_r": 0.49,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.456,
+          "mean_mae_r": 1.276
+        },
+        "ai_filtered": {
+          "n": 19,
+          "coverage_pct": 32.2,
+          "win_rate_pct": 36.84,
+          "win_rate_95ci": [
+            19.15,
+            58.96
+          ],
+          "expectancy_r": 0.0001,
+          "profit_factor": 1.0,
+          "max_drawdown_r": 5.0,
+          "total_r": 0.0,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.348,
+          "mean_mae_r": 1.02
+        },
+        "incremental_expectancy_r": -0.0082
+      },
+      {
+        "window_id": "WF_2025_02",
+        "test_month": "2025-02",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-01-31T23:59:59+00:00",
+        "test_range": "2025-02-01T00:00:00+00:00 to 2025-02-28T23:59:59+00:00",
+        "candidate_train_rows": 490,
+        "mature_train_rows": 489,
+        "immature_excluded": 1,
+        "test_rows": 50,
+        "accepted_count": 16,
+        "acceptance_rate_pct": 32.0,
+        "smc_baseline": {
+          "n": 50,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 36.0,
+          "win_rate_95ci": [
+            24.14,
+            49.86
+          ],
+          "expectancy_r": -0.0198,
+          "profit_factor": 0.969,
+          "max_drawdown_r": 6.37,
+          "total_r": -0.99,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.235,
+          "mean_mae_r": 1.245
+        },
+        "ai_filtered": {
+          "n": 16,
+          "coverage_pct": 32.0,
+          "win_rate_pct": 43.75,
+          "win_rate_95ci": [
+            23.1,
+            66.82
+          ],
+          "expectancy_r": 0.1903,
+          "profit_factor": 1.338,
+          "max_drawdown_r": 5.29,
+          "total_r": 3.04,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.546,
+          "mean_mae_r": 1.101
+        },
+        "incremental_expectancy_r": 0.2101
+      },
+      {
+        "window_id": "WF_2025_03",
+        "test_month": "2025-03",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-02-28T23:59:59+00:00",
+        "test_range": "2025-03-01T00:00:00+00:00 to 2025-03-31T23:59:59+00:00",
+        "candidate_train_rows": 540,
+        "mature_train_rows": 540,
+        "immature_excluded": 0,
+        "test_rows": 52,
+        "accepted_count": 16,
+        "acceptance_rate_pct": 30.77,
+        "smc_baseline": {
+          "n": 52,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 36.54,
+          "win_rate_95ci": [
+            24.8,
+            50.13
+          ],
+          "expectancy_r": -0.0075,
+          "profit_factor": 0.988,
+          "max_drawdown_r": 8.18,
+          "total_r": -0.39,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.33,
+          "mean_mae_r": 1.337
+        },
+        "ai_filtered": {
+          "n": 16,
+          "coverage_pct": 30.77,
+          "win_rate_pct": 50.0,
+          "win_rate_95ci": [
+            28.0,
+            72.0
+          ],
+          "expectancy_r": 0.3468,
+          "profit_factor": 1.694,
+          "max_drawdown_r": 3.36,
+          "total_r": 5.55,
+          "median_r": 0.2816,
+          "mean_mfe_r": 1.326,
+          "mean_mae_r": 1.083
+        },
+        "incremental_expectancy_r": 0.3543
+      },
+      {
+        "window_id": "WF_2025_04",
+        "test_month": "2025-04",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-03-31T23:59:59+00:00",
+        "test_range": "2025-04-01T00:00:00+00:00 to 2025-04-30T23:59:59+00:00",
+        "candidate_train_rows": 592,
+        "mature_train_rows": 592,
+        "immature_excluded": 0,
+        "test_rows": 64,
+        "accepted_count": 17,
+        "acceptance_rate_pct": 26.56,
+        "smc_baseline": {
+          "n": 64,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 34.38,
+          "win_rate_95ci": [
+            23.92,
+            46.6
+          ],
+          "expectancy_r": -0.0698,
+          "profit_factor": 0.894,
+          "max_drawdown_r": 8.28,
+          "total_r": -4.47,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.199,
+          "mean_mae_r": 1.29
+        },
+        "ai_filtered": {
+          "n": 17,
+          "coverage_pct": 26.56,
+          "win_rate_pct": 35.29,
+          "win_rate_95ci": [
+            17.31,
+            58.7
+          ],
+          "expectancy_r": -0.0423,
+          "profit_factor": 0.935,
+          "max_drawdown_r": 4.57,
+          "total_r": -0.72,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.16,
+          "mean_mae_r": 1.358
+        },
+        "incremental_expectancy_r": 0.0275
+      },
+      {
+        "window_id": "WF_2025_05",
+        "test_month": "2025-05",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-04-30T23:59:59+00:00",
+        "test_range": "2025-05-01T00:00:00+00:00 to 2025-05-31T23:59:59+00:00",
+        "candidate_train_rows": 656,
+        "mature_train_rows": 655,
+        "immature_excluded": 1,
+        "test_rows": 75,
+        "accepted_count": 10,
+        "acceptance_rate_pct": 13.33,
+        "smc_baseline": {
+          "n": 75,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 38.67,
+          "win_rate_95ci": [
+            28.46,
+            49.98
+          ],
+          "expectancy_r": 0.0386,
+          "profit_factor": 1.063,
+          "max_drawdown_r": 8.72,
+          "total_r": 2.9,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.21,
+          "mean_mae_r": 1.098
+        },
+        "ai_filtered": {
+          "n": 10,
+          "coverage_pct": 13.33,
+          "win_rate_pct": 40.0,
+          "win_rate_95ci": [
+            16.82,
+            68.73
+          ],
+          "expectancy_r": 0.0851,
+          "profit_factor": 1.142,
+          "max_drawdown_r": 5.0,
+          "total_r": 0.85,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.198,
+          "mean_mae_r": 0.918
+        },
+        "incremental_expectancy_r": 0.0465
+      },
+      {
+        "window_id": "WF_2025_06",
+        "test_month": "2025-06",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-05-31T23:59:59+00:00",
+        "test_range": "2025-06-01T00:00:00+00:00 to 2025-06-30T23:59:59+00:00",
+        "candidate_train_rows": 731,
+        "mature_train_rows": 730,
+        "immature_excluded": 1,
+        "test_rows": 73,
+        "accepted_count": 14,
+        "acceptance_rate_pct": 19.18,
+        "smc_baseline": {
+          "n": 73,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 32.88,
+          "win_rate_95ci": [
+            23.19,
+            44.27
+          ],
+          "expectancy_r": -0.1142,
+          "profit_factor": 0.83,
+          "max_drawdown_r": 21.62,
+          "total_r": -8.34,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.173,
+          "mean_mae_r": 1.372
+        },
+        "ai_filtered": {
+          "n": 14,
+          "coverage_pct": 19.18,
+          "win_rate_pct": 28.57,
+          "win_rate_95ci": [
+            11.72,
+            54.65
+          ],
+          "expectancy_r": -0.279,
+          "profit_factor": 0.609,
+          "max_drawdown_r": 6.78,
+          "total_r": -3.91,
+          "median_r": -1.0,
+          "mean_mfe_r": 0.907,
+          "mean_mae_r": 1.368
+        },
+        "incremental_expectancy_r": -0.1648
+      },
+      {
+        "window_id": "WF_2025_07",
+        "test_month": "2025-07",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-06-30T23:59:59+00:00",
+        "test_range": "2025-07-01T00:00:00+00:00 to 2025-07-31T23:59:59+00:00",
+        "candidate_train_rows": 804,
+        "mature_train_rows": 804,
+        "immature_excluded": 0,
+        "test_rows": 64,
+        "accepted_count": 11,
+        "acceptance_rate_pct": 17.19,
+        "smc_baseline": {
+          "n": 64,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 31.25,
+          "win_rate_95ci": [
+            21.23,
+            43.39
+          ],
+          "expectancy_r": -0.1464,
+          "profit_factor": 0.787,
+          "max_drawdown_r": 14.99,
+          "total_r": -9.37,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.234,
+          "mean_mae_r": 1.18
+        },
+        "ai_filtered": {
+          "n": 11,
+          "coverage_pct": 17.19,
+          "win_rate_pct": 27.27,
+          "win_rate_95ci": [
+            9.75,
+            56.56
+          ],
+          "expectancy_r": -0.2472,
+          "profit_factor": 0.66,
+          "max_drawdown_r": 4.0,
+          "total_r": -2.72,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.068,
+          "mean_mae_r": 1.444
+        },
+        "incremental_expectancy_r": -0.1008
+      },
+      {
+        "window_id": "WF_2025_08",
+        "test_month": "2025-08",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-07-31T23:59:59+00:00",
+        "test_range": "2025-08-01T00:00:00+00:00 to 2025-08-31T23:59:59+00:00",
+        "candidate_train_rows": 868,
+        "mature_train_rows": 868,
+        "immature_excluded": 0,
+        "test_rows": 50,
+        "accepted_count": 9,
+        "acceptance_rate_pct": 18.0,
+        "smc_baseline": {
+          "n": 50,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 48.0,
+          "win_rate_95ci": [
+            34.8,
+            61.49
+          ],
+          "expectancy_r": 0.3046,
+          "profit_factor": 1.586,
+          "max_drawdown_r": 7.26,
+          "total_r": 15.23,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.369,
+          "mean_mae_r": 1.073
+        },
+        "ai_filtered": {
+          "n": 9,
+          "coverage_pct": 18.0,
+          "win_rate_pct": 77.78,
+          "win_rate_95ci": [
+            45.26,
+            93.68
+          ],
+          "expectancy_r": 1.1039,
+          "profit_factor": 5.968,
+          "max_drawdown_r": 1.0,
+          "total_r": 9.94,
+          "median_r": 1.7126,
+          "mean_mfe_r": 1.985,
+          "mean_mae_r": 0.811
+        },
+        "incremental_expectancy_r": 0.7993
+      },
+      {
+        "window_id": "WF_2025_09",
+        "test_month": "2025-09",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-08-31T23:59:59+00:00",
+        "test_range": "2025-09-01T00:00:00+00:00 to 2025-09-30T23:59:59+00:00",
+        "candidate_train_rows": 918,
+        "mature_train_rows": 918,
+        "immature_excluded": 0,
+        "test_rows": 74,
+        "accepted_count": 13,
+        "acceptance_rate_pct": 17.57,
+        "smc_baseline": {
+          "n": 74,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 41.89,
+          "win_rate_95ci": [
+            31.32,
+            53.26
+          ],
+          "expectancy_r": 0.1329,
+          "profit_factor": 1.229,
+          "max_drawdown_r": 13.32,
+          "total_r": 9.83,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.302,
+          "mean_mae_r": 0.981
+        },
+        "ai_filtered": {
+          "n": 13,
+          "coverage_pct": 17.57,
+          "win_rate_pct": 61.54,
+          "win_rate_95ci": [
+            35.52,
+            82.29
+          ],
+          "expectancy_r": 0.6762,
+          "profit_factor": 2.758,
+          "max_drawdown_r": 3.0,
+          "total_r": 8.79,
+          "median_r": 1.7141,
+          "mean_mfe_r": 1.616,
+          "mean_mae_r": 0.662
+        },
+        "incremental_expectancy_r": 0.5433
+      },
+      {
+        "window_id": "WF_2025_10",
+        "test_month": "2025-10",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-09-30T23:59:59+00:00",
+        "test_range": "2025-10-01T00:00:00+00:00 to 2025-10-31T23:59:59+00:00",
+        "candidate_train_rows": 992,
+        "mature_train_rows": 992,
+        "immature_excluded": 0,
+        "test_rows": 70,
+        "accepted_count": 23,
+        "acceptance_rate_pct": 32.86,
+        "smc_baseline": {
+          "n": 70,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 45.71,
+          "win_rate_95ci": [
+            34.57,
+            57.3
+          ],
+          "expectancy_r": 0.2477,
+          "profit_factor": 1.456,
+          "max_drawdown_r": 9.57,
+          "total_r": 17.34,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.588,
+          "mean_mae_r": 1.099
+        },
+        "ai_filtered": {
+          "n": 23,
+          "coverage_pct": 32.86,
+          "win_rate_pct": 43.48,
+          "win_rate_95ci": [
+            25.63,
+            63.19
+          ],
+          "expectancy_r": 0.2016,
+          "profit_factor": 1.357,
+          "max_drawdown_r": 7.0,
+          "total_r": 4.64,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.549,
+          "mean_mae_r": 1.109
+        },
+        "incremental_expectancy_r": -0.0461
+      },
+      {
+        "window_id": "WF_2025_11",
+        "test_month": "2025-11",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-10-31T23:59:59+00:00",
+        "test_range": "2025-11-01T00:00:00+00:00 to 2025-11-30T23:59:59+00:00",
+        "candidate_train_rows": 1062,
+        "mature_train_rows": 1062,
+        "immature_excluded": 0,
+        "test_rows": 56,
+        "accepted_count": 11,
+        "acceptance_rate_pct": 19.64,
+        "smc_baseline": {
+          "n": 56,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 42.86,
+          "win_rate_95ci": [
+            30.77,
+            55.86
+          ],
+          "expectancy_r": 0.1517,
+          "profit_factor": 1.265,
+          "max_drawdown_r": 8.56,
+          "total_r": 8.49,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.262,
+          "mean_mae_r": 1.162
+        },
+        "ai_filtered": {
+          "n": 11,
+          "coverage_pct": 19.64,
+          "win_rate_pct": 45.45,
+          "win_rate_95ci": [
+            21.27,
+            71.99
+          ],
+          "expectancy_r": 0.2145,
+          "profit_factor": 1.393,
+          "max_drawdown_r": 2.0,
+          "total_r": 2.36,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.383,
+          "mean_mae_r": 0.926
+        },
+        "incremental_expectancy_r": 0.0628
+      },
+      {
+        "window_id": "WF_2025_12",
+        "test_month": "2025-12",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-11-30T23:59:59+00:00",
+        "test_range": "2025-12-01T00:00:00+00:00 to 2025-12-31T23:59:59+00:00",
+        "candidate_train_rows": 1118,
+        "mature_train_rows": 1118,
+        "immature_excluded": 0,
+        "test_rows": 87,
+        "accepted_count": 29,
+        "acceptance_rate_pct": 33.33,
+        "smc_baseline": {
+          "n": 87,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 31.03,
+          "win_rate_95ci": [
+            22.29,
+            41.38
+          ],
+          "expectancy_r": -0.1652,
+          "profit_factor": 0.761,
+          "max_drawdown_r": 18.73,
+          "total_r": -14.37,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.313,
+          "mean_mae_r": 1.614
+        },
+        "ai_filtered": {
+          "n": 29,
+          "coverage_pct": 33.33,
+          "win_rate_pct": 37.93,
+          "win_rate_95ci": [
+            22.69,
+            56.0
+          ],
+          "expectancy_r": 0.0342,
+          "profit_factor": 1.055,
+          "max_drawdown_r": 6.57,
+          "total_r": 0.99,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.632,
+          "mean_mae_r": 1.456
+        },
+        "incremental_expectancy_r": 0.1994
+      },
+      {
+        "window_id": "WF_2026_01",
+        "test_month": "2026-01",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2025-12-31T23:59:59+00:00",
+        "test_range": "2026-01-01T00:00:00+00:00 to 2026-01-31T23:59:59+00:00",
+        "candidate_train_rows": 1205,
+        "mature_train_rows": 1205,
+        "immature_excluded": 0,
+        "test_rows": 58,
+        "accepted_count": 5,
+        "acceptance_rate_pct": 8.62,
+        "smc_baseline": {
+          "n": 58,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 34.48,
+          "win_rate_95ci": [
+            23.56,
+            47.33
+          ],
+          "expectancy_r": -0.0767,
+          "profit_factor": 0.883,
+          "max_drawdown_r": 9.87,
+          "total_r": -4.45,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.173,
+          "mean_mae_r": 1.296
+        },
+        "ai_filtered": {
+          "n": 5,
+          "coverage_pct": 8.62,
+          "win_rate_pct": 40.0,
+          "win_rate_95ci": [
+            11.76,
+            76.93
+          ],
+          "expectancy_r": 0.0866,
+          "profit_factor": 1.144,
+          "max_drawdown_r": 2.0,
+          "total_r": 0.43,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.389,
+          "mean_mae_r": 0.949
+        },
+        "incremental_expectancy_r": 0.1633
+      },
+      {
+        "window_id": "WF_2026_02",
+        "test_month": "2026-02",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-01-31T23:59:59+00:00",
+        "test_range": "2026-02-01T00:00:00+00:00 to 2026-02-28T23:59:59+00:00",
+        "candidate_train_rows": 1263,
+        "mature_train_rows": 1263,
+        "immature_excluded": 0,
+        "test_rows": 46,
+        "accepted_count": 16,
+        "acceptance_rate_pct": 34.78,
+        "smc_baseline": {
+          "n": 46,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 32.61,
+          "win_rate_95ci": [
+            20.87,
+            47.03
+          ],
+          "expectancy_r": -0.1562,
+          "profit_factor": 0.768,
+          "max_drawdown_r": 17.38,
+          "total_r": -7.19,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.277,
+          "mean_mae_r": 1.34
+        },
+        "ai_filtered": {
+          "n": 16,
+          "coverage_pct": 34.78,
+          "win_rate_pct": 43.75,
+          "win_rate_95ci": [
+            23.1,
+            66.82
+          ],
+          "expectancy_r": 0.1625,
+          "profit_factor": 1.289,
+          "max_drawdown_r": 3.26,
+          "total_r": 2.6,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.465,
+          "mean_mae_r": 1.029
+        },
+        "incremental_expectancy_r": 0.3187
+      },
+      {
+        "window_id": "WF_2026_03",
+        "test_month": "2026-03",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-02-28T23:59:59+00:00",
+        "test_range": "2026-03-01T00:00:00+00:00 to 2026-03-31T23:59:59+00:00",
+        "candidate_train_rows": 1309,
+        "mature_train_rows": 1309,
+        "immature_excluded": 0,
+        "test_rows": 63,
+        "accepted_count": 14,
+        "acceptance_rate_pct": 22.22,
+        "smc_baseline": {
+          "n": 63,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 44.44,
+          "win_rate_95ci": [
+            32.85,
+            56.68
+          ],
+          "expectancy_r": 0.2175,
+          "profit_factor": 1.392,
+          "max_drawdown_r": 6.0,
+          "total_r": 13.7,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.57,
+          "mean_mae_r": 1.074
+        },
+        "ai_filtered": {
+          "n": 14,
+          "coverage_pct": 22.22,
+          "win_rate_pct": 57.14,
+          "win_rate_95ci": [
+            32.59,
+            78.62
+          ],
+          "expectancy_r": 0.5804,
+          "profit_factor": 2.354,
+          "max_drawdown_r": 2.0,
+          "total_r": 8.13,
+          "median_r": 1.7113,
+          "mean_mfe_r": 1.976,
+          "mean_mae_r": 0.843
+        },
+        "incremental_expectancy_r": 0.3629
+      },
+      {
+        "window_id": "WF_2026_04",
+        "test_month": "2026-04",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-03-31T23:59:59+00:00",
+        "test_range": "2026-04-01T00:00:00+00:00 to 2026-04-30T23:59:59+00:00",
+        "candidate_train_rows": 1372,
+        "mature_train_rows": 1372,
+        "immature_excluded": 0,
+        "test_rows": 69,
+        "accepted_count": 11,
+        "acceptance_rate_pct": 15.94,
+        "smc_baseline": {
+          "n": 69,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 30.43,
+          "win_rate_95ci": [
+            20.85,
+            42.08
+          ],
+          "expectancy_r": -0.2055,
+          "profit_factor": 0.705,
+          "max_drawdown_r": 20.74,
+          "total_r": -14.18,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.041,
+          "mean_mae_r": 1.419
+        },
+        "ai_filtered": {
+          "n": 11,
+          "coverage_pct": 15.94,
+          "win_rate_pct": 45.45,
+          "win_rate_95ci": [
+            21.27,
+            71.99
+          ],
+          "expectancy_r": 0.2301,
+          "profit_factor": 1.422,
+          "max_drawdown_r": 3.28,
+          "total_r": 2.53,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.487,
+          "mean_mae_r": 0.981
+        },
+        "incremental_expectancy_r": 0.4356
+      },
+      {
+        "window_id": "WF_2026_05",
+        "test_month": "2026-05",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-04-30T23:59:59+00:00",
+        "test_range": "2026-05-01T00:00:00+00:00 to 2026-05-31T23:59:59+00:00",
+        "candidate_train_rows": 1441,
+        "mature_train_rows": 1441,
+        "immature_excluded": 0,
+        "test_rows": 63,
+        "accepted_count": 11,
+        "acceptance_rate_pct": 17.46,
+        "smc_baseline": {
+          "n": 63,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 38.1,
+          "win_rate_95ci": [
+            27.12,
+            50.44
+          ],
+          "expectancy_r": 0.0188,
+          "profit_factor": 1.03,
+          "max_drawdown_r": 13.84,
+          "total_r": 1.18,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.163,
+          "mean_mae_r": 1.147
+        },
+        "ai_filtered": {
+          "n": 11,
+          "coverage_pct": 17.46,
+          "win_rate_pct": 54.55,
+          "win_rate_95ci": [
+            28.01,
+            78.73
+          ],
+          "expectancy_r": 0.45,
+          "profit_factor": 1.99,
+          "max_drawdown_r": 4.0,
+          "total_r": 4.95,
+          "median_r": 1.3682,
+          "mean_mfe_r": 1.568,
+          "mean_mae_r": 0.776
+        },
+        "incremental_expectancy_r": 0.4312
+      },
+      {
+        "window_id": "WF_2026_06",
+        "test_month": "2026-06",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-05-31T23:59:59+00:00",
+        "test_range": "2026-06-01T00:00:00+00:00 to 2026-06-30T23:59:59+00:00",
+        "candidate_train_rows": 1504,
+        "mature_train_rows": 1503,
+        "immature_excluded": 1,
+        "test_rows": 55,
+        "accepted_count": 21,
+        "acceptance_rate_pct": 38.18,
+        "smc_baseline": {
+          "n": 55,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 41.82,
+          "win_rate_95ci": [
+            29.74,
+            54.97
+          ],
+          "expectancy_r": 0.1636,
+          "profit_factor": 1.29,
+          "max_drawdown_r": 10.0,
+          "total_r": 9.0,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.424,
+          "mean_mae_r": 0.928
+        },
+        "ai_filtered": {
+          "n": 21,
+          "coverage_pct": 38.18,
+          "win_rate_pct": 47.62,
+          "win_rate_95ci": [
+            28.34,
+            67.63
+          ],
+          "expectancy_r": 0.3494,
+          "profit_factor": 1.73,
+          "max_drawdown_r": 4.05,
+          "total_r": 7.34,
+          "median_r": -0.0485,
+          "mean_mfe_r": 1.869,
+          "mean_mae_r": 0.761
+        },
+        "incremental_expectancy_r": 0.1858
+      },
+      {
+        "window_id": "WF_2026_07",
+        "test_month": "2026-07",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-06-30T23:59:59+00:00",
+        "test_range": "2026-07-01T00:00:00+00:00 to 2026-07-31T23:59:59+00:00",
+        "candidate_train_rows": 1559,
+        "mature_train_rows": 1559,
+        "immature_excluded": 0,
+        "test_rows": 75,
+        "accepted_count": 15,
+        "acceptance_rate_pct": 20.0,
+        "smc_baseline": {
+          "n": 75,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 37.33,
+          "win_rate_95ci": [
+            27.26,
+            48.65
+          ],
+          "expectancy_r": 0.0148,
+          "profit_factor": 1.024,
+          "max_drawdown_r": 11.57,
+          "total_r": 1.11,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.116,
+          "mean_mae_r": 1.261
+        },
+        "ai_filtered": {
+          "n": 15,
+          "coverage_pct": 20.0,
+          "win_rate_pct": 40.0,
+          "win_rate_95ci": [
+            19.82,
+            64.25
+          ],
+          "expectancy_r": 0.0843,
+          "profit_factor": 1.14,
+          "max_drawdown_r": 6.0,
+          "total_r": 1.26,
+          "median_r": -1.0,
+          "mean_mfe_r": 1.188,
+          "mean_mae_r": 1.271
+        },
+        "incremental_expectancy_r": 0.0695
+      },
+      {
+        "window_id": "WF_2026_08",
+        "test_month": "2026-08",
+        "train_range": "2024-06-01T00:00:00+00:00 to 2026-07-31T23:59:59+00:00",
+        "test_range": "2026-08-01T00:00:00+00:00 to 2026-08-21T23:59:59+00:00",
+        "candidate_train_rows": 1634,
+        "mature_train_rows": 1633,
+        "immature_excluded": 1,
+        "test_rows": 36,
+        "accepted_count": 7,
+        "acceptance_rate_pct": 19.44,
+        "smc_baseline": {
+          "n": 36,
+          "coverage_pct": 100.0,
+          "win_rate_pct": 30.56,
+          "win_rate_95ci": [
+            18.0,
+            46.86
+          ],
+          "expectancy_r": -0.1707,
+          "profit_factor": 0.754,
+          "max_drawdown_r": 10.87,
+          "total_r": -6.15,
+          "median_r": -1.0,
+          "mean_mfe_r": 0.927,
+          "mean_mae_r": 1.27
+        },
+        "ai_filtered": {
+          "n": 7,
+          "coverage_pct": 19.44,
+          "win_rate_pct": 57.14,
+          "win_rate_95ci": [
+            25.05,
+            84.18
+          ],
+          "expectancy_r": 0.5529,
+          "profit_factor": 2.29,
+          "max_drawdown_r": 1.0,
+          "total_r": 3.87,
+          "median_r": 1.7143,
+          "mean_mfe_r": 1.762,
+          "mean_mae_r": 0.883
+        },
+        "incremental_expectancy_r": 0.7236
+      }
+    ]
+  },
+  "asset_consistency": {
+    "total_assets": 4,
+    "positive_incremental_assets": 4,
+    "consistency_fraction_pct": 100.0,
+    "asset_breakdown": {
+      "BTCUSD": {
+        "total_oos_setups": 324,
+        "ai_accepted_count": 45,
+        "coverage_pct": 13.89,
+        "smc_expectancy_r": 0.0204,
+        "ai_expectancy_r": 0.327,
+        "incremental_expectancy_r": 0.3066,
+        "ai_win_rate_pct": 48.89,
+        "ai_profit_factor": 1.64,
+        "ai_max_drawdown_r": 4.29
+      },
+      "ETHUSD": {
+        "total_oos_setups": 289,
+        "ai_accepted_count": 68,
+        "coverage_pct": 23.53,
+        "smc_expectancy_r": -0.0065,
+        "ai_expectancy_r": 0.0917,
+        "incremental_expectancy_r": 0.0982,
+        "ai_win_rate_pct": 39.71,
+        "ai_profit_factor": 1.156,
+        "ai_max_drawdown_r": 8.14
+      },
+      "SOLUSD": {
+        "total_oos_setups": 344,
+        "ai_accepted_count": 103,
+        "coverage_pct": 29.94,
+        "smc_expectancy_r": 0.0084,
+        "ai_expectancy_r": 0.3176,
+        "incremental_expectancy_r": 0.3092,
+        "ai_win_rate_pct": 48.54,
+        "ai_profit_factor": 1.617,
+        "ai_max_drawdown_r": 10.57
+      },
+      "XRPUSD": {
+        "total_oos_setups": 282,
+        "ai_accepted_count": 72,
+        "coverage_pct": 25.53,
+        "smc_expectancy_r": 0.0063,
+        "ai_expectancy_r": 0.0869,
+        "incremental_expectancy_r": 0.0806,
+        "ai_win_rate_pct": 40.28,
+        "ai_profit_factor": 1.146,
+        "ai_max_drawdown_r": 9.98
+      }
+    }
+  },
+  "annual_consistency": {
+    "2025": {
+      "total_oos_setups": 774,
+      "ai_accepted_count": 188,
+      "coverage_pct": 24.29,
+      "smc_expectancy_r": 0.0211,
+      "ai_expectancy_r": 0.1533,
+      "incremental_expectancy_r": 0.1322,
+      "ai_win_rate_pct": 42.55,
+      "ai_profit_factor": 1.267,
+      "ai_max_drawdown_r": 10.71
+    },
+    "2026": {
+      "total_oos_setups": 465,
+      "ai_accepted_count": 100,
+      "coverage_pct": 21.51,
+      "smc_expectancy_r": -0.015,
+      "ai_expectancy_r": 0.3111,
+      "incremental_expectancy_r": 0.3261,
+      "ai_win_rate_pct": 48.0,
+      "ai_profit_factor": 1.609,
+      "ai_max_drawdown_r": 7.24
+    }
+  },
+  "score_diagnostics": {
+    "winners_mean_score": 0.0376,
+    "losers_mean_score": -0.0579,
+    "score_separation_delta": 0.0955,
+    "mann_whitney_u_p_value": 0.0,
+    "spearman_rank_correlation": {
+      "rho": 0.1256,
+      "p_value": 0.0
+    },
+    "quintile_calibration": [
+      {
+        "quintile": "Q1_Lowest",
+        "count": 248,
+        "min_score": -1.1903,
+        "max_score": -0.2821,
+        "mean_prediction": -0.4902,
+        "mean_realized_r": -0.3396,
+        "win_rate_pct": 24.6,
+        "profit_factor": 0.55
+      },
+      {
+        "quintile": "Q2_Low",
+        "count": 248,
+        "min_score": -0.2808,
+        "max_score": -0.064,
+        "mean_prediction": -0.1626,
+        "mean_realized_r": 0.0379,
+        "win_rate_pct": 38.3,
+        "profit_factor": 1.06
+      },
+      {
+        "quintile": "Q3_Mid",
+        "count": 247,
+        "min_score": -0.0636,
+        "max_score": 0.0756,
+        "mean_prediction": 0.0051,
+        "mean_realized_r": -0.0314,
+        "win_rate_pct": 36.0,
+        "profit_factor": 0.95
+      },
+      {
+        "quintile": "Q4_High",
+        "count": 248,
+        "min_score": 0.0757,
+        "max_score": 0.2252,
+        "mean_prediction": 0.1486,
+        "mean_realized_r": 0.1557,
+        "win_rate_pct": 42.7,
+        "profit_factor": 1.27
+      },
+      {
+        "quintile": "Q5_Highest",
+        "count": 248,
+        "min_score": 0.2256,
+        "max_score": 3.3765,
+        "mean_prediction": 0.3877,
+        "mean_realized_r": 0.2152,
+        "win_rate_pct": 44.8,
+        "profit_factor": 1.39
+      }
+    ]
+  },
+  "threshold_sensitivity": {
+    "disclaimer": "POST-HOC DESCRIPTIVE SENSITIVITY \u2014 NOT VALID FOR MODEL SELECTION",
+    "threshold_grid": [
+      {
+        "threshold_r": 0.0,
+        "is_primary_frozen": false,
+        "n_accepted": 629,
+        "coverage_pct": 50.77,
+        "win_rate_pct": 42.13,
+        "ai_expectancy_r": 0.1394,
+        "incremental_expectancy_r": 0.1318,
+        "profit_factor": 1.242,
+        "max_drawdown_r": 14.0
+      },
+      {
+        "threshold_r": 0.05,
+        "is_primary_frozen": false,
+        "n_accepted": 545,
+        "coverage_pct": 43.99,
+        "win_rate_pct": 42.2,
+        "ai_expectancy_r": 0.1436,
+        "incremental_expectancy_r": 0.136,
+        "profit_factor": 1.249,
+        "max_drawdown_r": 15.0
+      },
+      {
+        "threshold_r": 0.1,
+        "is_primary_frozen": false,
+        "n_accepted": 450,
+        "coverage_pct": 36.32,
+        "win_rate_pct": 43.33,
+        "ai_expectancy_r": 0.1732,
+        "incremental_expectancy_r": 0.1656,
+        "profit_factor": 1.307,
+        "max_drawdown_r": 18.29
+      },
+      {
+        "threshold_r": 0.15,
+        "is_primary_frozen": false,
+        "n_accepted": 374,
+        "coverage_pct": 30.19,
+        "win_rate_pct": 45.19,
+        "ai_expectancy_r": 0.2228,
+        "incremental_expectancy_r": 0.2152,
+        "profit_factor": 1.408,
+        "max_drawdown_r": 13.49
+      },
+      {
+        "threshold_r": 0.2,
+        "is_primary_frozen": true,
+        "n_accepted": 288,
+        "coverage_pct": 23.24,
+        "win_rate_pct": 44.44,
+        "ai_expectancy_r": 0.2081,
+        "incremental_expectancy_r": 0.2005,
+        "profit_factor": 1.377,
+        "max_drawdown_r": 10.71
+      },
+      {
+        "threshold_r": 0.25,
+        "is_primary_frozen": false,
+        "n_accepted": 208,
+        "coverage_pct": 16.79,
+        "win_rate_pct": 42.31,
+        "ai_expectancy_r": 0.1501,
+        "incremental_expectancy_r": 0.1425,
+        "profit_factor": 1.262,
+        "max_drawdown_r": 8.0
+      },
+      {
+        "threshold_r": 0.3,
+        "is_primary_frozen": false,
+        "n_accepted": 155,
+        "coverage_pct": 12.51,
+        "win_rate_pct": 43.23,
+        "ai_expectancy_r": 0.1678,
+        "incremental_expectancy_r": 0.1602,
+        "profit_factor": 1.295,
+        "max_drawdown_r": 8.29
+      },
+      {
+        "threshold_r": 0.4,
+        "is_primary_frozen": false,
+        "n_accepted": 73,
+        "coverage_pct": 5.89,
+        "win_rate_pct": 46.58,
+        "ai_expectancy_r": 0.2519,
+        "incremental_expectancy_r": 0.2443,
+        "profit_factor": 1.471,
+        "max_drawdown_r": 5.28
+      }
+    ]
+  },
+  "heuristic_controls": [
+    {
+      "control_name": "Full SMC Baseline (100% Accept)",
+      "n_trades": 1239,
+      "coverage_pct": 100.0,
+      "expectancy_r": 0.0076,
+      "win_rate_pct": 37.29,
+      "profit_factor": 1.012,
+      "total_r": 9.39,
+      "max_drawdown_r": 36.17
+    },
+    {
+      "control_name": "Direction Rule: Longs Only",
+      "n_trades": 676,
+      "coverage_pct": 54.56,
+      "expectancy_r": 0.0415,
+      "win_rate_pct": 38.46,
+      "profit_factor": 1.067,
+      "total_r": 28.07,
+      "max_drawdown_r": 29.11
+    },
+    {
+      "control_name": "Direction Rule: Shorts Only",
+      "n_trades": 563,
+      "coverage_pct": 45.44,
+      "expectancy_r": -0.0332,
+      "win_rate_pct": 35.88,
+      "profit_factor": 0.948,
+      "total_r": -18.68,
+      "max_drawdown_r": 50.47
+    },
+    {
+      "control_name": "Phase T AI Filter (Ridge @ +0.20R)",
+      "n_trades": 288,
+      "coverage_pct": 23.24,
+      "expectancy_r": 0.2081,
+      "win_rate_pct": 44.44,
+      "profit_factor": 1.377,
+      "total_r": 59.92,
+      "max_drawdown_r": 10.71
+    }
+  ],
+  "economic_analysis": {
+    "initial_balance_usd": 10000.0,
+    "risk_per_trade_fraction": 0.01,
+    "smc_terminal_balance_usd": 9883.83,
+    "smc_net_return_pct": -1.16,
+    "smc_max_drawdown_pct": 32.33,
+    "ai_terminal_balance_usd": 17729.78,
+    "ai_net_return_pct": 77.3,
+    "ai_max_drawdown_pct": 10.32
+  },
+  "evidence_classification": {
+    "classification": "STRONG EVIDENCE",
+    "summary": "Statistically significant edge confirmed across 20-month expanding walk-forward replay (95% MBB CI: [+0.0778R, +0.3153R], P(delta > 0) = 100.0%, Monthly consistency: 80.0%, Random Percentile: 99.9th).",
+    "governance_recommendation": "Maintain AI_PROMOTION_STATUS = REJECTED and live_execution_authorized = false. AI intelligence operates strictly in shadow/research mode."
+  },
+  "window_results": [
+    {
+      "window_id": "WF_2025_01",
+      "test_month": "2025-01",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2024-12-31T23:59:59+00:00",
+      "test_range": "2025-01-01T00:00:00+00:00 to 2025-01-31T23:59:59+00:00",
+      "candidate_train_rows": 431,
+      "mature_train_rows": 429,
+      "immature_excluded": 2,
+      "test_rows": 59,
+      "accepted_count": 19,
+      "acceptance_rate_pct": 32.2,
+      "smc_baseline": {
+        "n": 59,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 37.29,
+        "win_rate_95ci": [
+          26.08,
+          50.05
+        ],
+        "expectancy_r": 0.0083,
+        "profit_factor": 1.013,
+        "max_drawdown_r": 6.57,
+        "total_r": 0.49,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.456,
+        "mean_mae_r": 1.276
+      },
+      "ai_filtered": {
+        "n": 19,
+        "coverage_pct": 32.2,
+        "win_rate_pct": 36.84,
+        "win_rate_95ci": [
+          19.15,
+          58.96
+        ],
+        "expectancy_r": 0.0001,
+        "profit_factor": 1.0,
+        "max_drawdown_r": 5.0,
+        "total_r": 0.0,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.348,
+        "mean_mae_r": 1.02
+      },
+      "incremental_expectancy_r": -0.0082
+    },
+    {
+      "window_id": "WF_2025_02",
+      "test_month": "2025-02",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-01-31T23:59:59+00:00",
+      "test_range": "2025-02-01T00:00:00+00:00 to 2025-02-28T23:59:59+00:00",
+      "candidate_train_rows": 490,
+      "mature_train_rows": 489,
+      "immature_excluded": 1,
+      "test_rows": 50,
+      "accepted_count": 16,
+      "acceptance_rate_pct": 32.0,
+      "smc_baseline": {
+        "n": 50,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 36.0,
+        "win_rate_95ci": [
+          24.14,
+          49.86
+        ],
+        "expectancy_r": -0.0198,
+        "profit_factor": 0.969,
+        "max_drawdown_r": 6.37,
+        "total_r": -0.99,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.235,
+        "mean_mae_r": 1.245
+      },
+      "ai_filtered": {
+        "n": 16,
+        "coverage_pct": 32.0,
+        "win_rate_pct": 43.75,
+        "win_rate_95ci": [
+          23.1,
+          66.82
+        ],
+        "expectancy_r": 0.1903,
+        "profit_factor": 1.338,
+        "max_drawdown_r": 5.29,
+        "total_r": 3.04,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.546,
+        "mean_mae_r": 1.101
+      },
+      "incremental_expectancy_r": 0.2101
+    },
+    {
+      "window_id": "WF_2025_03",
+      "test_month": "2025-03",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-02-28T23:59:59+00:00",
+      "test_range": "2025-03-01T00:00:00+00:00 to 2025-03-31T23:59:59+00:00",
+      "candidate_train_rows": 540,
+      "mature_train_rows": 540,
+      "immature_excluded": 0,
+      "test_rows": 52,
+      "accepted_count": 16,
+      "acceptance_rate_pct": 30.77,
+      "smc_baseline": {
+        "n": 52,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 36.54,
+        "win_rate_95ci": [
+          24.8,
+          50.13
+        ],
+        "expectancy_r": -0.0075,
+        "profit_factor": 0.988,
+        "max_drawdown_r": 8.18,
+        "total_r": -0.39,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.33,
+        "mean_mae_r": 1.337
+      },
+      "ai_filtered": {
+        "n": 16,
+        "coverage_pct": 30.77,
+        "win_rate_pct": 50.0,
+        "win_rate_95ci": [
+          28.0,
+          72.0
+        ],
+        "expectancy_r": 0.3468,
+        "profit_factor": 1.694,
+        "max_drawdown_r": 3.36,
+        "total_r": 5.55,
+        "median_r": 0.2816,
+        "mean_mfe_r": 1.326,
+        "mean_mae_r": 1.083
+      },
+      "incremental_expectancy_r": 0.3543
+    },
+    {
+      "window_id": "WF_2025_04",
+      "test_month": "2025-04",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-03-31T23:59:59+00:00",
+      "test_range": "2025-04-01T00:00:00+00:00 to 2025-04-30T23:59:59+00:00",
+      "candidate_train_rows": 592,
+      "mature_train_rows": 592,
+      "immature_excluded": 0,
+      "test_rows": 64,
+      "accepted_count": 17,
+      "acceptance_rate_pct": 26.56,
+      "smc_baseline": {
+        "n": 64,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 34.38,
+        "win_rate_95ci": [
+          23.92,
+          46.6
+        ],
+        "expectancy_r": -0.0698,
+        "profit_factor": 0.894,
+        "max_drawdown_r": 8.28,
+        "total_r": -4.47,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.199,
+        "mean_mae_r": 1.29
+      },
+      "ai_filtered": {
+        "n": 17,
+        "coverage_pct": 26.56,
+        "win_rate_pct": 35.29,
+        "win_rate_95ci": [
+          17.31,
+          58.7
+        ],
+        "expectancy_r": -0.0423,
+        "profit_factor": 0.935,
+        "max_drawdown_r": 4.57,
+        "total_r": -0.72,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.16,
+        "mean_mae_r": 1.358
+      },
+      "incremental_expectancy_r": 0.0275
+    },
+    {
+      "window_id": "WF_2025_05",
+      "test_month": "2025-05",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-04-30T23:59:59+00:00",
+      "test_range": "2025-05-01T00:00:00+00:00 to 2025-05-31T23:59:59+00:00",
+      "candidate_train_rows": 656,
+      "mature_train_rows": 655,
+      "immature_excluded": 1,
+      "test_rows": 75,
+      "accepted_count": 10,
+      "acceptance_rate_pct": 13.33,
+      "smc_baseline": {
+        "n": 75,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 38.67,
+        "win_rate_95ci": [
+          28.46,
+          49.98
+        ],
+        "expectancy_r": 0.0386,
+        "profit_factor": 1.063,
+        "max_drawdown_r": 8.72,
+        "total_r": 2.9,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.21,
+        "mean_mae_r": 1.098
+      },
+      "ai_filtered": {
+        "n": 10,
+        "coverage_pct": 13.33,
+        "win_rate_pct": 40.0,
+        "win_rate_95ci": [
+          16.82,
+          68.73
+        ],
+        "expectancy_r": 0.0851,
+        "profit_factor": 1.142,
+        "max_drawdown_r": 5.0,
+        "total_r": 0.85,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.198,
+        "mean_mae_r": 0.918
+      },
+      "incremental_expectancy_r": 0.0465
+    },
+    {
+      "window_id": "WF_2025_06",
+      "test_month": "2025-06",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-05-31T23:59:59+00:00",
+      "test_range": "2025-06-01T00:00:00+00:00 to 2025-06-30T23:59:59+00:00",
+      "candidate_train_rows": 731,
+      "mature_train_rows": 730,
+      "immature_excluded": 1,
+      "test_rows": 73,
+      "accepted_count": 14,
+      "acceptance_rate_pct": 19.18,
+      "smc_baseline": {
+        "n": 73,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 32.88,
+        "win_rate_95ci": [
+          23.19,
+          44.27
+        ],
+        "expectancy_r": -0.1142,
+        "profit_factor": 0.83,
+        "max_drawdown_r": 21.62,
+        "total_r": -8.34,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.173,
+        "mean_mae_r": 1.372
+      },
+      "ai_filtered": {
+        "n": 14,
+        "coverage_pct": 19.18,
+        "win_rate_pct": 28.57,
+        "win_rate_95ci": [
+          11.72,
+          54.65
+        ],
+        "expectancy_r": -0.279,
+        "profit_factor": 0.609,
+        "max_drawdown_r": 6.78,
+        "total_r": -3.91,
+        "median_r": -1.0,
+        "mean_mfe_r": 0.907,
+        "mean_mae_r": 1.368
+      },
+      "incremental_expectancy_r": -0.1648
+    },
+    {
+      "window_id": "WF_2025_07",
+      "test_month": "2025-07",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-06-30T23:59:59+00:00",
+      "test_range": "2025-07-01T00:00:00+00:00 to 2025-07-31T23:59:59+00:00",
+      "candidate_train_rows": 804,
+      "mature_train_rows": 804,
+      "immature_excluded": 0,
+      "test_rows": 64,
+      "accepted_count": 11,
+      "acceptance_rate_pct": 17.19,
+      "smc_baseline": {
+        "n": 64,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 31.25,
+        "win_rate_95ci": [
+          21.23,
+          43.39
+        ],
+        "expectancy_r": -0.1464,
+        "profit_factor": 0.787,
+        "max_drawdown_r": 14.99,
+        "total_r": -9.37,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.234,
+        "mean_mae_r": 1.18
+      },
+      "ai_filtered": {
+        "n": 11,
+        "coverage_pct": 17.19,
+        "win_rate_pct": 27.27,
+        "win_rate_95ci": [
+          9.75,
+          56.56
+        ],
+        "expectancy_r": -0.2472,
+        "profit_factor": 0.66,
+        "max_drawdown_r": 4.0,
+        "total_r": -2.72,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.068,
+        "mean_mae_r": 1.444
+      },
+      "incremental_expectancy_r": -0.1008
+    },
+    {
+      "window_id": "WF_2025_08",
+      "test_month": "2025-08",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-07-31T23:59:59+00:00",
+      "test_range": "2025-08-01T00:00:00+00:00 to 2025-08-31T23:59:59+00:00",
+      "candidate_train_rows": 868,
+      "mature_train_rows": 868,
+      "immature_excluded": 0,
+      "test_rows": 50,
+      "accepted_count": 9,
+      "acceptance_rate_pct": 18.0,
+      "smc_baseline": {
+        "n": 50,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 48.0,
+        "win_rate_95ci": [
+          34.8,
+          61.49
+        ],
+        "expectancy_r": 0.3046,
+        "profit_factor": 1.586,
+        "max_drawdown_r": 7.26,
+        "total_r": 15.23,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.369,
+        "mean_mae_r": 1.073
+      },
+      "ai_filtered": {
+        "n": 9,
+        "coverage_pct": 18.0,
+        "win_rate_pct": 77.78,
+        "win_rate_95ci": [
+          45.26,
+          93.68
+        ],
+        "expectancy_r": 1.1039,
+        "profit_factor": 5.968,
+        "max_drawdown_r": 1.0,
+        "total_r": 9.94,
+        "median_r": 1.7126,
+        "mean_mfe_r": 1.985,
+        "mean_mae_r": 0.811
+      },
+      "incremental_expectancy_r": 0.7993
+    },
+    {
+      "window_id": "WF_2025_09",
+      "test_month": "2025-09",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-08-31T23:59:59+00:00",
+      "test_range": "2025-09-01T00:00:00+00:00 to 2025-09-30T23:59:59+00:00",
+      "candidate_train_rows": 918,
+      "mature_train_rows": 918,
+      "immature_excluded": 0,
+      "test_rows": 74,
+      "accepted_count": 13,
+      "acceptance_rate_pct": 17.57,
+      "smc_baseline": {
+        "n": 74,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 41.89,
+        "win_rate_95ci": [
+          31.32,
+          53.26
+        ],
+        "expectancy_r": 0.1329,
+        "profit_factor": 1.229,
+        "max_drawdown_r": 13.32,
+        "total_r": 9.83,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.302,
+        "mean_mae_r": 0.981
+      },
+      "ai_filtered": {
+        "n": 13,
+        "coverage_pct": 17.57,
+        "win_rate_pct": 61.54,
+        "win_rate_95ci": [
+          35.52,
+          82.29
+        ],
+        "expectancy_r": 0.6762,
+        "profit_factor": 2.758,
+        "max_drawdown_r": 3.0,
+        "total_r": 8.79,
+        "median_r": 1.7141,
+        "mean_mfe_r": 1.616,
+        "mean_mae_r": 0.662
+      },
+      "incremental_expectancy_r": 0.5433
+    },
+    {
+      "window_id": "WF_2025_10",
+      "test_month": "2025-10",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-09-30T23:59:59+00:00",
+      "test_range": "2025-10-01T00:00:00+00:00 to 2025-10-31T23:59:59+00:00",
+      "candidate_train_rows": 992,
+      "mature_train_rows": 992,
+      "immature_excluded": 0,
+      "test_rows": 70,
+      "accepted_count": 23,
+      "acceptance_rate_pct": 32.86,
+      "smc_baseline": {
+        "n": 70,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 45.71,
+        "win_rate_95ci": [
+          34.57,
+          57.3
+        ],
+        "expectancy_r": 0.2477,
+        "profit_factor": 1.456,
+        "max_drawdown_r": 9.57,
+        "total_r": 17.34,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.588,
+        "mean_mae_r": 1.099
+      },
+      "ai_filtered": {
+        "n": 23,
+        "coverage_pct": 32.86,
+        "win_rate_pct": 43.48,
+        "win_rate_95ci": [
+          25.63,
+          63.19
+        ],
+        "expectancy_r": 0.2016,
+        "profit_factor": 1.357,
+        "max_drawdown_r": 7.0,
+        "total_r": 4.64,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.549,
+        "mean_mae_r": 1.109
+      },
+      "incremental_expectancy_r": -0.0461
+    },
+    {
+      "window_id": "WF_2025_11",
+      "test_month": "2025-11",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-10-31T23:59:59+00:00",
+      "test_range": "2025-11-01T00:00:00+00:00 to 2025-11-30T23:59:59+00:00",
+      "candidate_train_rows": 1062,
+      "mature_train_rows": 1062,
+      "immature_excluded": 0,
+      "test_rows": 56,
+      "accepted_count": 11,
+      "acceptance_rate_pct": 19.64,
+      "smc_baseline": {
+        "n": 56,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 42.86,
+        "win_rate_95ci": [
+          30.77,
+          55.86
+        ],
+        "expectancy_r": 0.1517,
+        "profit_factor": 1.265,
+        "max_drawdown_r": 8.56,
+        "total_r": 8.49,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.262,
+        "mean_mae_r": 1.162
+      },
+      "ai_filtered": {
+        "n": 11,
+        "coverage_pct": 19.64,
+        "win_rate_pct": 45.45,
+        "win_rate_95ci": [
+          21.27,
+          71.99
+        ],
+        "expectancy_r": 0.2145,
+        "profit_factor": 1.393,
+        "max_drawdown_r": 2.0,
+        "total_r": 2.36,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.383,
+        "mean_mae_r": 0.926
+      },
+      "incremental_expectancy_r": 0.0628
+    },
+    {
+      "window_id": "WF_2025_12",
+      "test_month": "2025-12",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-11-30T23:59:59+00:00",
+      "test_range": "2025-12-01T00:00:00+00:00 to 2025-12-31T23:59:59+00:00",
+      "candidate_train_rows": 1118,
+      "mature_train_rows": 1118,
+      "immature_excluded": 0,
+      "test_rows": 87,
+      "accepted_count": 29,
+      "acceptance_rate_pct": 33.33,
+      "smc_baseline": {
+        "n": 87,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 31.03,
+        "win_rate_95ci": [
+          22.29,
+          41.38
+        ],
+        "expectancy_r": -0.1652,
+        "profit_factor": 0.761,
+        "max_drawdown_r": 18.73,
+        "total_r": -14.37,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.313,
+        "mean_mae_r": 1.614
+      },
+      "ai_filtered": {
+        "n": 29,
+        "coverage_pct": 33.33,
+        "win_rate_pct": 37.93,
+        "win_rate_95ci": [
+          22.69,
+          56.0
+        ],
+        "expectancy_r": 0.0342,
+        "profit_factor": 1.055,
+        "max_drawdown_r": 6.57,
+        "total_r": 0.99,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.632,
+        "mean_mae_r": 1.456
+      },
+      "incremental_expectancy_r": 0.1994
+    },
+    {
+      "window_id": "WF_2026_01",
+      "test_month": "2026-01",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2025-12-31T23:59:59+00:00",
+      "test_range": "2026-01-01T00:00:00+00:00 to 2026-01-31T23:59:59+00:00",
+      "candidate_train_rows": 1205,
+      "mature_train_rows": 1205,
+      "immature_excluded": 0,
+      "test_rows": 58,
+      "accepted_count": 5,
+      "acceptance_rate_pct": 8.62,
+      "smc_baseline": {
+        "n": 58,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 34.48,
+        "win_rate_95ci": [
+          23.56,
+          47.33
+        ],
+        "expectancy_r": -0.0767,
+        "profit_factor": 0.883,
+        "max_drawdown_r": 9.87,
+        "total_r": -4.45,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.173,
+        "mean_mae_r": 1.296
+      },
+      "ai_filtered": {
+        "n": 5,
+        "coverage_pct": 8.62,
+        "win_rate_pct": 40.0,
+        "win_rate_95ci": [
+          11.76,
+          76.93
+        ],
+        "expectancy_r": 0.0866,
+        "profit_factor": 1.144,
+        "max_drawdown_r": 2.0,
+        "total_r": 0.43,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.389,
+        "mean_mae_r": 0.949
+      },
+      "incremental_expectancy_r": 0.1633
+    },
+    {
+      "window_id": "WF_2026_02",
+      "test_month": "2026-02",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-01-31T23:59:59+00:00",
+      "test_range": "2026-02-01T00:00:00+00:00 to 2026-02-28T23:59:59+00:00",
+      "candidate_train_rows": 1263,
+      "mature_train_rows": 1263,
+      "immature_excluded": 0,
+      "test_rows": 46,
+      "accepted_count": 16,
+      "acceptance_rate_pct": 34.78,
+      "smc_baseline": {
+        "n": 46,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 32.61,
+        "win_rate_95ci": [
+          20.87,
+          47.03
+        ],
+        "expectancy_r": -0.1562,
+        "profit_factor": 0.768,
+        "max_drawdown_r": 17.38,
+        "total_r": -7.19,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.277,
+        "mean_mae_r": 1.34
+      },
+      "ai_filtered": {
+        "n": 16,
+        "coverage_pct": 34.78,
+        "win_rate_pct": 43.75,
+        "win_rate_95ci": [
+          23.1,
+          66.82
+        ],
+        "expectancy_r": 0.1625,
+        "profit_factor": 1.289,
+        "max_drawdown_r": 3.26,
+        "total_r": 2.6,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.465,
+        "mean_mae_r": 1.029
+      },
+      "incremental_expectancy_r": 0.3187
+    },
+    {
+      "window_id": "WF_2026_03",
+      "test_month": "2026-03",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-02-28T23:59:59+00:00",
+      "test_range": "2026-03-01T00:00:00+00:00 to 2026-03-31T23:59:59+00:00",
+      "candidate_train_rows": 1309,
+      "mature_train_rows": 1309,
+      "immature_excluded": 0,
+      "test_rows": 63,
+      "accepted_count": 14,
+      "acceptance_rate_pct": 22.22,
+      "smc_baseline": {
+        "n": 63,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 44.44,
+        "win_rate_95ci": [
+          32.85,
+          56.68
+        ],
+        "expectancy_r": 0.2175,
+        "profit_factor": 1.392,
+        "max_drawdown_r": 6.0,
+        "total_r": 13.7,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.57,
+        "mean_mae_r": 1.074
+      },
+      "ai_filtered": {
+        "n": 14,
+        "coverage_pct": 22.22,
+        "win_rate_pct": 57.14,
+        "win_rate_95ci": [
+          32.59,
+          78.62
+        ],
+        "expectancy_r": 0.5804,
+        "profit_factor": 2.354,
+        "max_drawdown_r": 2.0,
+        "total_r": 8.13,
+        "median_r": 1.7113,
+        "mean_mfe_r": 1.976,
+        "mean_mae_r": 0.843
+      },
+      "incremental_expectancy_r": 0.3629
+    },
+    {
+      "window_id": "WF_2026_04",
+      "test_month": "2026-04",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-03-31T23:59:59+00:00",
+      "test_range": "2026-04-01T00:00:00+00:00 to 2026-04-30T23:59:59+00:00",
+      "candidate_train_rows": 1372,
+      "mature_train_rows": 1372,
+      "immature_excluded": 0,
+      "test_rows": 69,
+      "accepted_count": 11,
+      "acceptance_rate_pct": 15.94,
+      "smc_baseline": {
+        "n": 69,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 30.43,
+        "win_rate_95ci": [
+          20.85,
+          42.08
+        ],
+        "expectancy_r": -0.2055,
+        "profit_factor": 0.705,
+        "max_drawdown_r": 20.74,
+        "total_r": -14.18,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.041,
+        "mean_mae_r": 1.419
+      },
+      "ai_filtered": {
+        "n": 11,
+        "coverage_pct": 15.94,
+        "win_rate_pct": 45.45,
+        "win_rate_95ci": [
+          21.27,
+          71.99
+        ],
+        "expectancy_r": 0.2301,
+        "profit_factor": 1.422,
+        "max_drawdown_r": 3.28,
+        "total_r": 2.53,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.487,
+        "mean_mae_r": 0.981
+      },
+      "incremental_expectancy_r": 0.4356
+    },
+    {
+      "window_id": "WF_2026_05",
+      "test_month": "2026-05",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-04-30T23:59:59+00:00",
+      "test_range": "2026-05-01T00:00:00+00:00 to 2026-05-31T23:59:59+00:00",
+      "candidate_train_rows": 1441,
+      "mature_train_rows": 1441,
+      "immature_excluded": 0,
+      "test_rows": 63,
+      "accepted_count": 11,
+      "acceptance_rate_pct": 17.46,
+      "smc_baseline": {
+        "n": 63,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 38.1,
+        "win_rate_95ci": [
+          27.12,
+          50.44
+        ],
+        "expectancy_r": 0.0188,
+        "profit_factor": 1.03,
+        "max_drawdown_r": 13.84,
+        "total_r": 1.18,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.163,
+        "mean_mae_r": 1.147
+      },
+      "ai_filtered": {
+        "n": 11,
+        "coverage_pct": 17.46,
+        "win_rate_pct": 54.55,
+        "win_rate_95ci": [
+          28.01,
+          78.73
+        ],
+        "expectancy_r": 0.45,
+        "profit_factor": 1.99,
+        "max_drawdown_r": 4.0,
+        "total_r": 4.95,
+        "median_r": 1.3682,
+        "mean_mfe_r": 1.568,
+        "mean_mae_r": 0.776
+      },
+      "incremental_expectancy_r": 0.4312
+    },
+    {
+      "window_id": "WF_2026_06",
+      "test_month": "2026-06",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-05-31T23:59:59+00:00",
+      "test_range": "2026-06-01T00:00:00+00:00 to 2026-06-30T23:59:59+00:00",
+      "candidate_train_rows": 1504,
+      "mature_train_rows": 1503,
+      "immature_excluded": 1,
+      "test_rows": 55,
+      "accepted_count": 21,
+      "acceptance_rate_pct": 38.18,
+      "smc_baseline": {
+        "n": 55,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 41.82,
+        "win_rate_95ci": [
+          29.74,
+          54.97
+        ],
+        "expectancy_r": 0.1636,
+        "profit_factor": 1.29,
+        "max_drawdown_r": 10.0,
+        "total_r": 9.0,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.424,
+        "mean_mae_r": 0.928
+      },
+      "ai_filtered": {
+        "n": 21,
+        "coverage_pct": 38.18,
+        "win_rate_pct": 47.62,
+        "win_rate_95ci": [
+          28.34,
+          67.63
+        ],
+        "expectancy_r": 0.3494,
+        "profit_factor": 1.73,
+        "max_drawdown_r": 4.05,
+        "total_r": 7.34,
+        "median_r": -0.0485,
+        "mean_mfe_r": 1.869,
+        "mean_mae_r": 0.761
+      },
+      "incremental_expectancy_r": 0.1858
+    },
+    {
+      "window_id": "WF_2026_07",
+      "test_month": "2026-07",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-06-30T23:59:59+00:00",
+      "test_range": "2026-07-01T00:00:00+00:00 to 2026-07-31T23:59:59+00:00",
+      "candidate_train_rows": 1559,
+      "mature_train_rows": 1559,
+      "immature_excluded": 0,
+      "test_rows": 75,
+      "accepted_count": 15,
+      "acceptance_rate_pct": 20.0,
+      "smc_baseline": {
+        "n": 75,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 37.33,
+        "win_rate_95ci": [
+          27.26,
+          48.65
+        ],
+        "expectancy_r": 0.0148,
+        "profit_factor": 1.024,
+        "max_drawdown_r": 11.57,
+        "total_r": 1.11,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.116,
+        "mean_mae_r": 1.261
+      },
+      "ai_filtered": {
+        "n": 15,
+        "coverage_pct": 20.0,
+        "win_rate_pct": 40.0,
+        "win_rate_95ci": [
+          19.82,
+          64.25
+        ],
+        "expectancy_r": 0.0843,
+        "profit_factor": 1.14,
+        "max_drawdown_r": 6.0,
+        "total_r": 1.26,
+        "median_r": -1.0,
+        "mean_mfe_r": 1.188,
+        "mean_mae_r": 1.271
+      },
+      "incremental_expectancy_r": 0.0695
+    },
+    {
+      "window_id": "WF_2026_08",
+      "test_month": "2026-08",
+      "train_range": "2024-06-01T00:00:00+00:00 to 2026-07-31T23:59:59+00:00",
+      "test_range": "2026-08-01T00:00:00+00:00 to 2026-08-21T23:59:59+00:00",
+      "candidate_train_rows": 1634,
+      "mature_train_rows": 1633,
+      "immature_excluded": 1,
+      "test_rows": 36,
+      "accepted_count": 7,
+      "acceptance_rate_pct": 19.44,
+      "smc_baseline": {
+        "n": 36,
+        "coverage_pct": 100.0,
+        "win_rate_pct": 30.56,
+        "win_rate_95ci": [
+          18.0,
+          46.86
+        ],
+        "expectancy_r": -0.1707,
+        "profit_factor": 0.754,
+        "max_drawdown_r": 10.87,
+        "total_r": -6.15,
+        "median_r": -1.0,
+        "mean_mfe_r": 0.927,
+        "mean_mae_r": 1.27
+      },
+      "ai_filtered": {
+        "n": 7,
+        "coverage_pct": 19.44,
+        "win_rate_pct": 57.14,
+        "win_rate_95ci": [
+          25.05,
+          84.18
+        ],
+        "expectancy_r": 0.5529,
+        "profit_factor": 2.29,
+        "max_drawdown_r": 1.0,
+        "total_r": 3.87,
+        "median_r": 1.7143,
+        "mean_mfe_r": 1.762,
+        "mean_mae_r": 0.883
+      },
+      "incremental_expectancy_r": 0.7236
+    }
+  ]
+}
