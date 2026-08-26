@@ -1,0 +1,5 @@
+period,trades,win_rate_pct,total_strategy_R,total_net_R,profit_factor,expectancy_net_R,ending_capital,period_return_pct,max_drawdown_pct
+Period 1: 2024-H2 (Jun-Dec 2024),106,64.1509,9.7055,-1.87,0.9062,-0.017641,8.214281,-17.8572,41.6972
+Period 2: 2025-H1 (Jan-Jun 2025),108,71.2963,33.4904,21.2635,1.5026,0.196884,25.632905,156.329,30.7467
+Period 3: 2025-H2 (Jul-Dec 2025),105,67.619,32.2859,18.0314,1.4125,0.171728,20.842203,108.422,27.9706
+Period 4: 2026-H1+ (Jan-Aug 2026),126,69.8413,46.5768,29.4659,1.4411,0.233856,36.893032,268.9303,27.0924
