@@ -1,0 +1,110 @@
+{
+  "experiment": "SOL-Only Fixed +0.60% TP LuxAlgo Retest Research",
+  "period": "2024-06-11T00:00:00Z to 2026-08-26T14:00:00Z",
+  "config": {
+    "fixed_tp_market_pct": 0.6,
+    "max_sl_account_risk_pct": 35.0,
+    "applied_leverage_cap": 100.0,
+    "penetration_depth": 0.25,
+    "fee_rate": 0.0008,
+    "max_holding_bars": 72,
+    "starting_capital": 10.0,
+    "data_timeframe": "1h"
+  },
+  "summary": {
+    "starting_capital": 10.0,
+    "ending_capital": 3.678695932791316e-18,
+    "total_return_pct": -100.0,
+    "total_obs_detected": 455,
+    "total_candidate_setups": 455,
+    "total_executed_trades": 432,
+    "total_no_fill_setups": 8,
+    "total_touches_without_25pct": 8,
+    "total_invalidations_before_fill": 0,
+    "total_skipped_global_lock": 15,
+    "wins": 250,
+    "losses": 182,
+    "timeouts": 0,
+    "ambiguous_trades": 18,
+    "win_rate_pct": 57.87,
+    "expectancy_r": -0.0269,
+    "total_realized_r": -11.62,
+    "profit_factor": 0.94,
+    "max_drawdown_pct": 100.0,
+    "max_losing_streak": 6
+  },
+  "holding_time_stats": {
+    "average_hours": 1.78,
+    "median_hours": 1.0,
+    "min_hours": 1.0,
+    "max_hours": 44.0
+  },
+  "latency_stats": {
+    "average_hours_to_fill": 1.94,
+    "median_hours_to_fill": 1.0
+  },
+  "latency_breakdown": {
+    "A. Immediate (1h)": {
+      "trades": 382,
+      "wins": 206,
+      "losses": 176,
+      "win_rate_pct": 53.93,
+      "total_realized_r": -31.27,
+      "expectancy_r": -0.0819,
+      "profit_factor": 0.82
+    },
+    "B. 2-3h Retest": {
+      "trades": 23,
+      "wins": 21,
+      "losses": 2,
+      "win_rate_pct": 91.3,
+      "total_realized_r": 10.13,
+      "expectancy_r": 0.4405,
+      "profit_factor": 6.07
+    },
+    "C. 4-6h Retest": {
+      "trades": 13,
+      "wins": 11,
+      "losses": 2,
+      "win_rate_pct": 84.62,
+      "total_realized_r": 5.16,
+      "expectancy_r": 0.3971,
+      "profit_factor": 3.58
+    },
+    "D. 7-12h Retest": {
+      "trades": 6,
+      "wins": 5,
+      "losses": 1,
+      "win_rate_pct": 83.33,
+      "total_realized_r": 1.68,
+      "expectancy_r": 0.2803,
+      "profit_factor": 2.68
+    },
+    "E. 13-24h Retest": {
+      "trades": 4,
+      "wins": 4,
+      "losses": 0,
+      "win_rate_pct": 100.0,
+      "total_realized_r": 2.16,
+      "expectancy_r": 0.5402,
+      "profit_factor": 2.16
+    },
+    "F. >24h Retest": {
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "win_rate_pct": 75.0,
+      "total_realized_r": 0.51,
+      "expectancy_r": 0.1287,
+      "profit_factor": 1.51
+    }
+  },
+  "august_2026_slice": {
+    "trades": 15,
+    "wins": 8,
+    "losses": 7,
+    "win_rate_pct": 53.33,
+    "total_realized_r": -0.18,
+    "profit_factor": 0.97
+  }
+}

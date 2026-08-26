@@ -1,0 +1,1375 @@
+{
+  "engine": "DisplacementGatedRetestEngine",
+  "displacement_mode": "A",
+  "displacement_threshold": "1.0x OB width",
+  "period": "2024-06-01 to 2026-08-26",
+  "starting_capital": 10.0,
+  "per_pair": {
+    "BTCUSD": {
+      "symbol": "BTCUSD",
+      "trades": 119,
+      "wins": 76,
+      "losses": 43,
+      "win_rate_pct": 63.87,
+      "total_realized_r": 46.29,
+      "expectancy_r": 0.389,
+      "profit_factor": 2.08,
+      "max_losing_streak": 6,
+      "starting_capital": 10.0,
+      "ending_capital": 11.8617,
+      "total_return_pct": 18.62,
+      "max_drawdown_pct": 99.63,
+      "monthly": [
+        {
+          "month": "2024-06",
+          "trades": 2,
+          "wins": 0,
+          "losses": 2,
+          "wr_pct": 0.0,
+          "total_r": -2.0,
+          "end_capital": 3.637
+        },
+        {
+          "month": "2024-07",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 2.91,
+          "end_capital": 6.3322
+        },
+        {
+          "month": "2024-08",
+          "trades": 3,
+          "wins": 1,
+          "losses": 2,
+          "wr_pct": 33.33,
+          "total_r": -1.41,
+          "end_capital": 2.6688
+        },
+        {
+          "month": "2024-09",
+          "trades": 5,
+          "wins": 3,
+          "losses": 2,
+          "wr_pct": 60.0,
+          "total_r": 0.22,
+          "end_capital": 1.9166
+        },
+        {
+          "month": "2024-11",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 1.43,
+          "end_capital": 2.2675
+        },
+        {
+          "month": "2024-12",
+          "trades": 2,
+          "wins": 1,
+          "losses": 1,
+          "wr_pct": 50.0,
+          "total_r": -0.05,
+          "end_capital": 1.7347
+        },
+        {
+          "month": "2025-01",
+          "trades": 6,
+          "wins": 4,
+          "losses": 2,
+          "wr_pct": 66.67,
+          "total_r": 1.71,
+          "end_capital": 1.7651
+        },
+        {
+          "month": "2025-02",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 4.03,
+          "end_capital": 2.2445
+        },
+        {
+          "month": "2025-03",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 4.7,
+          "end_capital": 5.5618
+        },
+        {
+          "month": "2025-04",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 1.07,
+          "end_capital": 5.8669
+        },
+        {
+          "month": "2025-05",
+          "trades": 6,
+          "wins": 4,
+          "losses": 2,
+          "wr_pct": 66.67,
+          "total_r": 1.74,
+          "end_capital": 5.6462
+        },
+        {
+          "month": "2025-06",
+          "trades": 9,
+          "wins": 3,
+          "losses": 6,
+          "wr_pct": 33.33,
+          "total_r": -2.69,
+          "end_capital": 0.8029
+        },
+        {
+          "month": "2025-07",
+          "trades": 7,
+          "wins": 1,
+          "losses": 6,
+          "wr_pct": 14.29,
+          "total_r": 0.62,
+          "end_capital": 0.0714
+        },
+        {
+          "month": "2025-08",
+          "trades": 4,
+          "wins": 2,
+          "losses": 2,
+          "wr_pct": 50.0,
+          "total_r": 0.82,
+          "end_capital": 0.0546
+        },
+        {
+          "month": "2025-09",
+          "trades": 8,
+          "wins": 5,
+          "losses": 3,
+          "wr_pct": 62.5,
+          "total_r": 4.97,
+          "end_capital": 0.0914
+        },
+        {
+          "month": "2025-10",
+          "trades": 5,
+          "wins": 5,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 5.7,
+          "end_capital": 0.3915
+        },
+        {
+          "month": "2025-11",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 3.45,
+          "end_capital": 0.7667
+        },
+        {
+          "month": "2025-12",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 2.09,
+          "end_capital": 1.0699
+        },
+        {
+          "month": "2026-01",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 4.59,
+          "end_capital": 3.3729
+        },
+        {
+          "month": "2026-02",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 3.21,
+          "end_capital": 6.0832
+        },
+        {
+          "month": "2026-03",
+          "trades": 6,
+          "wins": 6,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 6.01,
+          "end_capital": 29.1066
+        },
+        {
+          "month": "2026-04",
+          "trades": 4,
+          "wins": 2,
+          "losses": 2,
+          "wr_pct": 50.0,
+          "total_r": -0.41,
+          "end_capital": 17.1197
+        },
+        {
+          "month": "2026-05",
+          "trades": 2,
+          "wins": 0,
+          "losses": 2,
+          "wr_pct": 0.0,
+          "total_r": -2.0,
+          "end_capital": 7.468
+        },
+        {
+          "month": "2026-06",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 2.03,
+          "end_capital": 9.8238
+        },
+        {
+          "month": "2026-07",
+          "trades": 5,
+          "wins": 5,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 4.48,
+          "end_capital": 32.2714
+        },
+        {
+          "month": "2026-08",
+          "trades": 5,
+          "wins": 2,
+          "losses": 3,
+          "wr_pct": 40.0,
+          "total_r": -0.95,
+          "end_capital": 11.8617
+        }
+      ]
+    },
+    "ETHUSD": {
+      "symbol": "ETHUSD",
+      "trades": 116,
+      "wins": 77,
+      "losses": 39,
+      "win_rate_pct": 66.38,
+      "total_realized_r": 25.96,
+      "expectancy_r": 0.2238,
+      "profit_factor": 1.67,
+      "max_losing_streak": 9,
+      "starting_capital": 10.0,
+      "ending_capital": 0.4391,
+      "total_return_pct": -95.61,
+      "max_drawdown_pct": 99.86,
+      "monthly": [
+        {
+          "month": "2024-06",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.67,
+          "end_capital": 11.7529
+        },
+        {
+          "month": "2024-07",
+          "trades": 8,
+          "wins": 2,
+          "losses": 6,
+          "wr_pct": 25.0,
+          "total_r": -4.55,
+          "end_capital": 0.8773
+        },
+        {
+          "month": "2024-08",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 1.52,
+          "end_capital": 1.3113
+        },
+        {
+          "month": "2024-09",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": -0.09,
+          "end_capital": 1.0233
+        },
+        {
+          "month": "2024-10",
+          "trades": 6,
+          "wins": 0,
+          "losses": 6,
+          "wr_pct": 0.0,
+          "total_r": -6.0,
+          "end_capital": 0.0485
+        },
+        {
+          "month": "2024-11",
+          "trades": 4,
+          "wins": 2,
+          "losses": 2,
+          "wr_pct": 50.0,
+          "total_r": -0.95,
+          "end_capital": 0.0242
+        },
+        {
+          "month": "2024-12",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 3.61,
+          "end_capital": 0.0451
+        },
+        {
+          "month": "2025-01",
+          "trades": 8,
+          "wins": 5,
+          "losses": 3,
+          "wr_pct": 62.5,
+          "total_r": -0.2,
+          "end_capital": 0.0219
+        },
+        {
+          "month": "2025-02",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 3.22,
+          "end_capital": 0.0507
+        },
+        {
+          "month": "2025-03",
+          "trades": 4,
+          "wins": 2,
+          "losses": 2,
+          "wr_pct": 50.0,
+          "total_r": -0.07,
+          "end_capital": 0.0291
+        },
+        {
+          "month": "2025-04",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.53,
+          "end_capital": 0.0579
+        },
+        {
+          "month": "2025-05",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 1.26,
+          "end_capital": 0.0673
+        },
+        {
+          "month": "2025-06",
+          "trades": 2,
+          "wins": 1,
+          "losses": 1,
+          "wr_pct": 50.0,
+          "total_r": 0.64,
+          "end_capital": 0.0633
+        },
+        {
+          "month": "2025-07",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.38,
+          "end_capital": 0.1223
+        },
+        {
+          "month": "2025-08",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 1.47,
+          "end_capital": 0.183
+        },
+        {
+          "month": "2025-09",
+          "trades": 7,
+          "wins": 5,
+          "losses": 2,
+          "wr_pct": 71.43,
+          "total_r": 3.16,
+          "end_capital": 0.2687
+        },
+        {
+          "month": "2025-10",
+          "trades": 7,
+          "wins": 3,
+          "losses": 4,
+          "wr_pct": 42.86,
+          "total_r": -1.31,
+          "end_capital": 0.0682
+        },
+        {
+          "month": "2025-11",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": -0.13,
+          "end_capital": 0.0506
+        },
+        {
+          "month": "2025-12",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.25,
+          "end_capital": 0.0934
+        },
+        {
+          "month": "2026-01",
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 0.66,
+          "end_capital": 0.112
+        },
+        {
+          "month": "2026-02",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.29,
+          "end_capital": 0.2111
+        },
+        {
+          "month": "2026-03",
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 0.38,
+          "end_capital": 0.2353
+        },
+        {
+          "month": "2026-04",
+          "trades": 6,
+          "wins": 3,
+          "losses": 3,
+          "wr_pct": 50.0,
+          "total_r": 0.16,
+          "end_capital": 0.1316
+        },
+        {
+          "month": "2026-05",
+          "trades": 7,
+          "wins": 6,
+          "losses": 1,
+          "wr_pct": 85.71,
+          "total_r": 4.46,
+          "end_capital": 0.3281
+        },
+        {
+          "month": "2026-06",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.27,
+          "end_capital": 0.6188
+        },
+        {
+          "month": "2026-07",
+          "trades": 8,
+          "wins": 4,
+          "losses": 4,
+          "wr_pct": 50.0,
+          "total_r": -0.39,
+          "end_capital": 0.2091
+        },
+        {
+          "month": "2026-08",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 6.72,
+          "end_capital": 0.4391
+        }
+      ]
+    },
+    "SOLUSD": {
+      "symbol": "SOLUSD",
+      "trades": 137,
+      "wins": 93,
+      "losses": 44,
+      "win_rate_pct": 67.88,
+      "total_realized_r": 16.94,
+      "expectancy_r": 0.1237,
+      "profit_factor": 1.39,
+      "max_losing_streak": 5,
+      "starting_capital": 10.0,
+      "ending_capital": 0.0924,
+      "total_return_pct": -99.08,
+      "max_drawdown_pct": 99.69,
+      "monthly": [
+        {
+          "month": "2024-06",
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 0.43,
+          "end_capital": 11.2902
+        },
+        {
+          "month": "2024-07",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.65,
+          "end_capital": 11.023
+        },
+        {
+          "month": "2024-08",
+          "trades": 8,
+          "wins": 7,
+          "losses": 1,
+          "wr_pct": 87.5,
+          "total_r": 2.95,
+          "end_capital": 20.4703
+        },
+        {
+          "month": "2024-09",
+          "trades": 9,
+          "wins": 6,
+          "losses": 3,
+          "wr_pct": 66.67,
+          "total_r": 0.61,
+          "end_capital": 13.5549
+        },
+        {
+          "month": "2024-10",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 1.25,
+          "end_capital": 15.0618
+        },
+        {
+          "month": "2024-11",
+          "trades": 6,
+          "wins": 5,
+          "losses": 1,
+          "wr_pct": 83.33,
+          "total_r": 1.63,
+          "end_capital": 19.4727
+        },
+        {
+          "month": "2024-12",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": -0.41,
+          "end_capital": 14.4262
+        },
+        {
+          "month": "2025-01",
+          "trades": 7,
+          "wins": 5,
+          "losses": 2,
+          "wr_pct": 71.43,
+          "total_r": 0.78,
+          "end_capital": 12.2292
+        },
+        {
+          "month": "2025-02",
+          "trades": 7,
+          "wins": 4,
+          "losses": 3,
+          "wr_pct": 57.14,
+          "total_r": -1.68,
+          "end_capital": 4.4151
+        },
+        {
+          "month": "2025-03",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 0.97,
+          "end_capital": 5.807
+        },
+        {
+          "month": "2025-04",
+          "trades": 6,
+          "wins": 5,
+          "losses": 1,
+          "wr_pct": 83.33,
+          "total_r": 1.18,
+          "end_capital": 6.7281
+        },
+        {
+          "month": "2025-05",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 1.52,
+          "end_capital": 7.7069
+        },
+        {
+          "month": "2025-06",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 2.54,
+          "end_capital": 11.203
+        },
+        {
+          "month": "2025-07",
+          "trades": 5,
+          "wins": 4,
+          "losses": 1,
+          "wr_pct": 80.0,
+          "total_r": 2.16,
+          "end_capital": 15.9426
+        },
+        {
+          "month": "2025-08",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.7,
+          "end_capital": 15.8249
+        },
+        {
+          "month": "2025-09",
+          "trades": 6,
+          "wins": 3,
+          "losses": 3,
+          "wr_pct": 50.0,
+          "total_r": -1.27,
+          "end_capital": 5.971
+        },
+        {
+          "month": "2025-10",
+          "trades": 7,
+          "wins": 5,
+          "losses": 2,
+          "wr_pct": 71.43,
+          "total_r": 0.26,
+          "end_capital": 4.3656
+        },
+        {
+          "month": "2025-11",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": -0.31,
+          "end_capital": 3.3269
+        },
+        {
+          "month": "2025-12",
+          "trades": 7,
+          "wins": 4,
+          "losses": 3,
+          "wr_pct": 57.14,
+          "total_r": 0.58,
+          "end_capital": 2.0899
+        },
+        {
+          "month": "2026-01",
+          "trades": 7,
+          "wins": 5,
+          "losses": 2,
+          "wr_pct": 71.43,
+          "total_r": 2.7,
+          "end_capital": 2.7514
+        },
+        {
+          "month": "2026-02",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.46,
+          "end_capital": 5.2369
+        },
+        {
+          "month": "2026-03",
+          "trades": 8,
+          "wins": 5,
+          "losses": 3,
+          "wr_pct": 62.5,
+          "total_r": -0.05,
+          "end_capital": 2.596
+        },
+        {
+          "month": "2026-04",
+          "trades": 6,
+          "wins": 2,
+          "losses": 4,
+          "wr_pct": 33.33,
+          "total_r": -2.54,
+          "end_capital": 0.5858
+        },
+        {
+          "month": "2026-05",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 2.85,
+          "end_capital": 1.2462
+        },
+        {
+          "month": "2026-06",
+          "trades": 2,
+          "wins": 0,
+          "losses": 2,
+          "wr_pct": 0.0,
+          "total_r": -2.0,
+          "end_capital": 0.4848
+        },
+        {
+          "month": "2026-07",
+          "trades": 7,
+          "wins": 4,
+          "losses": 3,
+          "wr_pct": 57.14,
+          "total_r": 0.2,
+          "end_capital": 0.2406
+        },
+        {
+          "month": "2026-08",
+          "trades": 5,
+          "wins": 2,
+          "losses": 3,
+          "wr_pct": 40.0,
+          "total_r": -1.24,
+          "end_capital": 0.0924
+        }
+      ]
+    },
+    "XRPUSD": {
+      "symbol": "XRPUSD",
+      "trades": 104,
+      "wins": 78,
+      "losses": 26,
+      "win_rate_pct": 75.0,
+      "total_realized_r": 38.25,
+      "expectancy_r": 0.3678,
+      "profit_factor": 2.47,
+      "max_losing_streak": 3,
+      "starting_capital": 10.0,
+      "ending_capital": 712.7431,
+      "total_return_pct": 7027.43,
+      "max_drawdown_pct": 81.91,
+      "monthly": [
+        {
+          "month": "2024-07",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 1.59,
+          "end_capital": 15.3845
+        },
+        {
+          "month": "2024-08",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 1.08,
+          "end_capital": 16.7747
+        },
+        {
+          "month": "2024-09",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 0.92,
+          "end_capital": 17.7862
+        },
+        {
+          "month": "2024-10",
+          "trades": 8,
+          "wins": 5,
+          "losses": 3,
+          "wr_pct": 62.5,
+          "total_r": 2.61,
+          "end_capital": 16.2819
+        },
+        {
+          "month": "2024-11",
+          "trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 1.25,
+          "end_capital": 23.1345
+        },
+        {
+          "month": "2024-12",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": -0.22,
+          "end_capital": 18.2921
+        },
+        {
+          "month": "2025-01",
+          "trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 0.4,
+          "end_capital": 20.5311
+        },
+        {
+          "month": "2025-02",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.31,
+          "end_capital": 18.6627
+        },
+        {
+          "month": "2025-03",
+          "trades": 5,
+          "wins": 3,
+          "losses": 2,
+          "wr_pct": 60.0,
+          "total_r": -0.77,
+          "end_capital": 10.6562
+        },
+        {
+          "month": "2025-04",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 1.44,
+          "end_capital": 12.1278
+        },
+        {
+          "month": "2025-05",
+          "trades": 9,
+          "wins": 8,
+          "losses": 1,
+          "wr_pct": 88.89,
+          "total_r": 5.76,
+          "end_capital": 43.1472
+        },
+        {
+          "month": "2025-06",
+          "trades": 4,
+          "wins": 4,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 3.53,
+          "end_capital": 110.3454
+        },
+        {
+          "month": "2025-07",
+          "trades": 2,
+          "wins": 1,
+          "losses": 1,
+          "wr_pct": 50.0,
+          "total_r": -0.01,
+          "end_capital": 87.7459
+        },
+        {
+          "month": "2025-08",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.3,
+          "end_capital": 79.4143
+        },
+        {
+          "month": "2025-09",
+          "trades": 4,
+          "wins": 3,
+          "losses": 1,
+          "wr_pct": 75.0,
+          "total_r": 1.43,
+          "end_capital": 93.744
+        },
+        {
+          "month": "2025-10",
+          "trades": 7,
+          "wins": 7,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 6.67,
+          "end_capital": 543.9119
+        },
+        {
+          "month": "2025-11",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": -0.14,
+          "end_capital": 436.9312
+        },
+        {
+          "month": "2025-12",
+          "trades": 6,
+          "wins": 3,
+          "losses": 3,
+          "wr_pct": 50.0,
+          "total_r": -0.2,
+          "end_capital": 214.1814
+        },
+        {
+          "month": "2026-01",
+          "trades": 4,
+          "wins": 2,
+          "losses": 2,
+          "wr_pct": 50.0,
+          "total_r": 0.63,
+          "end_capital": 146.0756
+        },
+        {
+          "month": "2026-02",
+          "trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 1.54,
+          "end_capital": 222.3664
+        },
+        {
+          "month": "2026-03",
+          "trades": 5,
+          "wins": 5,
+          "losses": 0,
+          "wr_pct": 100.0,
+          "total_r": 3.36,
+          "end_capital": 552.4163
+        },
+        {
+          "month": "2026-04",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 1.91,
+          "end_capital": 653.385
+        },
+        {
+          "month": "2026-05",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 1.53,
+          "end_capital": 727.3386
+        },
+        {
+          "month": "2026-06",
+          "trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "wr_pct": 66.67,
+          "total_r": 0.91,
+          "end_capital": 757.9807
+        },
+        {
+          "month": "2026-07",
+          "trades": 7,
+          "wins": 5,
+          "losses": 2,
+          "wr_pct": 71.43,
+          "total_r": 2.82,
+          "end_capital": 988.3955
+        },
+        {
+          "month": "2026-08",
+          "trades": 2,
+          "wins": 1,
+          "losses": 1,
+          "wr_pct": 50.0,
+          "total_r": -0.42,
+          "end_capital": 712.7431
+        }
+      ]
+    }
+  },
+  "combined": {
+    "trades": 445,
+    "wins": 304,
+    "losses": 141,
+    "win_rate_pct": 68.31,
+    "total_realized_r": 122.06,
+    "expectancy_r": 0.2743,
+    "profit_factor": 1.87,
+    "max_losing_streak": 4,
+    "starting_capital": 10.0,
+    "ending_capital": 0.9865,
+    "total_return_pct": -90.14,
+    "max_drawdown_pct": 99.97,
+    "asset_breakdown": {
+      "BTCUSD": {
+        "trades": 111,
+        "wins": 69,
+        "losses": 42,
+        "wr": 62.16,
+        "total_r": 40.6,
+        "exp_r": 0.3658,
+        "pf": 1.97
+      },
+      "ETHUSD": {
+        "trades": 109,
+        "wins": 75,
+        "losses": 34,
+        "wr": 68.81,
+        "total_r": 29.04,
+        "exp_r": 0.2665,
+        "pf": 1.85
+      },
+      "SOLUSD": {
+        "trades": 127,
+        "wins": 87,
+        "losses": 40,
+        "wr": 68.5,
+        "total_r": 17.66,
+        "exp_r": 0.1391,
+        "pf": 1.44
+      },
+      "XRPUSD": {
+        "trades": 98,
+        "wins": 73,
+        "losses": 25,
+        "wr": 74.49,
+        "total_r": 34.75,
+        "exp_r": 0.3546,
+        "pf": 2.39
+      }
+    },
+    "latency_breakdown": {
+      "2-3h": {
+        "trades": 27,
+        "wins": 16,
+        "losses": 11,
+        "wr": 59.26,
+        "total_r": 10.62,
+        "exp_r": 0.3933,
+        "pf": 1.97
+      },
+      "4-6h": {
+        "trades": 64,
+        "wins": 44,
+        "losses": 20,
+        "wr": 68.75,
+        "total_r": 37.07,
+        "exp_r": 0.5793,
+        "pf": 2.85
+      },
+      "7-12h": {
+        "trades": 62,
+        "wins": 43,
+        "losses": 19,
+        "wr": 69.35,
+        "total_r": 19.15,
+        "exp_r": 0.3089,
+        "pf": 2.01
+      },
+      "13-24h": {
+        "trades": 89,
+        "wins": 62,
+        "losses": 27,
+        "wr": 69.66,
+        "total_r": 20.44,
+        "exp_r": 0.2297,
+        "pf": 1.76
+      },
+      ">24h": {
+        "trades": 203,
+        "wins": 139,
+        "losses": 64,
+        "wr": 68.47,
+        "total_r": 34.77,
+        "exp_r": 0.1713,
+        "pf": 1.54
+      }
+    },
+    "monthly": [
+      {
+        "month": "2024-06",
+        "trades": 6,
+        "wins": 3,
+        "losses": 3,
+        "wr_pct": 50.0,
+        "total_r": -0.9,
+        "end_capital": 4.826
+      },
+      {
+        "month": "2024-07",
+        "trades": 15,
+        "wins": 9,
+        "losses": 6,
+        "wr_pct": 60.0,
+        "total_r": 1.67,
+        "end_capital": 1.9233
+      },
+      {
+        "month": "2024-08",
+        "trades": 16,
+        "wins": 12,
+        "losses": 4,
+        "wr_pct": 75.0,
+        "total_r": 3.4,
+        "end_capital": 2.0048
+      },
+      {
+        "month": "2024-09",
+        "trades": 21,
+        "wins": 14,
+        "losses": 7,
+        "wr_pct": 66.67,
+        "total_r": 1.66,
+        "end_capital": 0.7889
+      },
+      {
+        "month": "2024-10",
+        "trades": 18,
+        "wins": 8,
+        "losses": 10,
+        "wr_pct": 44.44,
+        "total_r": -2.14,
+        "end_capital": 0.038
+      },
+      {
+        "month": "2024-11",
+        "trades": 17,
+        "wins": 13,
+        "losses": 4,
+        "wr_pct": 76.47,
+        "total_r": 3.35,
+        "end_capital": 0.0412
+      },
+      {
+        "month": "2024-12",
+        "trades": 13,
+        "wins": 9,
+        "losses": 4,
+        "wr_pct": 69.23,
+        "total_r": 2.66,
+        "end_capital": 0.0318
+      },
+      {
+        "month": "2025-01",
+        "trades": 21,
+        "wins": 14,
+        "losses": 7,
+        "wr_pct": 66.67,
+        "total_r": 2.22,
+        "end_capital": 0.0131
+      },
+      {
+        "month": "2025-02",
+        "trades": 16,
+        "wins": 11,
+        "losses": 5,
+        "wr_pct": 68.75,
+        "total_r": 5.88,
+        "end_capital": 0.0126
+      },
+      {
+        "month": "2025-03",
+        "trades": 13,
+        "wins": 10,
+        "losses": 3,
+        "wr_pct": 76.92,
+        "total_r": 5.84,
+        "end_capital": 0.0233
+      },
+      {
+        "month": "2025-04",
+        "trades": 14,
+        "wins": 12,
+        "losses": 2,
+        "wr_pct": 85.71,
+        "total_r": 6.8,
+        "end_capital": 0.0913
+      },
+      {
+        "month": "2025-05",
+        "trades": 24,
+        "wins": 19,
+        "losses": 5,
+        "wr_pct": 79.17,
+        "total_r": 10.28,
+        "end_capital": 0.4155
+      },
+      {
+        "month": "2025-06",
+        "trades": 20,
+        "wins": 11,
+        "losses": 9,
+        "wr_pct": 55.0,
+        "total_r": 2.47,
+        "end_capital": 0.1104
+      },
+      {
+        "month": "2025-07",
+        "trades": 17,
+        "wins": 9,
+        "losses": 8,
+        "wr_pct": 52.94,
+        "total_r": 4.16,
+        "end_capital": 0.0165
+      },
+      {
+        "month": "2025-08",
+        "trades": 12,
+        "wins": 8,
+        "losses": 4,
+        "wr_pct": 66.67,
+        "total_r": 3.29,
+        "end_capital": 0.017
+      },
+      {
+        "month": "2025-09",
+        "trades": 21,
+        "wins": 14,
+        "losses": 7,
+        "wr_pct": 66.67,
+        "total_r": 7.85,
+        "end_capital": 0.0272
+      },
+      {
+        "month": "2025-10",
+        "trades": 24,
+        "wins": 19,
+        "losses": 5,
+        "wr_pct": 79.17,
+        "total_r": 11.41,
+        "end_capital": 0.1613
+      },
+      {
+        "month": "2025-11",
+        "trades": 13,
+        "wins": 9,
+        "losses": 4,
+        "wr_pct": 69.23,
+        "total_r": 1.96,
+        "end_capital": 0.1122
+      },
+      {
+        "month": "2025-12",
+        "trades": 18,
+        "wins": 12,
+        "losses": 6,
+        "wr_pct": 66.67,
+        "total_r": 3.61,
+        "end_capital": 0.0836
+      },
+      {
+        "month": "2026-01",
+        "trades": 16,
+        "wins": 12,
+        "losses": 4,
+        "wr_pct": 75.0,
+        "total_r": 8.58,
+        "end_capital": 0.2839
+      },
+      {
+        "month": "2026-02",
+        "trades": 13,
+        "wins": 12,
+        "losses": 1,
+        "wr_pct": 92.31,
+        "total_r": 8.21,
+        "end_capital": 2.0078
+      },
+      {
+        "month": "2026-03",
+        "trades": 18,
+        "wins": 15,
+        "losses": 3,
+        "wr_pct": 83.33,
+        "total_r": 8.76,
+        "end_capital": 10.0956
+      },
+      {
+        "month": "2026-04",
+        "trades": 16,
+        "wins": 7,
+        "losses": 9,
+        "wr_pct": 43.75,
+        "total_r": -1.43,
+        "end_capital": 0.9387
+      },
+      {
+        "month": "2026-05",
+        "trades": 14,
+        "wins": 10,
+        "losses": 4,
+        "wr_pct": 71.43,
+        "total_r": 6.23,
+        "end_capital": 2.0394
+      },
+      {
+        "month": "2026-06",
+        "trades": 10,
+        "wins": 8,
+        "losses": 2,
+        "wr_pct": 80.0,
+        "total_r": 5.21,
+        "end_capital": 5.2569
+      },
+      {
+        "month": "2026-07",
+        "trades": 25,
+        "wins": 17,
+        "losses": 8,
+        "wr_pct": 68.0,
+        "total_r": 6.9,
+        "end_capital": 4.6135
+      },
+      {
+        "month": "2026-08",
+        "trades": 14,
+        "wins": 7,
+        "losses": 7,
+        "wr_pct": 50.0,
+        "total_r": 4.12,
+        "end_capital": 0.9865
+      }
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "experiment": "Fixed +0.60% TP LuxAlgo Manual Proximal-Edge Retest Research",
+  "period": "2024-06-01T00:00:00Z to 2026-08-26T14:00:00Z",
+  "config": {
+    "fixed_tp_market_pct": 0.6,
+    "max_sl_account_risk_pct": 35.0,
+    "applied_leverage_cap": 100.0,
+    "fee_rate": 0.0008,
+    "max_holding_bars": 72,
+    "starting_capital": 10.0,
+    "data_timeframe": "1h"
+  },
+  "summary": {
+    "starting_capital": 10.0,
+    "ending_capital": 2.784651906332413e-93,
+    "total_return_pct": -100.0,
+    "total_obs_detected": 1676,
+    "total_candidate_setups": 1676,
+    "total_executed_trades": 1252,
+    "total_no_fill_setups": 0,
+    "total_invalidations_before_fill": 0,
+    "total_skipped_global_lock": 424,
+    "wins": 595,
+    "losses": 657,
+    "timeouts": 0,
+    "ambiguous_trades": 19,
+    "win_rate_pct": 47.52,
+    "expectancy_r": -0.2178,
+    "total_realized_r": -272.71,
+    "profit_factor": 0.58,
+    "max_drawdown_pct": 100.0,
+    "max_losing_streak": 10
+  },
+  "holding_time_stats": {
+    "average_hours": 3.09,
+    "median_hours": 1.0,
+    "min_hours": 1.0,
+    "max_hours": 50.0
+  },
+  "latency_stats": {
+    "average_hours_to_fill": 1.02,
+    "median_hours_to_fill": 1.0
+  },
+  "asset_breakdown": {
+    "BTCUSD": {
+      "asset": "BTCUSD",
+      "total_setups": 438,
+      "filled_trades": 362,
+      "wins": 142,
+      "losses": 220,
+      "win_rate_pct": 39.23,
+      "total_realized_r": -89.12,
+      "expectancy_r": -0.2462,
+      "profit_factor": 0.59
+    },
+    "ETHUSD": {
+      "asset": "ETHUSD",
+      "total_setups": 396,
+      "filled_trades": 303,
+      "wins": 157,
+      "losses": 146,
+      "win_rate_pct": 51.82,
+      "total_realized_r": -47.66,
+      "expectancy_r": -0.1573,
+      "profit_factor": 0.67
+    },
+    "SOLUSD": {
+      "asset": "SOLUSD",
+      "total_setups": 455,
+      "filled_trades": 333,
+      "wins": 170,
+      "losses": 163,
+      "win_rate_pct": 51.05,
+      "total_realized_r": -80.17,
+      "expectancy_r": -0.2407,
+      "profit_factor": 0.51
+    },
+    "XRPUSD": {
+      "asset": "XRPUSD",
+      "total_setups": 387,
+      "filled_trades": 254,
+      "wins": 126,
+      "losses": 128,
+      "win_rate_pct": 49.61,
+      "total_realized_r": -55.76,
+      "expectancy_r": -0.2195,
+      "profit_factor": 0.56
+    }
+  },
+  "latency_breakdown": {
+    "1h (Immediate)": {
+      "trades": 1247,
+      "wins": 591,
+      "losses": 656,
+      "win_rate_pct": 47.39,
+      "total_realized_r": -274.08,
+      "expectancy_r": -0.2198,
+      "profit_factor": 0.58
+    },
+    "2-3h Retest": {
+      "trades": 3,
+      "wins": 3,
+      "losses": 0,
+      "win_rate_pct": 100.0,
+      "total_realized_r": 1.76,
+      "expectancy_r": 0.5851,
+      "profit_factor": 1.76
+    },
+    "4-6h Retest": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "win_rate_pct": 100.0,
+      "total_realized_r": 0.62,
+      "expectancy_r": 0.6189,
+      "profit_factor": 0.62
+    },
+    "7-12h Retest": {
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "win_rate_pct": 0.0,
+      "total_realized_r": -1.0,
+      "expectancy_r": -1.0,
+      "profit_factor": 0.0
+    }
+  },
+  "retest_breakdown": {
+    "Retest 1": {
+      "trades": 1252,
+      "wins": 595,
+      "losses": 657,
+      "win_rate_pct": 47.52,
+      "total_realized_r": -272.71,
+      "expectancy_r": -0.2178,
+      "profit_factor": 0.58
+    }
+  },
+  "width_breakdown": {
+    "<0.5%": {
+      "trades": 152,
+      "wins": 46,
+      "losses": 106,
+      "win_rate_pct": 30.26,
+      "total_realized_r": -25.66,
+      "expectancy_r": -0.1688,
+      "profit_factor": 0.76
+    },
+    "0.5-1%": {
+      "trades": 474,
+      "wins": 202,
+      "losses": 272,
+      "win_rate_pct": 42.62,
+      "total_realized_r": -108.85,
+      "expectancy_r": -0.2296,
+      "profit_factor": 0.6
+    },
+    "1-2%": {
+      "trades": 511,
+      "wins": 276,
+      "losses": 235,
+      "win_rate_pct": 54.01,
+      "total_realized_r": -110.64,
+      "expectancy_r": -0.2165,
+      "profit_factor": 0.53
+    },
+    ">2%": {
+      "trades": 115,
+      "wins": 71,
+      "losses": 44,
+      "win_rate_pct": 61.74,
+      "total_realized_r": -27.55,
+      "expectancy_r": -0.2396,
+      "profit_factor": 0.37
+    }
+  },
+  "direction_breakdown": {
+    "LONG": {
+      "trades": 678,
+      "wins": 335,
+      "losses": 343,
+      "win_rate_pct": 49.41,
+      "total_realized_r": -137.68,
+      "expectancy_r": -0.2031,
+      "profit_factor": 0.6
+    },
+    "SHORT": {
+      "trades": 574,
+      "wins": 260,
+      "losses": 314,
+      "win_rate_pct": 45.3,
+      "total_realized_r": -135.03,
+      "expectancy_r": -0.2352,
+      "profit_factor": 0.57
+    }
+  },
+  "august_2026_slice": {
+    "trades": 33,
+    "wins": 15,
+    "losses": 18,
+    "win_rate_pct": 45.45,
+    "total_realized_r": -2.19,
+    "profit_factor": 0.88
+  }
+}
