@@ -1,0 +1,5 @@
+asset,trade_count,win_count,loss_count,win_rate_pct,expectancy_r,total_r,profit_factor
+BTCUSD,309,110,199,35.6,-0.2164,-66.86,0.66
+ETHUSD,263,102,161,38.78,-0.2053,-54.0,0.66
+SOLUSD,293,113,180,38.57,-0.2165,-63.43,0.65
+XRPUSD,220,77,143,35.0,-0.2702,-59.45,0.58

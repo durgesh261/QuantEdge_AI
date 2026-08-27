@@ -1,0 +1,5 @@
+asset,trade_count,win_count,loss_count,win_rate_pct,expectancy_r,total_r,profit_factor,avg_leverage,gross_pnl_usd,net_pnl_usd
+BTCUSD,274,67,207,24.45,-0.3415,-93.57,0.55,80.98,-5.717677,-7.091716
+ETHUSD,228,60,168,26.32,-0.4456,-101.59,0.4,50.74,-2.181028,-1.549546
+SOLUSD,256,69,187,26.95,-0.4757,-121.77,0.35,43.4,-1.530211,-0.939706
+XRPUSD,205,58,147,28.29,-0.3695,-75.74,0.48,52.7,-0.571083,-0.419034

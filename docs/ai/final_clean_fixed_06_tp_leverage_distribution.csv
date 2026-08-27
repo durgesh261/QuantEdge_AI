@@ -1,0 +1,17 @@
+metric,value
+total_trades,1203.0
+min_leverage,8.94
+median_leverage,46.59
+mean_leverage,52.5
+max_leverage,100.0
+count_at_100x_cap,117.0
+count_below_100x,1086.0
+pct_trades_at_100x,9.73
+min_sl_risk_pct,9.04
+median_sl_risk_pct,35.0
+mean_sl_risk_pct,34.16
+max_sl_risk_pct,35.0
+min_tp_return_pct,5.36
+median_tp_return_pct,27.95
+mean_tp_return_pct,31.5
+max_tp_return_pct,60.0

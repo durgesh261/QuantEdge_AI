@@ -1,0 +1,5 @@
+Asset,Start Capital ($),Gross End Capital ($),Gross Return (%),Net End Capital ($),Net Return (%),Executed Trades,Wins,Losses,Win Rate (%),Expectancy (R),Total Realized R,Profit Factor,Max Drawdown (Gross %),Max Drawdown (Net %)
+BTCUSD,10.0,65.5557,+555.56%,27.8501,+178.50%,13,8,5,61.54%,+0.4946R,+6.43R,2.29,57.61%,72.12%
+SOLUSD,10.0,50.7961,+407.96%,20.0375,+100.38%,17,12,5,70.59%,+0.4206R,+7.15R,2.43,65.45%,74.62%
+XRPUSD,10.0,6.8547,-31.45%,5.4075,-45.92%,4,2,2,50.00%,-0.2540R,-1.02R,0.49,50.08%,59.03%
+ETHUSD,10.0,2.21,-77.90%,1.1364,-88.64%,8,2,6,25.00%,+0.0904R,+0.72R,1.12,77.90%,88.64%

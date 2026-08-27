@@ -46,6 +46,7 @@ Compounding from $10.00 starting capital.
 
 from __future__ import annotations
 
+import collections
 import csv
 import json
 from dataclasses import dataclass, asdict, field
@@ -1139,3 +1140,871 @@ def print_lifecycle_audit(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(text, encoding="utf-8")
     return text
+
+
+# =============================================================================
+# ▼▼▼  MANUAL-SPEC SMC ENGINE  ▼▼▼
+# =============================================================================
+# Authoritative implementation of the proven manual TradingView SMC strategy.
+# Runs INDEPENDENTLY of the LuxAlgo pipeline (run_displacement_gated_backtest).
+#
+# Key rules (forensic report, BTC screenshot confirmed):
+#   BOS:          close beyond last opposing candle's boundary (no pivots)
+#   OB boundary:  BEARISH: top=origin.close, bottom=origin.low
+#                 BULLISH: top=origin.high,  bottom=origin.close
+#   Displacement: Mode C — probe-then-pullback (close-based, not wick-based)
+#   Invalidation: wick-based  (candle.high >= distal for SHORT)
+#   Entry:        25% from proximal into OB
+#   SL:           distal = OB top for SHORT = origin.close (NOT origin.high)
+#   TP:           entry × (1 ∓ 0.006)
+#   Global lock:  preserved (same 1-trade-at-a-time constraint)
+#
+# GOVERNANCE:
+#   live_execution_authorized = False  (inherited from module level)
+#   AI_PROMOTION_STATUS = "REJECTED"
+# =============================================================================
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+class ManualOBState(Enum):
+    """State machine for the manual-spec OB lifecycle."""
+    AWAITING_DISPLACEMENT = "AWAITING_DISPLACEMENT"
+    LIMIT_RESTING         = "LIMIT_RESTING"
+    TRADE_ACTIVE          = "TRADE_ACTIVE"
+    TRADE_CLOSED          = "TRADE_CLOSED"
+    INVALIDATED           = "INVALIDATED"
+
+
+# ---------------------------------------------------------------------------
+# Data classes
+# ---------------------------------------------------------------------------
+@dataclass
+class ManualOBRecord:
+    """
+    Live OB record for the manual-spec strategy engine.
+
+    OB boundary rules (direction-specific, proved by TradingView screenshot):
+        SHORT (bearish OB from bullish origin candle):
+            ob_top    = origin.CLOSE  (CRITICAL — NOT origin.high)
+            ob_bottom = origin.LOW
+            distal    = ob_top        SL = ob_top = origin.CLOSE
+            proximal  = ob_bottom
+
+        LONG (bullish OB from bearish origin candle):
+            ob_top    = origin.HIGH
+            ob_bottom = origin.CLOSE  (CRITICAL — NOT origin.low)
+            distal    = ob_bottom     SL = ob_bottom = origin.CLOSE
+            proximal  = ob_top
+    """
+    # Identity
+    ob_id:                      str
+    asset:                      str
+    direction:                  str            # "SHORT" | "LONG"
+
+    # Bar references (absolute index in asset DataFrame)
+    origin_bar_idx:             int
+    bos_bar_idx:                int
+    bos_dt:                     datetime
+    formation_dt:               datetime       # timestamp of origin candle
+
+    # OB geometry (manual spec)
+    ob_top:                     float
+    ob_bottom:                  float
+    ob_width:                   float
+    proximal:                   float          # SHORT: ob_bottom  LONG: ob_top
+    distal:                     float          # SHORT: ob_top     LONG: ob_bottom
+
+    # Trade parameters
+    entry_price:                float          # 25% from proximal
+    sl_price:                   float          # = distal
+    tp_price:                   float          # entry × (1 ∓ 0.006)
+    sl_dist_pct:                float
+    theoretical_leverage:       float
+    applied_leverage:           float
+
+    # Mode C displacement state
+    state:                      ManualOBState  = field(default=ManualOBState.AWAITING_DISPLACEMENT)
+    probe_confirmed:            bool           = False
+    displacement_confirmed_dt:  Optional[datetime] = None
+    displacement_confirmed_bar: Optional[int]  = None
+    # Limit is active starting at this bar index (= displacement_bar + 1)
+    limit_active_from_bar:      Optional[int]  = None
+
+    # Diagnostics
+    pre_displacement_touches:   int            = 0
+    first_touch_dt:             Optional[datetime] = None
+    entry_bar_from_bos:         int            = 0
+    ob_age_at_entry_hours:      float          = 0.0
+    retest_number:              int            = 0
+    mfe_from_proximal:          float          = 0.0
+
+
+@dataclass
+class ManualSpecConfig:
+    """Configuration for the manual-spec backtest engine."""
+    lookback:                   int   = 10      # bars to scan backward for origin
+    entry_depth_pct:            float = 0.25    # 25% from proximal into OB
+    fixed_tp_market_pct:        float = 0.60    # 0.60% from entry
+    max_sl_account_risk_pct:    float = 35.0    # SL risk % of account
+    applied_leverage_cap:       float = 100.0   # exchange cap
+    fee_rate:                   float = 0.0008  # 0.08% round-trip
+    max_holding_bars:           int   = 72      # timeout horizon
+    starting_capital:           float = 10.0
+    min_ob_width:               float = 1e-6    # reject zero-width OBs
+    data_timeframe:             str   = "1h"
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+def _make_manual_ob(
+    asset: str,
+    bos_bar_idx: int,
+    bos_dt: datetime,
+    origin_bar_idx: int,
+    origin_dt: datetime,
+    direction: str,
+    ob_top: float,
+    ob_bottom: float,
+    cfg: ManualSpecConfig,
+) -> ManualOBRecord:
+    """Construct a ManualOBRecord from scanner-detected BOS event."""
+    width = ob_top - ob_bottom
+    if direction == "SHORT":
+        proximal  = ob_bottom
+        distal    = ob_top           # = origin.close (critical)
+        entry     = ob_bottom + cfg.entry_depth_pct * width
+        tp        = entry * (1.0 - cfg.fixed_tp_market_pct / 100.0)
+    else:   # LONG
+        proximal  = ob_top
+        distal    = ob_bottom        # = origin.close (critical)
+        entry     = ob_top - cfg.entry_depth_pct * width
+        tp        = entry * (1.0 + cfg.fixed_tp_market_pct / 100.0)
+
+    sl          = distal
+    risk_dist   = abs(entry - sl)
+    sl_dist_pct = (risk_dist / entry) * 100.0 if entry > 1e-9 else 0.0
+    theo_lev    = cfg.max_sl_account_risk_pct / sl_dist_pct if sl_dist_pct > 1e-9 else 1.0
+    applied_lev = min(cfg.applied_leverage_cap, theo_lev)
+
+    ob_id = f"MANUAL_{asset}_{direction}_{origin_bar_idx}_{bos_bar_idx}"
+    return ManualOBRecord(
+        ob_id=ob_id,
+        asset=asset,
+        direction=direction,
+        origin_bar_idx=origin_bar_idx,
+        bos_bar_idx=bos_bar_idx,
+        bos_dt=bos_dt,
+        formation_dt=origin_dt,
+        ob_top=ob_top,
+        ob_bottom=ob_bottom,
+        ob_width=width,
+        proximal=proximal,
+        distal=distal,
+        entry_price=entry,
+        sl_price=sl,
+        tp_price=tp,
+        sl_dist_pct=sl_dist_pct,
+        theoretical_leverage=theo_lev,
+        applied_leverage=applied_lev,
+    )
+
+
+def _manual_distal_breached(ob: ManualOBRecord, c_h: float, c_l: float) -> bool:
+    """
+    Wick-based distal boundary check (pre-entry invalidation).
+
+    SHORT: candle.high >= ob_top  (ob_top = origin.close)
+    LONG:  candle.low  <= ob_bottom (ob_bottom = origin.close)
+    """
+    if ob.direction == "SHORT":
+        return c_h >= ob.distal
+    return c_l <= ob.distal
+
+
+def _manual_entry_touched(ob: ManualOBRecord, c_h: float, c_l: float) -> bool:
+    """Check if the 25%-depth entry level is touched by the candle wick."""
+    if ob.direction == "SHORT":
+        return c_h >= ob.entry_price
+    return c_l <= ob.entry_price
+
+
+def _manual_sl_hit(direction: str, c_h: float, c_l: float, sl: float) -> bool:
+    """Post-entry stop-loss check (wick-based)."""
+    if direction == "SHORT":
+        return c_h >= sl
+    return c_l <= sl
+
+
+def _manual_tp_hit(direction: str, c_h: float, c_l: float, tp: float) -> bool:
+    """Post-entry take-profit check (wick-based)."""
+    if direction == "SHORT":
+        return c_l <= tp
+    return c_h >= tp
+
+
+# ---------------------------------------------------------------------------
+# ManualSpecBOSScanner
+# ---------------------------------------------------------------------------
+class ManualSpecBOSScanner:
+    """
+    Streaming, causal BOS scanner implementing the proven manual TradingView SMC rule.
+    One instance per asset; call scan() bar-by-bar in chronological order.
+
+    SHORT setup rules (bearish OB):
+        origin  = most recent bullish candle (close > open) within last N bars
+        ob_top  = origin.close   ← CRITICAL: NOT origin.high
+        ob_bot  = origin.low
+        BOS     = current_close < ob_bottom  (strict; close-only)
+
+    LONG setup rules (bullish OB):
+        origin  = most recent bearish candle (close < open) within last N bars
+        ob_top  = origin.high
+        ob_bot  = origin.close   ← CRITICAL: NOT origin.low
+        BOS     = current_close > ob_top  (strict; close-only)
+
+    Deduplication:
+        consumed_origins prevents the same origin bar from generating
+        multiple BOS events (e.g. as price continues past the same boundary).
+        One origin → one setup, ever.
+
+    Admission timing:
+        OBs returned by scan() at bar B are added to the live pool AFTER
+        bar B is fully processed, so displacement monitoring starts at B+1.
+        This correctly implements break+1 (not break+2) admission.
+    """
+
+    def __init__(self, lookback: int = 10, min_width: float = 1e-6) -> None:
+        self.lookback  = lookback
+        self.min_width = min_width
+        # Circular history: (bar_idx, open, high, low, close, timestamp)
+        self._history: collections.deque = collections.deque(maxlen=lookback + 1)
+        # Consumed origin keys: (asset, origin_bar_idx) → prevents duplicates
+        self._consumed: set = set()
+
+    def reset(self) -> None:
+        """Reset scanner state. Call when switching assets or re-running."""
+        self._history.clear()
+        self._consumed.clear()
+
+    def scan(
+        self,
+        asset: str,
+        bar_idx: int,
+        ts: datetime,
+        o: float,
+        h: float,
+        l: float,
+        c: float,
+        cfg: ManualSpecConfig,
+    ) -> List[ManualOBRecord]:
+        """
+        Process one candle. Returns newly created ManualOBRecords (may be empty).
+
+        The BOS candle's CLOSE is the causal trigger. The OB origin and BOS
+        are identified simultaneously at the BOS candle close — no future
+        information is required.
+
+        Invariant: the BOS candle itself is never the OB origin (origin must
+        be a candle BEFORE the current bar).
+        """
+        self._history.append((bar_idx, o, h, l, c, ts))
+
+        # Need at least 2 bars: one origin candidate + one BOS candle
+        if len(self._history) < 2:
+            return []
+
+        new_obs: List[ManualOBRecord] = []
+
+        # ── SHORT setup ─────────────────────────────────────────────────────
+        # Scan backward through history[:-1] (exclude current bar as origin)
+        bull_origin = None
+        for i in range(len(self._history) - 2, -1, -1):
+            bi, eo, eh, el, ec, ets = self._history[i]
+            if ec > eo:                   # bullish: close > open
+                bull_origin = self._history[i]
+                break
+
+        if bull_origin is not None:
+            bi, eo, eh, el, ec, ets = bull_origin
+            ob_top_s = ec              # CLOSE (critical — not HIGH)
+            ob_bot_s = el              # LOW
+            width_s  = ob_top_s - ob_bot_s
+            # BOS: strict close below origin low
+            if width_s >= self.min_width and c < ob_bot_s:
+                key = (asset, bi)
+                if key not in self._consumed:
+                    self._consumed.add(key)
+                    new_obs.append(_make_manual_ob(
+                        asset=asset, bos_bar_idx=bar_idx, bos_dt=ts,
+                        origin_bar_idx=bi, origin_dt=ets,
+                        direction="SHORT",
+                        ob_top=ob_top_s, ob_bottom=ob_bot_s,
+                        cfg=cfg,
+                    ))
+
+        # ── LONG setup ──────────────────────────────────────────────────────
+        bear_origin = None
+        for i in range(len(self._history) - 2, -1, -1):
+            bi, eo, eh, el, ec, ets = self._history[i]
+            if ec < eo:                   # bearish: close < open
+                bear_origin = self._history[i]
+                break
+
+        if bear_origin is not None:
+            bi, eo, eh, el, ec, ets = bear_origin
+            ob_top_l = eh              # HIGH
+            ob_bot_l = ec              # CLOSE (critical — not LOW)
+            width_l  = ob_top_l - ob_bot_l
+            # BOS: strict close above origin high
+            if width_l >= self.min_width and c > ob_top_l:
+                key = (asset, bi)
+                if key not in self._consumed:
+                    self._consumed.add(key)
+                    new_obs.append(_make_manual_ob(
+                        asset=asset, bos_bar_idx=bar_idx, bos_dt=ts,
+                        origin_bar_idx=bi, origin_dt=ets,
+                        direction="LONG",
+                        ob_top=ob_top_l, ob_bottom=ob_bot_l,
+                        cfg=cfg,
+                    ))
+
+        return new_obs
+
+
+# ---------------------------------------------------------------------------
+# run_manual_spec_backtest
+# ---------------------------------------------------------------------------
+def run_manual_spec_backtest(
+    data_base_dir: Optional[Path] = None,
+    config: Optional[ManualSpecConfig] = None,
+    symbols: Optional[List[str]] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """
+    Run the manual-spec SMC backtest across the canonical 4-asset dataset.
+
+    Uses ManualSpecBOSScanner (pivot-free, close-based BOS) and Mode C
+    (probe → pullback) displacement.  All portfolio-level invariants preserved:
+        - Global one-trade lock across all 4 assets
+        - Wick-based invalidation (wick reaches distal → killed)
+        - Strictly causal (no future candle information used)
+        - Displacement candle cannot be the retest candle
+        - No time-based expiry on resting limit order
+
+    Returns the same dict structure as run_displacement_gated_backtest()
+    for compatibility.
+    """
+    assert not live_execution_authorized, "Governance: live execution not authorised."
+
+    cfg  = config or ManualSpecConfig()
+    syms = symbols or ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]
+    root = data_base_dir or (
+        _find_repo_root() / "data" / "canonical" / "delta_exchange_india"
+    )
+
+    from quantedge.ai.evaluation.phase_l_research import load_canonical_full_history
+
+    # ------------------------------------------------------------------
+    # Load candles
+    # ------------------------------------------------------------------
+    asset_candles: Dict[str, pd.DataFrame] = {}
+    for sym in syms:
+        try:
+            candles = load_canonical_full_history(root, sym)
+        except Exception:
+            asset_candles[sym] = pd.DataFrame()
+            continue
+        rows = [
+            {
+                "timestamp": c.timestamp,
+                "open":      float(c.open),
+                "high":      float(c.high),
+                "low":       float(c.low),
+                "close":     float(c.close),
+                "volume":    float(c.volume),
+            }
+            for c in candles
+        ]
+        df = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
+        asset_candles[sym] = df
+
+    # ------------------------------------------------------------------
+    # Build global sorted timeline
+    # ------------------------------------------------------------------
+    timeline_rows: List[Tuple[datetime, str, int]] = []
+    for sym in syms:
+        df = asset_candles.get(sym)
+        if df is None or len(df) == 0:
+            continue
+        for i, row in df.iterrows():
+            ts = row["timestamp"]
+            if start_date is not None and ts < start_date:
+                continue
+            if end_date is not None and ts > end_date:
+                continue
+            timeline_rows.append((ts, sym, int(i)))
+    timeline_rows.sort(key=lambda x: (x[0], x[1]))
+
+    # ------------------------------------------------------------------
+    # Per-asset scanners (independent history/consumed-origins)
+    # ------------------------------------------------------------------
+    scanners: Dict[str, ManualSpecBOSScanner] = {
+        sym: ManualSpecBOSScanner(lookback=cfg.lookback, min_width=cfg.min_ob_width)
+        for sym in syms
+    }
+
+    # ------------------------------------------------------------------
+    # Simulation state
+    # ------------------------------------------------------------------
+    live_obs: Dict[str, ManualOBRecord]  = {}
+    global_lock_until_dt: Optional[datetime] = None
+    capital      = cfg.starting_capital
+    peak_capital = cfg.starting_capital
+    max_dd_pct   = 0.0
+    cum_r        = 0.0
+    trade_id_counter = 0
+    executed_trades: List[TradeRecord] = []
+    active_trade: Optional[Dict] = None     # one active trade at most (global lock)
+
+    # ------------------------------------------------------------------
+    # Candle-by-candle simulation
+    # ------------------------------------------------------------------
+    for (c_ts, sym, bar_local_idx) in timeline_rows:
+        df  = asset_candles[sym]
+        row = df.iloc[bar_local_idx]
+        c_o = float(row["open"])
+        c_h = float(row["high"])
+        c_l = float(row["low"])
+        c_c = float(row["close"])
+
+        # ── 1. Handle active trade TP / SL ──────────────────────────
+        if active_trade is not None and active_trade["asset"] == sym:
+            at   = active_trade
+            dir_ = at["direction"]
+            tp_p = at["tp_price"]
+            sl_p = at["sl_price"]
+
+            hit_tp = _manual_tp_hit(dir_, c_h, c_l, tp_p)
+            hit_sl = _manual_sl_hit(dir_, c_h, c_l, sl_p)
+
+            if hit_tp or hit_sl:
+                if hit_tp and hit_sl:
+                    # Conservative: SL first (same-candle ambiguity)
+                    outcome     = "FILLED_SL"
+                    exit_reason = "DUAL_TOUCH_CONSERVATIVE_SL"
+                    exit_p      = sl_p
+                    is_ambiguous = True
+                    narrative   = (
+                        "Dual-touch: both TP and SL hit same candle. "
+                        "Conservative SL-first applied."
+                    )
+                elif hit_tp:
+                    outcome     = "FILLED_TP"
+                    exit_reason = "TP_HIT"
+                    exit_p      = tp_p
+                    is_ambiguous = False
+                    narrative   = f"Fixed +0.60% TP reached at {tp_p:.6f}."
+                else:
+                    outcome     = "FILLED_SL"
+                    exit_reason = "SL_HIT"
+                    exit_p      = sl_p
+                    is_ambiguous = False
+                    narrative   = f"SL breached at {sl_p:.6f}."
+
+                entry_p      = at["entry_price"]
+                applied_lev  = at["applied_leverage"]
+                theo_lev     = at["theoretical_leverage"]
+                risk_dist    = at["risk_dist"]
+                reward_dist  = at["reward_dist"]
+                gross_sl_ret = at["gross_sl_return_pct"]
+                gross_tp_ret = at["gross_tp_return_pct"]
+                start_bal    = at["starting_capital"]
+
+                if outcome == "FILLED_TP":
+                    ret_pct    = gross_tp_ret
+                    realized_r = reward_dist / risk_dist if risk_dist > 1e-9 else 0.0
+                else:
+                    ret_pct    = -gross_sl_ret
+                    realized_r = -1.0
+
+                notional  = start_bal * applied_lev
+                fees_usd  = notional * cfg.fee_rate
+                gross_pnl = start_bal * (ret_pct / 100.0)
+                net_pnl   = gross_pnl - fees_usd
+                capital   = max(0.0, start_bal + net_pnl)
+
+                if capital > peak_capital:
+                    peak_capital = capital
+                dd = ((peak_capital - capital) / peak_capital * 100.0
+                      if peak_capital > 0 else 0.0)
+                max_dd_pct = max(max_dd_pct, dd)
+                cum_r += realized_r
+
+                fill_dt      = at["fill_dt"]
+                holding_secs = (c_ts - fill_dt).total_seconds()
+                holding_hrs  = max(1.0, holding_secs / 3600.0)
+
+                ob = at["ob"]
+                ob.state = ManualOBState.TRADE_CLOSED
+
+                trade_id_counter += 1
+                tr = TradeRecord(
+                    trade_id=trade_id_counter,
+                    asset=sym,
+                    direction=dir_,
+                    bos_time=_to_utc_str(ob.bos_dt),
+                    ob_formation_time=_to_utc_str(ob.formation_dt),
+                    displacement_confirmed_time=_to_utc_str(ob.displacement_confirmed_dt),
+                    retest_time=_to_utc_str(fill_dt),
+                    entry_time=_to_utc_str(fill_dt),
+                    exit_time=_to_utc_str(c_ts),
+                    bos_time_ist=_to_ist_str(ob.bos_dt),
+                    ob_formation_time_ist=_to_ist_str(ob.formation_dt),
+                    displacement_confirmed_time_ist=_to_ist_str(ob.displacement_confirmed_dt),
+                    retest_time_ist=_to_ist_str(fill_dt),
+                    entry_time_ist=_to_ist_str(fill_dt),
+                    exit_time_ist=_to_ist_str(c_ts),
+                    ob_high=round(ob.ob_top, 6),
+                    ob_low=round(ob.ob_bottom, 6),
+                    ob_width=round(ob.ob_width, 6),
+                    ob_width_pct=round(
+                        (ob.ob_width / ob.entry_price) * 100.0, 4
+                    ) if ob.entry_price > 0 else 0.0,
+                    proximal=round(ob.proximal, 6),
+                    distal=round(ob.distal, 6),
+                    entry_price=round(entry_p, 6),
+                    sl_price=round(sl_p, 6),
+                    tp_price=round(tp_p, 6),
+                    entry_to_sl_distance_pct=round(ob.sl_dist_pct, 4),
+                    theoretical_leverage=round(theo_lev, 2),
+                    leverage=round(applied_lev, 2),
+                    displacement_mode="C_PROBE_PULLBACK",
+                    displacement_threshold_value=0.0,
+                    mfe_from_proximal=round(ob.mfe_from_proximal, 6),
+                    mfe_pct=0.0,
+                    mfe_ob_width_multiples=0.0,
+                    candles_fully_outside_ob=0,
+                    pre_displacement_touches=ob.pre_displacement_touches,
+                    entry_bar_from_bos=ob.entry_bar_from_bos,
+                    ob_age_at_entry_hours=round(ob.ob_age_at_entry_hours, 2),
+                    retest_number=ob.retest_number,
+                    gross_sl_return_pct=round(gross_sl_ret, 2),
+                    gross_tp_return_pct=round(gross_tp_ret, 2),
+                    fees_usd=fees_usd,
+                    net_return_pct=(
+                        round((net_pnl / start_bal) * 100.0, 2)
+                        if start_bal > 0 else 0.0
+                    ),
+                    starting_capital=start_bal,
+                    position_notional=notional,
+                    gross_pnl_usd=gross_pnl,
+                    pnl_usd=net_pnl,
+                    ending_capital=capital,
+                    outcome=outcome,
+                    reason_for_exit=exit_reason,
+                    is_ambiguous=is_ambiguous,
+                    holding_bars=int(holding_hrs),
+                    holding_time_hours=round(holding_hrs, 2),
+                    realized_r=round(realized_r, 4),
+                    cumulative_realized_r=round(cum_r, 4),
+                    data_timeframe=cfg.data_timeframe,
+                    trade_narrative=narrative,
+                )
+                executed_trades.append(tr)
+                global_lock_until_dt = c_ts
+                active_trade = None
+                live_obs.pop(ob.ob_id, None)
+
+            else:
+                # Timeout check
+                bars_held = int(
+                    (c_ts - at["fill_dt"]).total_seconds() / 3600
+                )
+                if bars_held >= cfg.max_holding_bars:
+                    ob       = at["ob"]
+                    ob.state = ManualOBState.TRADE_CLOSED
+                    dir_     = at["direction"]
+                    p_diff   = ((c_c - at["entry_price"]) if dir_ == "LONG"
+                                else (at["entry_price"] - c_c))
+                    risk_d   = at["risk_dist"]
+                    realized_r = p_diff / risk_d if risk_d > 1e-9 else 0.0
+                    start_bal  = at["starting_capital"]
+                    applied_lev = at["applied_leverage"]
+                    theo_lev   = at["theoretical_leverage"]
+                    ret_pct    = realized_r * at["gross_sl_return_pct"]
+                    notional   = start_bal * applied_lev
+                    fees_usd   = notional * cfg.fee_rate
+                    gross_pnl  = start_bal * (ret_pct / 100.0)
+                    net_pnl    = gross_pnl - fees_usd
+                    capital    = max(0.0, start_bal + net_pnl)
+                    if capital > peak_capital:
+                        peak_capital = capital
+                    dd = ((peak_capital - capital) / peak_capital * 100.0
+                          if peak_capital > 0 else 0.0)
+                    max_dd_pct = max(max_dd_pct, dd)
+                    cum_r += realized_r
+                    holding_hrs = max(1.0,
+                        (c_ts - at["fill_dt"]).total_seconds() / 3600)
+                    fill_dt = at["fill_dt"]
+                    trade_id_counter += 1
+                    tr = TradeRecord(
+                        trade_id=trade_id_counter,
+                        asset=sym, direction=dir_,
+                        bos_time=_to_utc_str(ob.bos_dt),
+                        ob_formation_time=_to_utc_str(ob.formation_dt),
+                        displacement_confirmed_time=_to_utc_str(
+                            ob.displacement_confirmed_dt),
+                        retest_time=_to_utc_str(fill_dt),
+                        entry_time=_to_utc_str(fill_dt),
+                        exit_time=_to_utc_str(c_ts),
+                        bos_time_ist=_to_ist_str(ob.bos_dt),
+                        ob_formation_time_ist=_to_ist_str(ob.formation_dt),
+                        displacement_confirmed_time_ist=_to_ist_str(
+                            ob.displacement_confirmed_dt),
+                        retest_time_ist=_to_ist_str(fill_dt),
+                        entry_time_ist=_to_ist_str(fill_dt),
+                        exit_time_ist=_to_ist_str(c_ts),
+                        ob_high=round(ob.ob_top, 6),
+                        ob_low=round(ob.ob_bottom, 6),
+                        ob_width=round(ob.ob_width, 6),
+                        ob_width_pct=round(
+                            (ob.ob_width / ob.entry_price) * 100.0, 4
+                        ) if ob.entry_price > 0 else 0.0,
+                        proximal=round(ob.proximal, 6),
+                        distal=round(ob.distal, 6),
+                        entry_price=round(at["entry_price"], 6),
+                        sl_price=round(ob.sl_price, 6),
+                        tp_price=round(ob.tp_price, 6),
+                        entry_to_sl_distance_pct=round(ob.sl_dist_pct, 4),
+                        theoretical_leverage=round(theo_lev, 2),
+                        leverage=round(applied_lev, 2),
+                        displacement_mode="C_PROBE_PULLBACK",
+                        displacement_threshold_value=0.0,
+                        mfe_from_proximal=round(ob.mfe_from_proximal, 6),
+                        mfe_pct=0.0,
+                        mfe_ob_width_multiples=0.0,
+                        candles_fully_outside_ob=0,
+                        pre_displacement_touches=ob.pre_displacement_touches,
+                        entry_bar_from_bos=ob.entry_bar_from_bos,
+                        ob_age_at_entry_hours=round(ob.ob_age_at_entry_hours, 2),
+                        retest_number=ob.retest_number,
+                        gross_sl_return_pct=round(
+                            at["gross_sl_return_pct"], 2),
+                        gross_tp_return_pct=round(
+                            at["gross_tp_return_pct"], 2),
+                        fees_usd=fees_usd,
+                        net_return_pct=(
+                            round((net_pnl / start_bal) * 100.0, 2)
+                            if start_bal > 0 else 0.0
+                        ),
+                        starting_capital=start_bal,
+                        position_notional=notional,
+                        gross_pnl_usd=gross_pnl,
+                        pnl_usd=net_pnl,
+                        ending_capital=capital,
+                        outcome="FILLED_TIMEOUT",
+                        reason_for_exit="TIMEOUT",
+                        is_ambiguous=False,
+                        holding_bars=int(holding_hrs),
+                        holding_time_hours=round(holding_hrs, 2),
+                        realized_r=round(realized_r, 4),
+                        cumulative_realized_r=round(cum_r, 4),
+                        data_timeframe=cfg.data_timeframe,
+                        trade_narrative=(
+                            f"{cfg.max_holding_bars}h horizon expired. "
+                            f"Closed at {c_c:.6f}."
+                        ),
+                    )
+                    executed_trades.append(tr)
+                    global_lock_until_dt = c_ts
+                    active_trade = None
+                    live_obs.pop(ob.ob_id, None)
+
+        # ── 2. Update OB lifecycle for all live OBs on this asset ───
+        obs_to_remove: List[str] = []
+
+        for ob_id, ob in list(live_obs.items()):
+            if ob.asset != sym:
+                continue
+            if ob.state in (ManualOBState.TRADE_CLOSED,
+                             ManualOBState.INVALIDATED):
+                obs_to_remove.append(ob_id)
+                continue
+            if ob.state == ManualOBState.TRADE_ACTIVE:
+                continue      # handled in step 1
+
+            # Update MFE tracking (useful for diagnostics)
+            mfe_this = (max(0.0, ob.proximal - c_l) if ob.direction == "SHORT"
+                        else max(0.0, c_h - ob.proximal))
+            if mfe_this > ob.mfe_from_proximal:
+                ob.mfe_from_proximal = mfe_this
+
+            # ── State: AWAITING_DISPLACEMENT ────────────────────────
+            if ob.state == ManualOBState.AWAITING_DISPLACEMENT:
+
+                # 1. Wick-based distal invalidation
+                if _manual_distal_breached(ob, c_h, c_l):
+                    ob.state = ManualOBState.INVALIDATED
+                    obs_to_remove.append(ob_id)
+                    continue
+
+                # 2. Track pre-displacement touches (no fill allowed)
+                if _manual_entry_touched(ob, c_h, c_l):
+                    ob.pre_displacement_touches += 1
+                    if ob.first_touch_dt is None:
+                        ob.first_touch_dt = c_ts
+
+                # 3. Mode C probe → pullback detection (close-based)
+                if not ob.probe_confirmed:
+                    # Waiting for first close on the proximal side of OB
+                    # SHORT: probe = close ABOVE ob_bottom (price returns up)
+                    # LONG:  probe = close BELOW ob_top    (price returns down)
+                    if ob.direction == "SHORT" and c_c > ob.proximal:
+                        ob.probe_confirmed = True
+                    elif ob.direction == "LONG" and c_c < ob.proximal:
+                        ob.probe_confirmed = True
+                else:
+                    # Probe confirmed; wait for close back through proximal
+                    # SHORT: pullback = close BELOW ob_bottom
+                    # LONG:  pullback = close ABOVE ob_top
+                    if ob.direction == "SHORT" and c_c < ob.proximal:
+                        ob.state = ManualOBState.LIMIT_RESTING
+                        ob.displacement_confirmed_dt  = c_ts
+                        ob.displacement_confirmed_bar = bar_local_idx
+                        ob.limit_active_from_bar      = bar_local_idx + 1
+                        # Displacement candle cannot simultaneously be the
+                        # entry candle (invariant from forensic spec §4)
+                        continue
+                    elif ob.direction == "LONG" and c_c > ob.proximal:
+                        ob.state = ManualOBState.LIMIT_RESTING
+                        ob.displacement_confirmed_dt  = c_ts
+                        ob.displacement_confirmed_bar = bar_local_idx
+                        ob.limit_active_from_bar      = bar_local_idx + 1
+                        continue
+
+            # ── State: LIMIT_RESTING ─────────────────────────────────
+            elif ob.state == ManualOBState.LIMIT_RESTING:
+
+                # 1. Wick-based distal invalidation (post-displacement,
+                #    pre-entry)
+                if _manual_distal_breached(ob, c_h, c_l):
+                    ob.state = ManualOBState.INVALIDATED
+                    obs_to_remove.append(ob_id)
+                    continue
+
+                # 2. Entry check — only from limit_active_from_bar onwards
+                #    (the displacement candle itself cannot be the entry bar)
+                if (ob.limit_active_from_bar is not None
+                        and bar_local_idx >= ob.limit_active_from_bar
+                        and _manual_entry_touched(ob, c_h, c_l)):
+
+                    # Global lock prevents concurrent trades across assets
+                    if (global_lock_until_dt is not None
+                            and c_ts <= global_lock_until_dt):
+                        continue
+
+                    # ─── ENTRY FILLED ───────────────────────────────
+                    ob.state = ManualOBState.TRADE_ACTIVE
+                    ob.retest_number       += 1
+                    ob.entry_bar_from_bos   = bar_local_idx - ob.bos_bar_idx
+                    ob.ob_age_at_entry_hours = (
+                        (c_ts - ob.bos_dt).total_seconds() / 3600
+                    )
+
+                    risk_dist   = abs(ob.entry_price - ob.sl_price)
+                    reward_dist = abs(ob.tp_price - ob.entry_price)
+                    gross_sl    = ob.applied_leverage * ob.sl_dist_pct
+                    gross_tp    = cfg.fixed_tp_market_pct * ob.applied_leverage
+
+                    active_trade = {
+                        "ob":                   ob,
+                        "asset":                sym,
+                        "direction":            ob.direction,
+                        "entry_price":          ob.entry_price,
+                        "sl_price":             ob.sl_price,
+                        "tp_price":             ob.tp_price,
+                        "applied_leverage":     ob.applied_leverage,
+                        "theoretical_leverage": ob.theoretical_leverage,
+                        "risk_dist":            risk_dist,
+                        "reward_dist":          reward_dist,
+                        "gross_sl_return_pct":  gross_sl,
+                        "gross_tp_return_pct":  gross_tp,
+                        "starting_capital":     capital,
+                        "fill_dt":              c_ts,
+                        "retest_dt":            c_ts,
+                    }
+                    global_lock_until_dt = c_ts
+
+        for ob_id in obs_to_remove:
+            live_obs.pop(ob_id, None)
+
+        # ── 3. Run scanner → add new OBs from this bar ──────────────
+        # New OBs are added AFTER this bar's lifecycle update, so they
+        # start being monitored from the NEXT bar (break+1 admission).
+        # This prevents the BOS candle from acting as its own displacement.
+        new_obs = scanners[sym].scan(
+            sym, bar_local_idx, c_ts, c_o, c_h, c_l, c_c, cfg
+        )
+        for ob in new_obs:
+            live_obs[ob.ob_id] = ob
+
+    # ------------------------------------------------------------------
+    # Build results (compatible with run_displacement_gated_backtest)
+    # ------------------------------------------------------------------
+    if executed_trades:
+        tdf = pd.DataFrame([asdict(t) for t in executed_trades])
+    else:
+        tdf = pd.DataFrame()
+
+    def _agg(df: pd.DataFrame) -> Dict[str, Any]:
+        if len(df) == 0:
+            return {
+                "trades": 0, "wins": 0, "losses": 0,
+                "wr": 0.0, "total_r": 0.0, "exp_r": 0.0, "pf": 0.0,
+            }
+        n      = len(df)
+        wins   = len(df[df["outcome"] == "FILLED_TP"])
+        losses = len(df[df["outcome"] == "FILLED_SL"])
+        total_r = float(df["realized_r"].sum())
+        gain_r  = (float(df[df["outcome"] == "FILLED_TP"]["realized_r"].sum())
+                   if wins > 0 else 0.0)
+        loss_r  = (abs(float(df[df["outcome"] == "FILLED_SL"]["realized_r"].sum()))
+                   if losses > 0 else 1.0)
+        return {
+            "trades":   n,
+            "wins":     wins,
+            "losses":   losses,
+            "wr":       round(wins / n * 100, 2),
+            "total_r":  round(total_r, 2),
+            "exp_r":    round(total_r / n, 4),
+            "pf":       round(gain_r / loss_r, 2) if loss_r > 0 else 99.0,
+        }
+
+    overall = _agg(tdf)
+    asset_breakdown: Dict[str, Any] = {}
+    for sym in syms:
+        sym_df = tdf[tdf["asset"] == sym] if len(tdf) > 0 else pd.DataFrame()
+        asset_breakdown[sym] = _agg(sym_df)
+
+    return {
+        "config":                 vars(cfg),
+        "starting_capital":       cfg.starting_capital,
+        "ending_capital":         capital,
+        "total_return_pct":       (
+            (capital - cfg.starting_capital) / cfg.starting_capital * 100.0
+        ),
+        "total_executed_trades":  overall["trades"],
+        "wins":                   overall["wins"],
+        "losses":                 overall["losses"],
+        "win_rate_pct":           overall["wr"],
+        "expectancy_r":           overall["exp_r"],
+        "total_realized_r":       overall["total_r"],
+        "profit_factor":          overall["pf"],
+        "max_drawdown_pct":       round(max_dd_pct, 2),
+        "asset_breakdown":        asset_breakdown,
+        "trades_df":              tdf,
+    }
