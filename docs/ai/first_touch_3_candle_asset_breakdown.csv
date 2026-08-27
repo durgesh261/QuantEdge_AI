@@ -1,5 +1,0 @@
-asset,baseline_setups,baseline_trades,baseline_win_rate_pct,baseline_realized_r,baseline_profit_factor,new_trades,new_win_rate_pct,new_realized_r,new_profit_factor,delta_win_rate_pct,delta_realized_r
-BTCUSD,438,348,41.38,-27.95,0.86,354,39.83,-35.99,0.83,-1.55,-8.04
-ETHUSD,396,286,53.5,-8.17,0.94,280,52.5,-10.9,0.92,-1.0,-2.73
-SOLUSD,455,313,59.42,-6.86,0.95,330,56.97,-20.02,0.86,-2.45,-13.16
-XRPUSD,387,256,57.42,0.57,1.01,257,54.47,-10.4,0.91,-2.95,-10.97

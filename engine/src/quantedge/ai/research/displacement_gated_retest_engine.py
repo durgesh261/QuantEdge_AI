@@ -58,10 +58,38 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
 
-from quantedge.ai.evaluation.phase_l_research import load_canonical_full_history, _find_repo_root
-from quantedge.ai.evaluation.phase_i_ob_replay import build_smc_context, extract_phase_i_setups
-
 IST_TZ = timezone(timedelta(hours=5, minutes=30))
+
+def _find_repo_root() -> Path:
+    p = Path(__file__).resolve()
+    for parent in p.parents:
+        if (parent / ".git").exists() or (parent / "backend").exists() or (parent / "docker-compose.yml").exists():
+            return parent
+    return p.parents[5]
+
+def _load_canonical_candles(canonical_base: Path, symbol: str) -> List[Dict[str, Any]]:
+    """Loads canonical 1H candles directly from canonical CSV files."""
+    csv_path = canonical_base / symbol / "1h" / "full_history.csv"
+    if not csv_path.exists():
+        csv_path = canonical_base / symbol / "1h" / "2026.csv"
+    if not csv_path.exists():
+        return []
+    candles = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ts = datetime.fromisoformat(row["timestamp"])
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            candles.append({
+                "timestamp": ts,
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "volume": float(row.get("volume", "0")),
+            })
+    return candles
 
 # ---------------------------------------------------------------------------
 # Governance
@@ -1506,29 +1534,15 @@ def run_manual_spec_backtest(
         _find_repo_root() / "data" / "canonical" / "delta_exchange_india"
     )
 
-    from quantedge.ai.evaluation.phase_l_research import load_canonical_full_history
-
     # ------------------------------------------------------------------
     # Load candles
     # ------------------------------------------------------------------
     asset_candles: Dict[str, pd.DataFrame] = {}
     for sym in syms:
-        try:
-            candles = load_canonical_full_history(root, sym)
-        except Exception:
+        rows = _load_canonical_candles(root, sym)
+        if not rows:
             asset_candles[sym] = pd.DataFrame()
             continue
-        rows = [
-            {
-                "timestamp": c.timestamp,
-                "open":      float(c.open),
-                "high":      float(c.high),
-                "low":       float(c.low),
-                "close":     float(c.close),
-                "volume":    float(c.volume),
-            }
-            for c in candles
-        ]
         df = pd.DataFrame(rows).sort_values("timestamp").reset_index(drop=True)
         asset_candles[sym] = df
 

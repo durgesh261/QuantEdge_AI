@@ -1,168 +1,121 @@
-# QuantEdge AI V2 Architecture
+# QuantEdge AI Architecture & System Guide
 
-## Overview
+**Status**: Authoritative Architecture Specification  
+**Version**: 2.0.0
 
-QuantEdge AI V2 is a clean architecture implementation separating concerns across four primary components:
+---
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        QuantEdge AI V2                          │
-├─────────────┬─────────────┬─────────────┬───────────────────────┤
-│   React     │ Spring Boot │   Python    │      PostgreSQL       │
-│  Frontend   │  Backend    │   Engine    │      Database         │
-└──────┬──────┴──────┬───────┴──────┬──────┴───────────────────────┘
-       │             │              │
-       ▼             ▼              ▼
-   UI Only      App/Risk/      Market Intel
-   (Presentation) Execution      & Strategy
-                          Authority
-```
+## 1. System Overview
 
-## Component Responsibilities
-
-### User Application (`/user-app`)
-- **Only** user interface and presentation for traders
-- React + TypeScript + Vite on port 3100
-- Communicates exclusively with Spring Boot REST API via /api proxy
-- No business logic, no trading logic, no market data processing
-- State management for UI only (not authoritative)
-
-### Developer Application (`/developer-app`)
-- Developer/Operator console for system diagnostics
-- React + TypeScript + Vite on port 3101
-- RBAC-restricted: requires ROLE_DEVELOPER or ROLE_ADMIN
-- Engine sandbox, log viewer, execution monitor, market diagnostics
-
-### Spring Boot Backend (`/backend`)
-- **Authoritative** application layer
-- Authentication & Authorization (JWT-based)
-- User management & settings
-- Trading account management
-- Delta Exchange connection management (encrypted credentials)
-- Order & Position management
-- Risk validation & enforcement
-- Paper & Live trading execution
-- Journal & Analytics
-- Audit logging
-- Multi-user isolation enforcement
-
-### Python Engine (`/engine`)
-- Market intelligence & strategy research
-- Real & historical market data ingestion
-- Candle processing & OHLCV management
-- **LuxAlgo SMC implementation (canonical reference)**
-  - Stateful leg-based structure detection (internal length=5, swing length=50)
-  - ATR(200) volatility parsing with LuxAlgo inversion logic
-  - BOS/CHOCH detection with proper confirmation timing
-  - Order Block detection via LuxAlgo slice semantics (inclusive start, exclusive end)
-  - OB lifecycle: FRESH -> TOUCHED -> USED / INVALIDATED
-- Liquidity & Equal Levels detection
-- Fair Value Gap detection
-- Strategy candidate generation
-- **Confidence scoring (8-factor model)**
-- Deterministic backtesting
-- AI/ML research framework
-- **NO Delta credentials** - receives market data only
-
-### PostgreSQL Database (`/database`)
-- **Authoritative** persistent storage
-- Multi-tenant user data isolation
-- ACID compliance for financial data
-- Flyway migrations for schema versioning (ONLY mechanism)
-- Application-level ownership enforcement (RLS planned for hardening)
-
-### Delta Exchange
-- External execution venue
-- Credentials stored encrypted in Spring Boot ONLY
-- No direct access from React or Python Engine
-
-## Communication Patterns
-
-### React ↔ Spring Boot
-- REST API with OpenAPI contract
-- JWT authentication (HttpOnly cookies)
-- WebSocket for real-time updates (orders, positions, P&L)
-
-### Python Engine ↔ Spring Boot
-- Strategy candidate API (HTTP/JSON)
-- Spring Boot validates & executes
-- Python Engine never writes user data or submits orders
-- **Python Engine has NO Delta credentials**
-
-### Spring Boot ↔ PostgreSQL
-- JPA/Hibernate ORM
-- Flyway migrations (ONLY schema mechanism)
-- Connection pooling (HikariCP)
-
-## Data Flow
+QuantEdge AI is an automated, institutional-grade cryptocurrency trading platform designed for Delta Exchange India. The system is split across four core components:
 
 ```
-Market Data (Delta) → Python Engine → SMC Analysis → Strategy Candidates
-                                                          ↓
-                                            Spring Boot Risk Validation
-                                                          ↓
-                                                Execution (Paper/Live)
-                                                          ↓
-                                                PostgreSQL Persistence
-                                                          ↓
-                                                React UI Updates
+┌─────────────────────────────────────────────────────────────────────────┐
+│                             QuantEdge AI                                │
+├──────────────┬──────────────┬──────────────┬────────────────────────────┤
+│   React UI   │  Python Core │ Spring Boot  │         PostgreSQL         │
+│  Dashboards  │    Engine    │   Backend    │          Database          │
+│   (:3100)    │   (:8000)    │   (:8080)    │          (:5432)           │
+└──────┬───────┴──────┬───────┴──────┬───────┴─────────────┬──────────────┘
+       │              │              │                     │
+       ▼              ▼              ▼                     ▼
+Presentation    Market Data &   App Auth, Risk      Persistence &
+(User/Dev App)  Strategy/SMC    & Delta Sync        State Reconciliation
 ```
 
-## Security Model
+---
 
-- **No global secrets** - all per-user/account
-- **Delta credentials encrypted** at rest (Spring Boot only)
-- **JWT tokens** - short-lived access, refresh rotation
-- **HttpOnly cookies** - no token exposure to JS
-- **Application-level ownership enforcement** - database RLS planned
-- **Spring Boot enforces risk** - Python cannot bypass
-- **Python Engine receives NO Delta credentials**
+## 2. Component Responsibilities
 
-## Multi-User Isolation
+### 1. User Application (`/user-app`) — Port 3100
+- React 18 + TypeScript + Vite trading dashboard.
+- Real-time position monitoring, active orders, trade journal, PnL analytics.
+- Communicates exclusively with Spring Boot REST API via `/api`.
 
-Every user has completely independent:
-- Authentication & sessions
-- Trading accounts & settings
-- Delta API credentials (encrypted)
-- Orders, positions, balances
-- P&L, journal, analytics
-- Paper/Live trading state
-- ALGO ON/OFF, Delta ON/OFF
+### 2. Developer Application (`/developer-app`) — Port 3101
+- Operator diagnostic & health monitoring interface.
+- Real-time engine health, WebSocket telemetry, multi-user execution matrix, reconciliation logs.
 
-No shared/trading state across users.
+### 3. Java Spring Boot Backend (`/backend`) — Port 8080
+- Multi-tenant authentication (JWT, password resets, secure HttpOnly cookies).
+- Account management, encrypted Delta API credential storage.
+- Trade history, audit logs, and PostgreSQL database synchronization via JPA/Hibernate.
 
-## Deployment
+### 4. Python Trading Engine (`/engine`) — Port 8000
+- **Market Data Pipeline** (`quantedge.market_data`):
+  - Ingests Delta Exchange India 1H candles (REST history + live WebSocket streams).
+  - Maintains deterministic, strictly causal incremental candle buffers.
+- **Manual SMC Strategy Engine** (`quantedge.ai.research.displacement_gated_retest_engine` / `quantedge.strategy`):
+  - `ManualSpecBOSScanner`: Causal BOS detection over sliding window of $N=10$ bars.
+  - Mode C Displacement Gate: Probe $\rightarrow$ Pullback confirmation.
+  - Order Geometry: Direction-specific (`origin.CLOSE` for SL), 25% depth entry, $+0.60\%$ fixed TP.
+- **Execution & Risk Management** (`quantedge.execution`):
+  - `SingleTradeLockManager`: Strict portfolio-wide 1-trade limit.
+  - `SingleTradeCapitalAllocator`: Position sizing, 35% SL risk, leverage capping (up to 100x).
+  - `DeltaIndiaClient`: Direct order placement, position management, and balance polling via HMAC SHA256 signed REST API.
+  - `DeltaPrivateWebSocket`: Low-latency streaming of order status, fills, and position liquidation events.
+  - `ExecutionReconciler`: Continuous state reconciliation against Delta Exchange and PostgreSQL.
 
+### 5. PostgreSQL Database — Port 5432
+- Authoritative relational store for users, accounts, trades, orders, and execution audit trails.
+
+---
+
+## 3. End-to-End Trading Flow
+
+```mermaid
+flowchart TD
+    subgraph Market Data Layer
+        A1[Delta Exchange REST / WS] --> A2[quantedge.market_data.delta_websocket]
+        A2 --> A3[quantedge.market_data.ingestion]
+        A3 --> A4[quantedge.market_data.incremental_engine]
+    end
+
+    subgraph Strategy Layer
+        A4 --> B1[quantedge.market_data.models.Candle]
+        B1 --> B2[ManualSpecBOSScanner]
+        B2 --> B3[ManualOBRecord & Mode-C Displacement Gate]
+        B3 --> B4[quantedge.strategy.engine.StrategyEngine]
+        B4 --> B5[quantedge.strategy.models.StrategyDecision]
+    end
+
+    subgraph Risk & Portfolio Layer
+        B5 --> C1[quantedge.execution.single_trade_lock.SingleTradeLockManager]
+        C1 --> C2[quantedge.execution.capital_allocator.SingleTradeCapitalAllocator]
+        C2 --> C3[quantedge.execution.validation.OrderValidator]
+    end
+
+    subgraph Execution Layer
+        C3 --> D1[quantedge.execution.market_orchestrator.MarketExecutionOrchestrator]
+        D1 --> D2[quantedge.execution.trade_lifecycle.TradeLifecycleManager]
+        D2 --> D3[quantedge.execution.delta_client.DeltaIndiaClient]
+        D3 --> D4[Delta Exchange India API]
+        D4 --> D5[quantedge.execution.private_websocket.DeltaPrivateWebSocket]
+        D5 --> D2
+    end
+
+    subgraph Persistence & API Layer
+        D2 --> E1[quantedge.execution.backend_client.BackendClient]
+        E1 --> E2[backend: Java Spring Boot API :8080]
+        E2 --> E3[(PostgreSQL Database :5432)]
+    end
+
+    subgraph Frontend User Interfaces
+        E2 --> F1[user-app: React Trading Dashboard :3100]
+        E2 --> F2[developer-app: Diagnostic UI :3101]
+    end
 ```
-┌─────────────────┐     ┌─────────────┐     ┌─────────────┐
-│  User App       │────▶│ Spring Boot │────▶│ PostgreSQL  │
-│  (Nginx :3100)  │     │  (Java 21)  │     │   (16+)     │
-└─────────────────┘     └──────┬──────┘     └─────────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-       ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-       │   Python    │  │  Developer  │  │    Redis    │
-       │  Engine     │  │   App       │  │  (optional) │
-       │  (:8000)    │  │  (:3101)    │  │  (:6379)    │
-       └─────────────┘  └─────────────┘  └─────────────┘
-```
 
-Local development: `docker-compose up -d`
-- PostgreSQL starts empty (port 5432)
-- Spring Boot backend starts (port 8080)
-- Flyway applies migrations exactly once
-- Python Engine starts on port 8000 (no Delta credentials)
-- User App starts on port 3100
-- Developer App starts on port 3101
-- Redis starts on port 6379 (if enabled)
+---
 
-Ports:
-- 3100 — User App (React)
-- 3101 — Developer App (React)
-- 8000 — Python Engine (FastAPI)
-- 8080 — Spring Boot Backend
-- 5432 — PostgreSQL
-- 6379 — Redis (optional)
+## 4. Claude Implementation Roadmap (Phase 2)
 
-Production: Kubernetes/GKE with Cloud SQL
+When integrating the Manual SMC strategy into full production:
+1. **Target Strategy Package**:
+   Implement `engine/src/quantedge/strategy/manual_smc/` (or clean `quantedge.strategy.engine` interface) using the exact logic validated in `ManualSpecBOSScanner`.
+2. **Execution Wiring**:
+   Connect signals emitted by the strategy to `quantedge.execution.market_orchestrator` and `quantedge.execution.trade_lifecycle`.
+3. **Acceptance Verification**:
+   Ensure `engine/tests/test_manual_smc_btc_acceptance.py` continuously passes **21/21** as the permanent regression guard.
+4. **Reference Strategy Document**:
+   Refer exclusively to [docs/MANUAL_SMC_STRATEGY.md](file:///c:/Users/durge/OneDrive/Desktop/Antigravity%20App/QuantEdge%20AI/docs/MANUAL_SMC_STRATEGY.md).

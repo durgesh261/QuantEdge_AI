@@ -2,16 +2,18 @@
 Research module for QuantEdge AI.
 """
 
-from quantedge.ai.research.fixed_target_smc_engine import (
-    FixedSMCConfig,
-    FixedSMCTrade,
-    run_fixed_target_smc_backtest,
-    to_ist_string,
+from quantedge.ai.research.displacement_gated_retest_engine import (
+    ManualOBState,
+    ManualOBRecord,
+    ManualSpecConfig,
+    ManualSpecBOSScanner,
+    run_manual_spec_backtest,
 )
 
 __all__ = [
-    "FixedSMCConfig",
-    "FixedSMCTrade",
-    "run_fixed_target_smc_backtest",
-    "to_ist_string",
+    "ManualOBState",
+    "ManualOBRecord",
+    "ManualSpecConfig",
+    "ManualSpecBOSScanner",
+    "run_manual_spec_backtest",
 ]

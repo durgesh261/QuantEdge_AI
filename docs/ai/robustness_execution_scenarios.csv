@@ -1,7 +1,0 @@
-scenario,fee_rate_pct,slippage_bps,trades,win_rate_pct,total_strategy_R,total_net_R,profit_factor,expectancy_net_R,ending_capital,total_return_pct,max_drawdown_pct,min_equity_reached
-Scenario A: Ideal,0.0,0.0,445,68.3146,122.0586,122.0603,1.8134,0.274293,2438.051884,24280.5188,27.8235,9.174804
-Scenario B: Current Backtest,0.08,0.0,445,68.3146,122.0586,66.8908,1.4133,0.150316,161.903164,1519.0316,41.6972,6.375226
-Scenario C: Conservative,0.08,5.0,445,68.3146,122.0586,-2.0782,0.9048,-0.00467,5.268115,-47.3189,71.2157,2.878429
-Scenario D: Realistic,0.08,10.0,445,68.3146,122.0586,-71.0445,0.496,-0.159651,0.164628,-98.3537,98.4208,0.157922
-Scenario E: Stress,0.16,20.0,445,68.3146,122.0586,-264.1392,0.0356,-0.593571,8e-06,-99.9999,99.9999,8e-06
-Scenario F: Severe Stress,0.3,50.0,445,68.3146,122.0586,-490.5621,-0.2406,-1.102387,0.0,-100.0,100.0,0.0

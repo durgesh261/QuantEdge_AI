@@ -1,82 +1,105 @@
-# QuantEdge AI V2
+# QuantEdge AI
 
-Clean architecture implementation for QuantEdge AI institutional crypto trading platform.
+**Automated Cryptocurrency Trading Platform for Delta Exchange India**
 
-## Architecture
+QuantEdge AI is an automated, institutional-grade trading system designed to trade cryptocurrency perpetuals on Delta Exchange India (BTCUSD, ETHUSD, SOLUSD, XRPUSD) using the verified **Manual TradingView SMC Strategy**.
+
+---
+
+## 1. System Architecture
 
 ```
-QuantEdge AI V2
-├── backend/           # Java 21 + Spring Boot 3.2 (Authoritative execution gateway)
-├── engine/            # Python 3.11+ (SMC market intelligence & strategy research)
-├── user-app/          # React 18 + TypeScript (Trader / End-User web terminal — Port 3100)
-├── developer-app/     # React 18 + TypeScript (Operator / Admin / Dev console — Port 3101)
-├── docker/            # Multi-service container orchestration
+QuantEdge AI
+├── backend/           # Java 21 + Spring Boot 3.2 REST API & Gateway (Port 8080)
+├── engine/            # Python 3.11+ Market Data & Trading Engine (Port 8000)
+├── user-app/          # React 18 + TypeScript + Vite Trader Terminal (Port 3100)
+├── developer-app/     # React 18 + TypeScript + Vite Diagnostic Console (Port 3101)
+├── data/canonical/    # Canonical Delta Exchange India historical datasets
+├── docker/            # Docker container configurations
 └── docs/              # Specifications and architectural blueprints
 ```
 
-## Technology Stack
+---
 
-- **Trader Web Terminal (`user-app`)**: React 18 + TypeScript + Vite + Tailwind CSS + Lightweight Charts (Port 3100)
-- **Operator Console (`developer-app`)**: React 18 + TypeScript + Vite + Tailwind CSS (Port 3101)
-- **Backend API Gateway**: Java 21 + Spring Boot 3.x + Spring Security + PostgreSQL JPA (Port 8080)
-- **Trading Engine**: Python 3.11+ (setuptools/pip) + pandas/numpy/httpx/websockets (Port 8000)
-- **Database**: PostgreSQL 16+ (Flyway migrations, authoritative persistence)
-- **Exchange Gateway**: Delta Exchange India REST / WebSocket (Server-Side only)
+## 2. Core Trading Strategy
 
-## Quick Start
+The active trading strategy is the **Manual TradingView SMC Strategy** proven against live reference trades:
+- **OB Boundaries**: Direction-specific (`origin.CLOSE` for SHORT top & LONG bottom).
+- **BOS Detection**: Causal close beyond opposing origin candle over sliding lookback window ($N=10$).
+- **Displacement**: Mode C (Probe $\rightarrow$ Pullback confirmation) with Break $+ 1$ admission.
+- **Invalidation**: Wick-based at the distal boundary.
+- **Risk & Geometry**: 25% depth entry, $+0.60\%$ fixed TP, $35\%$ SL account risk, $100\times$ cap, portfolio-wide **single-trade lock**.
+
+👉 **Authoritative Specification**: [docs/MANUAL_SMC_STRATEGY.md](docs/MANUAL_SMC_STRATEGY.md)  
+👉 **Golden Acceptance Test**: `engine/tests/test_manual_smc_btc_acceptance.py` (**21/21 Passing**)
+
+---
+
+## 3. Quick Start & Local Execution
 
 ### Prerequisites
+- **Java**: 21+
+- **Python**: 3.11+
+- **Node.js**: 20+
+- **PostgreSQL**: 16+ (or use Docker)
+- **Docker & Docker Compose**
 
-- Java 21+
-- Node.js 20+
-- Python 3.11+
-- PostgreSQL 16+
-- Docker & Docker Compose (optional)
-
-### Development Setup
-
+### Running with Docker Compose
 ```bash
-# Configure required secrets and local ports. At minimum, replace
-# PYTHON_ENGINE_API_KEY before starting Compose.
+# 1. Configure environment
 cp .env.example .env
 
-# Start infrastructure (PostgreSQL)
+# 2. Start all services (Postgres, Backend, Engine, User App, Developer App)
+docker compose up -d
+```
+
+### Running Components Individually
+```bash
+# 1. Start database
 docker compose up -d postgres
 
-# Backend (Spring Boot)
+# 2. Start Java Spring Boot Backend (Port 8080)
 cd backend && ./mvnw spring-boot:run
 
-# Python Engine
+# 3. Start Python Engine (Port 8000)
 cd engine
-python -m pip install -e .[dev]
+pip install -e .
 python -m quantedge
 
-# Trader Application (Port 3100)
+# 4. Start Trader Dashboard (Port 3100)
 cd user-app && npm ci && npm run dev
 
-# Developer / Operator Console (Port 3101)
+# 5. Start Developer Console (Port 3101)
 cd developer-app && npm ci && npm run dev
 ```
 
-The public API is served under `http://localhost:8080/api`. Both browser
-applications proxy `/api/*` to that backend during development and expose it
-through Nginx in Compose. The engine health endpoint is
-`http://localhost:8000/health`.
+---
 
-For production, set `SPRING_PROFILES_ACTIVE=production`, provide unique
-`JWT_SECRET`, `ENCRYPTION_KEY`, and `PYTHON_ENGINE_API_KEY` values, and set
-`COOKIE_SECURE=true` behind HTTPS. The backend refuses to start with missing
-production secrets or insecure authentication cookies.
+## 4. Running the Tests
 
-## Documentation
+```bash
+# Run the complete Python test suite (845 tests, 100% passing)
+python -m pytest engine/tests -v
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [SMC Specification](docs/SMC_SPECIFICATION.md)
-- [Strategy Specification](docs/STRATEGY_SPECIFICATION.md)
-- [Risk Specification](docs/RISK_SPECIFICATION.md)
-- [Database Specification](docs/DATABASE_SPECIFICATION.md)
-- [API Specification](docs/API_SPECIFICATION.md)
-- [Security](docs/SECURITY.md)
+# Run the Golden BTC Reference Acceptance Test
+python -m pytest engine/tests/test_manual_smc_btc_acceptance.py -v
+
+# Run backend unit tests
+cd backend && ./mvnw test
+```
+
+---
+
+## 5. Authoritative Documentation
+
+- [Manual SMC Strategy Specification](docs/MANUAL_SMC_STRATEGY.md)
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Backend REST API Specification](docs/API_SPECIFICATION.md)
+- [Database & Entity Specification](docs/DATABASE_SPECIFICATION.md)
+- [Risk & Account Limits Specification](docs/RISK_SPECIFICATION.md)
+- [Security & Encryption Standards](docs/SECURITY.md)
+
+---
 
 ## License
 

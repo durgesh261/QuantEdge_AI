@@ -1,5 +1,0 @@
-sequence_model,ending_capital_median,ending_capital_p5,ending_capital_p95,max_dd_median_pct,max_dd_p95_pct,prob_ruin_lt_1
-A: Original Chronological,161.9032,161.9032,161.9032,41.6972,41.6972,0.0
-B: Random Permutation (10k),161.9032,161.9032,161.9032,42.5144,58.4148,0.0
-C: Asset-Block Shuffle (10k),161.9032,161.9032,161.9032,47.2376,60.862,0.0
-D: Monthly-Block Shuffle (10k),161.9032,161.9032,161.9032,40.4073,52.1727,0.0

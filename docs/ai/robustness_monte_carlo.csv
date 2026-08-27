@@ -1,5 +1,0 @@
-scenario,slippage_bps,median_final_capital,p5_final_capital,p25_final_capital,p75_final_capital,p95_final_capital,median_max_dd_pct,p95_max_dd_pct,prob_dd_gt_25pct,prob_dd_gt_40pct,prob_dd_gt_50pct,prob_capital_below_5,prob_capital_below_1,prob_capital_above_10,prob_capital_above_100
-Baseline (0 bps),0.0,161.903164,161.903164,161.903164,161.903164,161.903164,42.5144,58.4148,0.9998,0.6268,0.2031,0.0,0.0,1.0,1.0
-+5 bps slippage,5.0,5.268115,5.268115,5.268115,5.268115,5.268115,75.0826,86.1343,1.0,1.0,1.0,0.0,0.0,0.0,0.0
-+10 bps slippage,10.0,0.164628,0.164628,0.164628,0.164628,0.164628,98.6033,98.9884,1.0,1.0,1.0,1.0,1.0,0.0,0.0
-+20 bps slippage,20.0,0.000141,0.000141,0.000141,0.000141,0.000141,99.9986,99.9987,1.0,1.0,1.0,1.0,1.0,0.0,0.0

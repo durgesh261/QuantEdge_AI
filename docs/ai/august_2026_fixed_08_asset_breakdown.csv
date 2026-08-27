@@ -1,5 +1,0 @@
-asset,trade_count,win_count,loss_count,win_rate_pct,avg_leverage,expectancy_r,total_r,profit_factor
-BTCUSD,6,4,2,66.67,112.44,1.0466,6.28,4.14
-ETHUSD,6,2,4,33.33,119.35,0.8274,4.96,2.24
-SOLUSD,13,7,6,53.85,69.54,0.3235,4.21,1.7
-XRPUSD,1,0,1,0.0,68.26,-1.0,-1.0,0.0
