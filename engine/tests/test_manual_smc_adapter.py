@@ -1162,6 +1162,12 @@ SIBLINGS = ("__init__.py", "geometry.py", "lifecycle.py", "models.py",
 
 STEP_7_MODULES = tuple(sorted(SIBLINGS + ("adapter.py",)))
 
+# Step 8 added `backtest.py`. The adapter's own scope claim below is therefore
+# expressed as "adapter.py plus the Step 7 siblings, and NOTHING application-
+# facing beyond it" rather than as an inventory of the whole package, which is
+# pinned once in `test_manual_smc_backtest.py::TestStep8ScopeMarker`.
+STEP_8_ADDITIONS = ("backtest.py",)
+
 
 class TestImportBoundary:
     """`adapter.py` is the ONLY module here that knows the application exists."""
@@ -1262,12 +1268,25 @@ class TestImportBoundary:
 
     def test_step_7_scope_marker(self):
         """
-        Step 7 adds `adapter.py` and nothing else. `backtest.py` is Step 8+.
+        Step 7 adds `adapter.py` and nothing else APPLICATION-FACING.
 
-        This replaces Step 6's `test_the_adapter_and_backtest_modules_do_not
-        _exist_yet`, which now necessarily fails; that test is left UNTOUCHED and
-        reported, per the testing rules.
+        The Step 7 form of this test asserted `not (PACKAGE / "backtest.py")
+        .exists()`. Step 8 added that module, so the assertion is converted to
+        the requirement it actually encoded: `adapter.py` stays the SOLE
+        translation boundary, and the module Step 8 added is a driver that sits
+        ABOVE the strategy rather than a second application boundary.
+
+        (It also replaced Step 6's `test_the_adapter_and_backtest_modules_do_not
+        _exist_yet`, which has itself been converted to a dependency-direction
+        check in `test_manual_smc_strategy.py`, per the testing rules.)
         """
         assert ADAPTER_PATH.exists()
-        assert not (PACKAGE / "backtest.py").exists()
-        assert tuple(sorted(p.name for p in PACKAGE.glob("*.py"))) == STEP_7_MODULES
+        present = tuple(sorted(p.name for p in PACKAGE.glob("*.py")))
+        assert set(STEP_7_MODULES) <= set(present)
+        assert set(present) - set(STEP_7_MODULES) == set(STEP_8_ADDITIONS)
+
+        # The Step 8 driver is not a second application boundary, and it does
+        # not reach back into the adapter either.
+        driver = PACKAGE / "backtest.py"
+        assert "quantedge.strategy.models" not in _imports_of(driver)
+        assert "quantedge.strategy.manual_smc.adapter" not in _imports_of(driver)

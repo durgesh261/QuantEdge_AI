@@ -115,9 +115,6 @@ Phase 1 Step 6 scope: `strategy.py`, covered by
     authorises an order — invalidations and stale resting orders are reported as
     data (safety rule #9).
 
-NOT YET IMPLEMENTED (deliberately absent):
-    backtest.py
-
 Phase 1 Step 7 scope: `adapter.py`, covered by
 `engine/tests/test_manual_smc_adapter.py`.
 
@@ -153,6 +150,37 @@ Phase 1 Step 7 scope: `adapter.py`, covered by
     application-free. Consumers import `quantedge.strategy.manual_smc.adapter`
     explicitly. Nothing in it places, amends, cancels or authorises an order:
     `cancel_ob_ids` is a withdrawal REPORT (safety rule #9).
+
+Phase 1 Step 8 scope: `backtest.py`, covered by
+`engine/tests/test_manual_smc_backtest.py`.
+
+  * A THIN chronological driver over `ManualSMCStrategy`, and the reason the
+    backtest can no longer disagree with production: it owns the loop, the
+    canonical-CSV preparation and the trade ledger, and NOTHING else. No BOS
+    scan, no OB geometry, no probe/displacement test, no entry timing, no
+    invalidation, no TP/SL resolution, no lock rule and no leverage formula is
+    restated — `evaluate_closed_candle` has exactly ONE call site, and the
+    driver never assigns to `ob.state`, `active_trade` or the live OB pool.
+  * The global single-trade slot is the SHARED `PortfolioLock` of the ONE
+    strategy instance the driver creates, so it is portfolio-wide across every
+    asset. This is a deliberate BEHAVIOURAL divergence from the frozen oracle's
+    `run_manual_spec_backtest`, whose timestamp-only watermark let a later
+    setup overwrite `active_trade` and strand the trade it had already opened.
+    The corrected lock therefore records MORE trades than the oracle published,
+    and `EntryBlock.oracle_would_have_overwritten` names each block where the
+    two implementations part company.
+  * Two fail-closed divergences in data preparation: a repository root that
+    cannot be found by marker RAISES instead of being guessed (a wrong root
+    yields an empty dataset and a zero-trade "baseline"), and duplicate
+    timestamps RAISE instead of being assigned two bar indices.
+  * Quantization is REPORTING ONLY. `quantized_at_fill` and
+    `quantization_refusal` are recorded per trade; no strategy price is moved
+    onto a tick grid, so the ideal-strategy baseline and the
+    exchange-executable baseline stay distinguishable. Order quantity is still
+    absent (rules #8, #15).
+  * `LIVE_EXECUTION_AUTHORIZED` is `False` and the driver refuses to construct
+    if it is ever flipped. No exchange, no database, no Java, no WebSocket, no
+    runtime composition root, no CLI on import.
 
 This package has NO production wiring and NO execution wiring. Importing it
 cannot place, cancel or authorise an order.

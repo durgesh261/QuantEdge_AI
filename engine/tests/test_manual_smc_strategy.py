@@ -1285,16 +1285,35 @@ class TestModuleIndependence:
         assert with_module == baseline
         assert "httpx" in baseline
 
-    def test_the_adapter_and_backtest_modules_do_not_exist_yet(self):
-        """Step 6 stops here: `adapter.py` and `backtest.py` are Step 7+."""
+    def test_strategy_py_depends_on_neither_the_adapter_nor_the_backtest(self):
+        """
+        `adapter.py` (Step 7) and `backtest.py` (Step 8) now exist, so the
+        Step 6 emptiness check has become a DEPENDENCY-DIRECTION check, which is
+        what it was really protecting: the orchestration layer must sit BELOW
+        both of them. `strategy.py` may not import either one, or the
+        application types would re-enter through the adapter and the driver
+        would become a runtime dependency of production code.
+
+        The package inventory is pinned once, in
+        `test_manual_smc_backtest.py::TestStep8ScopeMarker`.
+        """
         package = MODULE_PATH.parent
-        assert not (package / "adapter.py").exists()
-        assert not (package / "backtest.py").exists()
-        assert sorted(p.name for p in package.glob("*.py")) == [
-            "__init__.py", "geometry.py", "lifecycle.py", "models.py",
-            "portfolio.py", "quantization.py", "scanner.py", "sizing.py",
-            "state.py", "strategy.py",
-        ]
+        assert (package / "adapter.py").exists(), "Step 7 deliverable"
+        assert (package / "backtest.py").exists(), "Step 8 deliverable"
+
+        imported: set[str] = set()
+        for node in ast.walk(ast.parse(MODULE_SRC)):
+            if isinstance(node, ast.Import):
+                imported.update(a.name for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+                imported.update(f"{node.module}.{a.name}" for a in node.names)
+        for banned in ("quantedge.strategy.manual_smc.adapter",
+                       "quantedge.strategy.manual_smc.backtest"):
+            assert not [m for m in imported if m == banned
+                        or m.startswith(banned + ".")], banned
+        assert "adapter" not in {m.rsplit(".", 1)[-1] for m in imported}
+        assert "backtest" not in {m.rsplit(".", 1)[-1] for m in imported}
 
 # ---------------------------------------------------------------------------
 # Requirement 11: the non-atomic window is stated, not papered over
@@ -1490,8 +1509,20 @@ class TestPackageSurface:
         assert missing == []
 
     def test_the_package_still_advertises_the_manual_smc_identity(self):
+        """
+        The Step 6 form of this test read the docstring's "NOT YET IMPLEMENTED
+        (deliberately absent): adapter.py  backtest.py" list. Both modules now
+        exist, so the same requirement — the docstring must not misdescribe the
+        package's own contents — is checked the other way round: every shipped
+        step is claimed, nothing is still advertised as absent, and the
+        no-execution-wiring guarantee is still stated.
+        """
         import quantedge.strategy.manual_smc as pkg
         assert pkg.MANUAL_SMC_STRATEGY_NAME == "MANUAL_SMC"
         assert pkg.MANUAL_SMC_STRATEGY_VERSION == "1.0.0"
-        assert "adapter.py  backtest.py" in pkg.__doc__
-        assert "strategy.py  adapter.py" not in pkg.__doc__
+        assert "Phase 1 Step 7 scope: `adapter.py`" in pkg.__doc__
+        assert "Phase 1 Step 8 scope: `backtest.py`" in pkg.__doc__
+        assert "NOT YET IMPLEMENTED" not in pkg.__doc__
+        assert "deliberately absent" not in pkg.__doc__
+        assert ("This package has NO production wiring and NO execution "
+                "wiring." in pkg.__doc__)
