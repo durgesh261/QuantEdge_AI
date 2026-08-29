@@ -71,8 +71,18 @@ class SingleTradeLockManager:
         account_id: str,
         setup_id: str,
         symbol: str,
+        allow_replay: bool = True,
     ) -> bool:
         """Attempt to acquire exclusive trade lock for an account.
+
+        `allow_replay` (default True, the documented behaviour) makes a repeated
+        acquisition by the *same* setup_id a no-op success, so a retried
+        acquisition is not an error. A caller that treats acquisition as the
+        gate on execution itself must pass False: for such a caller a re-arriving
+        setup_id is a replayed signal, and answering "yes, still yours" would let
+        it execute the same setup twice. Callers that keep their own duplicate
+        registry (`TradeLifecycleManager` rejects a known setup_id with
+        DUPLICATE_SETUP_ID before it ever gets here) leave this at True.
 
         Raises:
             SingleTradeLockError if an active trade already exists for this account.
@@ -87,7 +97,13 @@ class SingleTradeLockManager:
 
             # Idempotent replay: already locked by this exact setup_id
             if state.is_locked and state.active_setup_id == setup_id:
-                return True
+                if allow_replay:
+                    return True
+                raise SingleTradeLockError(
+                    f"Account {account_id} already holds the lock for setup "
+                    f"'{setup_id}' on {state.active_symbol}. Refusing to execute "
+                    f"the same setup twice."
+                )
 
             # Rejection: already locked by a different active trade
             if state.is_locked and state.active_setup_id is not None:

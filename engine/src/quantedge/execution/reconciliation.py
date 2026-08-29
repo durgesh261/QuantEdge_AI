@@ -140,8 +140,13 @@ class DeltaReconciliationService:
                 ))
 
         # 4. Reconcile Positions
-        exchange_pos_map = {p.product_symbol.upper(): p for p in exchange_positions}
-        local_pos_map = {p.symbol.upper(): p for p in local_positions if p.status == PositionStatus.OPEN}
+        # Native symbols are exact identifiers on both sides: the exchange side
+        # is registry-resolved by `DeltaPosition.from_dict`, and the local side
+        # is written from the same gated symbols. Both keys used to be
+        # `.upper()`-ed, which would have folded a lowercase local symbol onto a
+        # real product instead of surfacing it as a discrepancy.
+        exchange_pos_map = {p.product_symbol: p for p in exchange_positions}
+        local_pos_map = {p.symbol: p for p in local_positions if p.status == PositionStatus.OPEN}
 
         # Check for exchange positions not in local store
         for sym, ex_pos in exchange_pos_map.items():
@@ -194,10 +199,18 @@ class DeltaReconciliationService:
                 ))
 
         # 6. Check Single-Trade Lock Consistency
+        # The lock means "this account currently owns an open trade" (see
+        # `single_trade_lock`: released ONLY when the trade is confirmed
+        # POSITION_CLOSED). So the exchange being flat -- no margined position
+        # and no resting order -- is the one condition under which a held lock
+        # is provably orphaned. Both the detection below and the auto-resolution
+        # in section 7 read this single expression, so they can never disagree.
+        exchange_is_flat = not exchange_positions and not exchange_orders
+
         if self.single_trade_lock:
             eff_user = user_id or (local_acct.user_id if local_acct else "default_user")
             is_locked, active_setup_id, active_sym = self.single_trade_lock.is_locked(eff_user, account_id)
-            if is_locked and not exchange_positions and not exchange_orders:
+            if is_locked and exchange_is_flat:
                 discrepancies.append(ReconciliationDiscrepancy(
                     discrepancy_type=ReconciliationDiscrepancyType.ORPHANED_POSITION,
                     resource_id=active_setup_id or "unknown_setup",
@@ -222,20 +235,43 @@ class DeltaReconciliationService:
                 actions_taken.append("LOCAL_STORE_SYNCHRONIZED_FROM_DELTA")
 
             # Release orphaned single trade lock
+            #
+            # `release_lock` is setup-scoped and takes exactly three arguments
+            # (user_id, account_id, setup_id); the release reason belongs in the
+            # audit trail below, not in the call. It returns False rather than
+            # raising when the lock has moved on, so the action is recorded only
+            # when the lock really was released -- this is the mechanism the
+            # documented protocol relies on to ever hand the account back.
             if self.single_trade_lock:
                 eff_user = user_id or (local_acct.user_id if local_acct else "default_user")
                 is_locked, active_setup_id, active_sym = self.single_trade_lock.is_locked(eff_user, account_id)
-                if is_locked and not exchange_positions and not exchange_orders:
+                if is_locked and exchange_is_flat and active_setup_id:
                     try:
-                        self.single_trade_lock.release_lock(eff_user, account_id, active_setup_id, "DELTA_RECONCILED_FLAT")
-                        actions_taken.append(f"RELEASED_ORPHANED_LOCK_{active_setup_id}")
+                        released = self.single_trade_lock.release_lock(eff_user, account_id, active_setup_id)
                     except Exception as e:
                         logger.warning("Failed to release orphaned lock in manager: %s", e)
+                    else:
+                        if released:
+                            actions_taken.append(f"RELEASED_ORPHANED_LOCK_{active_setup_id}")
+                        else:
+                            logger.warning(
+                                "Orphaned lock for account %s was not released: it is no longer held by setup %s",
+                                account_id, active_setup_id,
+                            )
 
-            # Inform Java backend persistence if available
-            if self.backend_client:
+            # Inform Java backend persistence if available.
+            #
+            # `force_release_lock(reason, account_id=None)` takes the reason
+            # first. It is called only when the exchange is flat: the
+            # authoritative lock in PostgreSQL must not be cleared for an
+            # unrelated discrepancy (a stale timestamp, an equity drift) while a
+            # position may still be open.
+            if self.backend_client and exchange_is_flat:
                 try:
-                    self.backend_client.force_release_lock(account_id, "DELTA_RECONCILED_FLAT")
+                    self.backend_client.force_release_lock(
+                        reason="DELTA_RECONCILED_FLAT",
+                        account_id=account_id,
+                    )
                     actions_taken.append("BACKEND_PERSISTENCE_FORCE_RELEASED")
                 except Exception as e:
                     logger.warning("Failed to notify backend client of force-release: %s", e)

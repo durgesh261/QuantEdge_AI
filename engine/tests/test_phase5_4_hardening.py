@@ -409,7 +409,9 @@ async def test_11_excessive_risk_rejects_execution(fresh_context, mock_client):
         symbol="BTCUSD",
         direction=TradeDirection.LONG,
         order_type=OrderType.LIMIT_ORDER,
-        quantity=Decimal("2"),  # 2 BTC * $1000 risk distance = $2000 risk > $250
+        # 2 BTC = 2,000 contracts at the authoritative 0.001 BTC per contract;
+        # 2,000 * 0.001 * $1000 risk distance = $2000 risk > $250
+        quantity=Decimal("2000"),
         entry_price=Decimal("95000.0"),
         stop_loss=Decimal("94000.0"),
         take_profit=Decimal("97000.0"),

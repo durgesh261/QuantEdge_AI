@@ -141,7 +141,10 @@ def test_valid_long_order_approved(standard_context, valid_long_request):
     assert result.calculated_risk_distance == Decimal("1000.0")
     assert result.calculated_reward_distance == Decimal("2000.0")
     assert result.calculated_risk_reward == Decimal("2.0")
-    assert result.calculated_risk_amount == Decimal("2000.0")
+    # 2 contracts x 0.001 BTC per contract x 1000 USD of risk distance = 2 USDT.
+    # The authoritative BTCUSD contract value is 0.001, not the flat 1.0 the
+    # pre-registry product table assumed.
+    assert result.calculated_risk_amount == Decimal("2.0")
 
     # Order request verification
     req = result.order_request
@@ -343,10 +346,14 @@ def test_excessive_leverage_rejected(standard_context, valid_long_request):
 
 def test_insufficient_balance_rejected(standard_context, valid_long_request):
     """Verify order requiring more margin than available balance is rejected."""
-    # Available balance 1000 USDT, risk is within 35% (SL: 94900 -> risk 100 * 20 = 2000 <= 3500),
-    # but required margin for 20 BTC at 50x is (20 * 95000) / 50 = 38,000 USDT > 1000 USDT available
+    # Available balance 1000 USDT. The intended exposure is 20 BTC, which at the
+    # authoritative BTCUSD contract value of 0.001 BTC per contract is 20,000
+    # contracts (the old product table's flat 1.0 made 20 contracts look like
+    # 20 BTC). Risk stays within 35% (SL 94900 -> 20,000 * 0.001 * 100 = 2,000
+    # <= 3,500) but required margin is (20,000 * 0.001 * 95,000) / 50 = 38,000
+    # USDT > 1,000 USDT available.
     standard_context.account.available_balance = Decimal("1000.00")
-    valid_long_request.quantity = Decimal("20")
+    valid_long_request.quantity = Decimal("20000")
     valid_long_request.stop_loss = Decimal("94900.0")  # risk_dist = 100 -> total risk = 2000 USDT <= 3500 USDT
     valid_long_request.take_profit = Decimal("97000.0")  # reward_dist = 2000 -> RR = 20.0
     gateway = OrderValidationGateway()
@@ -359,10 +366,12 @@ def test_insufficient_balance_rejected(standard_context, valid_long_request):
 def test_excessive_risk_rejected(standard_context, valid_long_request):
     """Verify trade risk exceeding 35% equity is rejected."""
     # Equity = 10,000 USDT -> max risk = 3,500 USDT
-    # Distance = 5,000 USDT, Qty = 2 BTC -> Risk = 10,000 USDT > 3,500 USDT
+    # Distance = 5,000 USDT, intended exposure 2 BTC = 2,000 contracts at the
+    # authoritative 0.001 BTC per contract -> risk = 2,000 * 0.001 * 5,000 =
+    # 10,000 USDT > 3,500 USDT
     valid_long_request.stop_loss = Decimal("90000.0")  # dist = 5000
     valid_long_request.take_profit = Decimal("105000.0")  # reward = 10000
-    valid_long_request.quantity = Decimal("2")
+    valid_long_request.quantity = Decimal("2000")
     gateway = OrderValidationGateway()
     result = gateway.validate(valid_long_request, standard_context)
 

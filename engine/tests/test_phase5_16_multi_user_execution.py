@@ -78,7 +78,7 @@ def create_mock_delta_client(
 
     if existing_positions > 0:
         pos_obj = DeltaPosition.from_dict({
-            "product_id": 27,
+            "product_id": 3136,
             "symbol": "ETHUSD",
             "size": str(existing_positions),
             "entry_price": "2400.00",
@@ -123,7 +123,7 @@ def create_mock_delta_client(
 
     fill_resp = DeltaOrderResponse.from_dict({
         "id": 1001,
-        "product_id": 27,
+        "product_id": 3136,
         "symbol": "ETHUSD",
         "side": "buy",
         "order_type": "limit_order",

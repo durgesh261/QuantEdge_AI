@@ -23,6 +23,7 @@ from decimal import Decimal
 import logging
 from typing import Dict, List, Optional, Any
 
+from quantedge.instruments import delta_india_registry
 from quantedge.execution.models import (
     DeltaOrderRequest,
     DeltaOrderResponse,
@@ -36,6 +37,8 @@ from quantedge.execution.delta_client import (
     DeltaIndiaClient,
     DeltaClientError,
     DeltaAuthError,
+    DeltaConnectionError,
+    DeltaOrderRejectedError,
     generate_client_order_id,
 )
 from quantedge.execution.single_trade_lock import (
@@ -99,6 +102,62 @@ class MultiUserDispatchSummary:
     skipped_count: int
     error_count: int
     user_results: Dict[str, UserExecutionResult] = field(default_factory=dict)
+
+
+def _setup_geometry_error(
+    direction: Any,
+    entry_price: Any,
+    stop_loss_price: Any,
+    take_profit_price: Any,
+) -> Optional[str]:
+    """Return why a setup's own three prices are unusable, or None if usable.
+
+    The other two production order paths both refuse a directionally
+    inconsistent setup before submitting anything:
+    `TradeLifecycleManager.execute_trade_setup` rejects it as
+    INVALID_TP_SL_GEOMETRY, and `OrderValidationGateway.validate` enforces
+    `entry > stop and target > entry` for a long plus the mirror for a short,
+    alongside a non-positive-price refusal. This path builds its own
+    `DeltaOrderRequest` objects and never consults that gateway, so the same
+    invariant is enforced here.
+
+    This is not exchange policy and no value is invented: it is the internal
+    consistency of the caller's own numbers, and it is the invariant the rest
+    of the repository already treats as authoritative. Without it the
+    reduce-only brackets are submitted from these prices unchecked, so a long
+    whose "take profit" sits below the market places a reduce-only sell limit
+    that fills immediately at a loss, and a "stop loss" above the market
+    triggers at once -- the mirror image of the protection they are meant to be.
+
+    A direction that is neither long nor short is refused rather than mapped:
+    the side is otherwise chosen by comparing against long alone, so any other
+    value silently becomes a sell.
+    """
+    if direction not in (TradeDirection.LONG, TradeDirection.SHORT):
+        return (f"Trade direction {direction!r} is neither "
+                f"{TradeDirection.LONG.value} nor {TradeDirection.SHORT.value}; "
+                f"refusing to infer an order side")
+
+    try:
+        if min(entry_price, stop_loss_price, take_profit_price) <= Decimal("0"):
+            return (f"Setup prices must all be positive: entry={entry_price}, "
+                    f"stop={stop_loss_price}, target={take_profit_price}")
+
+        if direction == TradeDirection.LONG:
+            ordered = stop_loss_price < entry_price < take_profit_price
+            shape = "stop < entry < target"
+        else:
+            ordered = take_profit_price < entry_price < stop_loss_price
+            shape = "target < entry < stop"
+    except TypeError as exc:
+        return (f"Setup prices are not mutually comparable "
+                f"({exc}); refusing to submit an order")
+
+    if not ordered:
+        return (f"Invalid {direction.value} setup geometry: require {shape}, "
+                f"got entry={entry_price}, stop={stop_loss_price}, "
+                f"target={take_profit_price}")
+    return None
 
 
 class UserExecutionSession:
@@ -166,13 +225,37 @@ class UserExecutionSession:
                 error="Delta Exchange API credentials missing or unconfigured",
             )
 
+        # 1e. Setup Geometry (the invariant both other order paths enforce)
+        # Checked before the lock: nothing external has happened yet, so an
+        # unusable setup takes no lock and strands none.
+        geometry_error = _setup_geometry_error(
+            direction, planned_entry_price, stop_loss_price, take_profit_price)
+        if geometry_error:
+            return UserExecutionResult(
+                user_id=self.config.user_id,
+                account_id=self.config.account_id,
+                setup_id=setup_id,
+                symbol=symbol,
+                status="ERROR",
+                error=geometry_error,
+            )
+
         # 2. LOCK-FIRST ORDERING: Acquire SingleTradeLock before any external network calls
+        #
+        # `allow_replay=False`: on this path the lock acquisition *is* the
+        # duplicate-signal gate. There is no local record of dispatched setups
+        # here, and step 5 below can only see exposure the exchange has already
+        # turned into a position -- a resting, unfilled entry order is invisible
+        # to it. So a re-arriving setup_id that this account already holds must
+        # be refused rather than waved through, or the same setup places a second
+        # entry and a second bracket.
         try:
             self.lock_manager.acquire_lock(
                 user_id=self.config.user_id,
                 account_id=self.config.account_id,
                 setup_id=setup_id,
                 symbol=symbol,
+                allow_replay=False,
             )
         except SingleTradeLockError as e:
             return UserExecutionResult(
@@ -185,6 +268,37 @@ class UserExecutionSession:
             )
 
         client: Optional[DeltaIndiaClient] = None
+
+        # Lock ownership for the rest of this call.
+        #
+        # The lock means "this account currently owns an open trade" (see
+        # `single_trade_lock`: released ONLY when the trade is confirmed
+        # POSITION_CLOSED by the exchange). Once the entry order has been
+        # accepted, a position may be open -- and if a bracket order then fails,
+        # it may be open *unprotected*. Handing the account back for a new trade
+        # in that state is exactly what the retention rules (#11, #14) forbid, so
+        # the lock is released on failure only while nothing can exist on the
+        # exchange yet. Beyond that point it is retained, and released by
+        # reconciliation once the exchange is confirmed flat -- the same division
+        # of labour the single-account path documents in `_release_setup_lock`.
+        entry_accepted = False
+
+        # Whether the entry POST has been *attempted*. `entry_accepted` says a
+        # response came back; this says one may never come back. A
+        # `DeltaConnectionError` raised from the submission is an UNKNOWN
+        # outcome, not a refusal -- `DeltaIndiaClient.request` raises it for a
+        # timeout, a connect failure, and every HTTP 5xx, in all of which the
+        # order may already be resting on Delta. Before the attempt, the same
+        # exception means only that a read failed and nothing was sent.
+        entry_submitted = False
+
+        def _release_lock_if_nothing_can_exist() -> None:
+            if entry_accepted:
+                return
+            self.lock_manager.release_lock(
+                self.config.user_id, self.config.account_id, setup_id
+            )
+
         try:
             # 3. Initialize Isolated Per-User Delta Client
             if self.config.client_factory:
@@ -210,15 +324,21 @@ class UserExecutionSession:
             if active_pos:
                 raise SingleTradeLockError(f"User account currently has {len(active_pos)} open positions on exchange")
 
-            # 6. Retrieve Live Product & Ticker Specifications
-            products = await client.get_products()
-            prod_info = next((p for p in products if p.get("symbol") == symbol), None)
-            if not prod_info:
-                raise ValueError(f"Product {symbol} not found on Delta Exchange India")
-
-            product_id = int(prod_info.get("id", 0))
-            contract_value = Decimal(str(prod_info.get("contract_value", "1.0")))
-            tick_size = Decimal(str(prod_info.get("tick_size", "0.1")))
+            # 6. Verified Product Identity (registry) & Live Ticker
+            # Product identity and its verified metadata come from the pinned
+            # instrument registry -- never from a live or mocked product
+            # catalogue payload. A payload that disagrees with the snapshot must
+            # not be able to send an order for one symbol under another symbol's
+            # product id. An unregistered or `.P` symbol fails closed here.
+            #
+            # This step previously awaited `client.get_products()`. That is not
+            # a method on `DeltaIndiaClient` -- it exists only on the test
+            # mocks -- so no live API capability is removed by resolving
+            # identity from the registry instead.
+            spec = delta_india_registry().get(symbol)
+            product_id = spec.product_id
+            contract_value = spec.contract_value
+            tick_size = spec.tick_size
 
             ticker = await client.get_ticker(symbol)
             mark_price = Decimal(str(ticker.get("mark_price", planned_entry_price)))
@@ -245,7 +365,12 @@ class UserExecutionSession:
 
             entry_req = DeltaOrderRequest(
                 product_id=product_id,
-                product_symbol=symbol,
+                # Both identity fields come from the one spec resolved at step 6.
+                # `symbol` is necessarily equal to `spec.symbol` -- the registry
+                # lookup is exact and every record is keyed by its own symbol --
+                # so this is the same value, sourced structurally from the
+                # authority rather than from the raw dispatch argument.
+                product_symbol=spec.symbol,
                 side=order_side,
                 order_type=OrderType.LIMIT_ORDER,
                 size=sizing_result.position_quantity,
@@ -253,7 +378,9 @@ class UserExecutionSession:
                 client_order_id=client_order_id,
             )
 
+            entry_submitted = True
             entry_resp = await client.place_order(entry_req)
+            entry_accepted = True
 
             # 9. Verify Fill Confirmation
             fill_price = mark_price
@@ -274,7 +401,7 @@ class UserExecutionSession:
 
             sl_req = DeltaOrderRequest(
                 product_id=product_id,
-                product_symbol=symbol,
+                product_symbol=spec.symbol,
                 side=bracket_side,
                 order_type=OrderType.STOP_MARKET_ORDER,
                 size=sizing_result.position_quantity,
@@ -286,7 +413,7 @@ class UserExecutionSession:
 
             tp_req = DeltaOrderRequest(
                 product_id=product_id,
-                product_symbol=symbol,
+                product_symbol=spec.symbol,
                 side=bracket_side,
                 order_type=OrderType.LIMIT_ORDER,
                 size=sizing_result.position_quantity,
@@ -315,7 +442,7 @@ class UserExecutionSession:
             )
 
         except CapitalAllocationError as e:
-            self.lock_manager.release_lock(self.config.user_id, self.config.account_id, setup_id)
+            _release_lock_if_nothing_can_exist()
             return UserExecutionResult(
                 user_id=self.config.user_id,
                 account_id=self.config.account_id,
@@ -324,8 +451,56 @@ class UserExecutionSession:
                 status="BLOCKED_MARGIN",
                 error=str(e),
             )
+        except DeltaOrderRejectedError as e:
+            # An explicit rejection (HTTP 400) means Delta refused the request
+            # outright, so the order does not exist and no position can exist.
+            # The account is handed back. This is the same reasoning
+            # `TradeLifecycleManager`'s `DeltaOrderRejectedError` handler states:
+            # "An explicit exchange rejection means the order does not exist, so
+            # no position can exist and the lock is released."
+            _release_lock_if_nothing_can_exist()
+            return UserExecutionResult(
+                user_id=self.config.user_id,
+                account_id=self.config.account_id,
+                setup_id=setup_id,
+                symbol=symbol,
+                status="ERROR",
+                error=str(e),
+            )
+        except (DeltaConnectionError, asyncio.TimeoutError) as e:
+            # UNKNOWN outcome. If the entry POST had already been attempted, the
+            # order may have reached Delta, so a position may be open and -- with
+            # no bracket sent -- unprotected. LOCK INTENTIONALLY RETAINED
+            # (safety rules #11, #14); reconciliation releases it once the
+            # exchange is confirmed flat. Path A retains for exactly this case:
+            # "the order may have reached Delta, so a position may exist.
+            # Releasing here would allow a second trade alongside a
+            # possibly-live, possibly-unprotected one."
+            #
+            # Before the attempt the same exception means a balance or ticker
+            # read failed and nothing was sent, so retention would block the
+            # account for a read error. Path A does not retain there either --
+            # its handler wraps only the entry submission and what follows it.
+            if not entry_submitted:
+                _release_lock_if_nothing_can_exist()
+                return UserExecutionResult(
+                    user_id=self.config.user_id,
+                    account_id=self.config.account_id,
+                    setup_id=setup_id,
+                    symbol=symbol,
+                    status="ERROR",
+                    error=str(e),
+                )
+            return UserExecutionResult(
+                user_id=self.config.user_id,
+                account_id=self.config.account_id,
+                setup_id=setup_id,
+                symbol=symbol,
+                status="RECONCILIATION_REQUIRED",
+                error=str(e),
+            )
         except Exception as e:
-            self.lock_manager.release_lock(self.config.user_id, self.config.account_id, setup_id)
+            _release_lock_if_nothing_can_exist()
             return UserExecutionResult(
                 user_id=self.config.user_id,
                 account_id=self.config.account_id,

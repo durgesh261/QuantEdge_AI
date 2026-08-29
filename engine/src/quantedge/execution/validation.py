@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Dict, Any, List, Set, Union
+from typing import Optional, Dict, Any, List, Set, Tuple, Union
 
 from quantedge.execution.models import (
     OrderSide,
@@ -33,6 +33,7 @@ from quantedge.execution.synchronizer import (
     OrderRecord,
     PositionStatus,
 )
+from quantedge.instruments import InstrumentSpec, delta_india_registry
 from quantedge.strategy.models import StrategyDecision, SetupState, StrategyDirection, TradeDirection
 
 
@@ -83,7 +84,27 @@ class RejectionReasonCode(str, Enum):
 
 @dataclass(frozen=True)
 class ProductSpecification:
-    """Instrument contract specification for Delta Exchange India."""
+    """
+    Instrument contract specification used by the validation gateway.
+
+    THREE OF THESE FIELDS ARE EXCHANGE-VERIFIED, THREE ARE NOT.
+
+    Verified, and sourced only from `quantedge.instruments` (the authoritative
+    Delta India snapshot): `symbol`, `product_id`, `tick_size`,
+    `contract_value`. A shipped spec carries `verification_source`, the
+    snapshot provenance line that establishes them.
+
+    NOT verified: `min_size`, `size_step`, `max_leverage`. Delta publishes
+    none of the three, so they are local execution policy retained from the
+    pre-registry gateway — deliberately unchanged so no validation check is
+    weakened — and they are named in `unverified_fields`. They must not be
+    treated as exchange facts.
+
+    The `contract_value` and `max_leverage` defaults exist only so a locally
+    constructed spec (a test fixture, say) still builds. A default-constructed
+    spec has `verification_source is None` and `is_verified` False; it is not
+    an exchange record and must never be presented as one.
+    """
     symbol: str
     product_id: int
     min_size: Decimal
@@ -91,92 +112,111 @@ class ProductSpecification:
     tick_size: Decimal
     max_leverage: int = 100
     contract_value: Decimal = Decimal("1.0")
+    verification_source: Optional[str] = None
+    unverified_fields: Tuple[str, ...] = ("min_size", "size_step",
+                                          "max_leverage")
+
+    @property
+    def is_verified(self) -> bool:
+        """True only for a spec built from the authoritative snapshot."""
+        return bool(self.verification_source)
 
 
-DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = {
-    "BTCUSD": ProductSpecification(
-        symbol="BTCUSD",
-        product_id=27,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.5"),
-        max_leverage=100,
-    ),
-    "BTCUSD.P": ProductSpecification(
-        symbol="BTCUSD.P",
-        product_id=27,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.5"),
-        max_leverage=100,
-    ),
-    "ETHUSD": ProductSpecification(
-        symbol="ETHUSD",
-        product_id=3136,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.05"),
-        max_leverage=100,
-    ),
-    "ETHUSD.P": ProductSpecification(
-        symbol="ETHUSD.P",
-        product_id=3136,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.05"),
-        max_leverage=100,
-    ),
-    "SOLUSD": ProductSpecification(
-        symbol="SOLUSD",
-        product_id=14823,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.01"),
-        max_leverage=50,
-    ),
-    "SOLUSD.P": ProductSpecification(
-        symbol="SOLUSD.P",
-        product_id=14823,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.01"),
-        max_leverage=50,
-    ),
-    "XRPUSD": ProductSpecification(
-        symbol="XRPUSD",
-        product_id=14969,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.0001"),
-        max_leverage=50,
-    ),
-    "XRPUSD.P": ProductSpecification(
-        symbol="XRPUSD.P",
-        product_id=14969,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.0001"),
-        max_leverage=50,
-    ),
+# ── Unverified execution policy (NOT exchange data) ───────────────────────────
+#
+# Delta India publishes no minimum order size, no size increment and no
+# leverage ceiling (see `quantedge.instruments.PERMANENTLY_UNVERIFIED`). The
+# gateway's quantity and leverage checks nevertheless need a bound, so the
+# values the gateway already used are retained verbatim and labelled. Nothing
+# here is authoritative; nothing here may be presented as exchange metadata.
+#
+# `max_leverage` is kept per symbol because the pre-registry gateway capped
+# SOL/XRP at 50x, and raising a cap would weaken an existing safety check. An
+# unlisted symbol gets the strictest retained cap, never the loosest.
+
+UNVERIFIED_MIN_SIZE: Decimal = Decimal("1")
+UNVERIFIED_SIZE_STEP: Decimal = Decimal("1")
+UNVERIFIED_MAX_LEVERAGE: Dict[str, int] = {
+    "BTCUSD": 100,
+    "ETHUSD": 100,
+    "SOLUSD": 50,
+    "XRPUSD": 50,
 }
+UNVERIFIED_MAX_LEVERAGE_FALLBACK: int = min(UNVERIFIED_MAX_LEVERAGE.values())
+
+
+class UnknownProductError(RuntimeError):
+    """
+    The symbol is not an authoritative Delta India product.
+
+    Raised instead of returning a fabricated specification. The gateway used
+    to answer an unrecognised symbol with BTCUSD/product 27/tick 0.5, which
+    could have routed an order to the wrong instrument (safety rules #8, #15).
+    """
+
+
+def product_specification_from_instrument(
+        spec: InstrumentSpec) -> ProductSpecification:
+    """
+    Adapt one authoritative `InstrumentSpec` to the gateway's schema.
+
+    The verified trio is copied exactly — `tick_size` and `contract_value`
+    stay `Decimal`, so no exchange constant crosses a float. The three
+    unverified fields come from the named policy constants above, not from
+    the exchange and not from arithmetic.
+    """
+    return ProductSpecification(
+        symbol=spec.symbol,
+        product_id=spec.product_id,
+        min_size=UNVERIFIED_MIN_SIZE,
+        size_step=UNVERIFIED_SIZE_STEP,
+        tick_size=spec.tick_size,
+        max_leverage=UNVERIFIED_MAX_LEVERAGE.get(
+            spec.symbol, UNVERIFIED_MAX_LEVERAGE_FALLBACK),
+        contract_value=spec.contract_value,
+        verification_source=spec.provenance.as_source_string(),
+    )
+
+
+def _load_delta_india_products() -> Dict[str, ProductSpecification]:
+    """
+    Build the shipped table from the shared registry — the only source.
+
+    No product id, tick size or contract value is written in this module. A
+    missing or tampered snapshot raises out of here rather than degrading to
+    a guess.
+    """
+    registry = delta_india_registry()
+    return {symbol: product_specification_from_instrument(registry.get(symbol))
+            for symbol in registry.symbols}
+
+
+#: Delta-native symbols only. `.P` forms are absent because whether they name
+#: the same tradable product is an undecided repository policy question, and
+#: `quantedge.instruments` refuses to invent the alias.
+DEFAULT_DELTA_INDIA_PRODUCTS: Dict[str, ProductSpecification] = \
+    _load_delta_india_products()
 
 
 def get_product_specification(symbol: str) -> ProductSpecification:
-    """Retrieve instrument specification for symbol with fallback defaults."""
-    clean = symbol.upper().strip()
-    if clean in DEFAULT_DELTA_INDIA_PRODUCTS:
-        return DEFAULT_DELTA_INDIA_PRODUCTS[clean]
-    clean_no_p = clean.replace(".P", "")
-    if clean_no_p in DEFAULT_DELTA_INDIA_PRODUCTS:
-        return DEFAULT_DELTA_INDIA_PRODUCTS[clean_no_p]
-    return ProductSpecification(
-        symbol=symbol,
-        product_id=27,
-        min_size=Decimal("1"),
-        size_step=Decimal("1"),
-        tick_size=Decimal("0.5"),
-        max_leverage=100,
-    )
+    """
+    Exact lookup of an authoritative product specification.
+
+    Fails closed. No case folding, no whitespace stripping, no `.P` removal,
+    no default record: `FOOUSD`, `BTCUSD.P`, `btcusd`, `BTC-USD`, `BTCUSDT`,
+    `""` and non-strings all raise `UnknownProductError`.
+    """
+    if not isinstance(symbol, str) or not symbol:
+        raise UnknownProductError(
+            f"{symbol!r} is not a usable Delta India symbol; refusing to "
+            f"substitute another product")
+    spec = DEFAULT_DELTA_INDIA_PRODUCTS.get(symbol)
+    if spec is None:
+        raise UnknownProductError(
+            f"{symbol!r} is not an authoritative Delta India product; "
+            f"refusing to substitute another product. Registered: "
+            f"{sorted(DEFAULT_DELTA_INDIA_PRODUCTS)}")
+    return spec
 
 
 # ── Risk Configuration ────────────────────────────────────────────────────────
@@ -305,15 +345,21 @@ class OrderValidationGateway:
             )
 
         # ── 6. Supported Symbol ───────────────────────────────────────────────
-        clean_symbol = request.symbol.strip().upper()
-        if clean_symbol not in context.product_specs:
+        # A native exchange symbol is an EXACT identifier. No case conversion,
+        # no whitespace trimming, no suffix (`.P`) conversion, no separator
+        # conversion and no normalisation of an unknown symbol -- the same
+        # exact-match contract the instrument registry enforces. A non-string
+        # symbol fails closed here rather than raising.
+        exact_symbol = request.symbol
+        if (not isinstance(exact_symbol, str)
+                or exact_symbol not in context.product_specs):
             return self._reject(
                 RejectionReasonCode.UNSUPPORTED_SYMBOL,
-                f"Instrument symbol '{clean_symbol}' is not supported on Delta Exchange India.",
+                f"Instrument symbol '{exact_symbol}' is not supported on Delta Exchange India.",
                 "CHECK_SUPPORTED_SYMBOL",
                 now,
             )
-        spec = context.product_specs[clean_symbol]
+        spec = context.product_specs[exact_symbol]
 
         # ── 7. Direction Validation ───────────────────────────────────────────
         try:
@@ -358,7 +404,7 @@ class OrderValidationGateway:
         if request.quantity < spec.min_size:
             return self._reject(
                 RejectionReasonCode.QUANTITY_BELOW_MINIMUM,
-                f"Order quantity {request.quantity} is below minimum {spec.min_size} for {clean_symbol}.",
+                f"Order quantity {request.quantity} is below minimum {spec.min_size} for {exact_symbol}.",
                 "CHECK_QUANTITY_MINIMUM",
                 now,
             )
@@ -388,7 +434,7 @@ class OrderValidationGateway:
             if rem_tick != Decimal("0"):
                 return self._reject(
                     RejectionReasonCode.INVALID_TICK_SIZE,
-                    f"Price {request.entry_price} does not align with tick size {spec.tick_size} for {clean_symbol}.",
+                    f"Price {request.entry_price} does not align with tick size {spec.tick_size} for {exact_symbol}.",
                     "CHECK_TICK_SIZE",
                     now,
                 )
@@ -531,9 +577,15 @@ class OrderValidationGateway:
             )
 
         # ── ALL CHECKS PASSED: Build validated DeltaOrderRequest ──────────────
+        # Both identity fields come from the one spec resolved at check 6, so
+        # they cannot disagree. `product_symbol` used to be
+        # `spec.symbol.replace(".P", "")`: a no-op on the shipped table (which
+        # holds native symbols only) that would have emitted a symbol differing
+        # from the spec whose `product_id` accompanies it if a `.P` record were
+        # ever registered.
         delta_order_req = DeltaOrderRequest(
             product_id=spec.product_id,
-            product_symbol=spec.symbol.replace(".P", ""),  # Delta exchange format (e.g. BTCUSD)
+            product_symbol=spec.symbol,
             side=order_side,
             order_type=order_type,
             size=request.quantity,

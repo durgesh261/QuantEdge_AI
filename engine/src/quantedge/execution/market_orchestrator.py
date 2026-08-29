@@ -175,6 +175,26 @@ class MarketScannerOrchestrator:
                 entry_price=entry_price,
                 available_balance=available_balance,
                 leverage=effective_lev,
+                # Delta sizes an order in CONTRACTS, and one contract is
+                # `contract_value` units of `contract_unit_currency` (BTCUSD ->
+                # 0.001 BTC). Delta's own fee documentation states the notional
+                # of a futures position as "No. of contracts x Lot size x Index
+                # Price" and works it as "1000 x 0.001 x $100000 = $100000",
+                # and Delta's own order-tool reference types `size` as an
+                # integer, "order size in contracts (positive)".
+                #
+                # So the contract count is `notional / (price * contract_value)`
+                # and this argument must be the verified contract value. Omitting
+                # it left the allocator on its `Decimal("1.0")` default, which
+                # computes a BASE-ASSET quantity and then submits that number as
+                # a contract count -- 1000x too small for BTCUSD, 100x for
+                # ETHUSD. `contract_unit` cancels out of the allocator's own
+                # notional and margin arithmetic, so no internal check could
+                # detect it; only `size` was wrong.
+                #
+                # `multi_user_orchestrator` already passed the contract value.
+                # The two production sizing paths now agree.
+                contract_unit=spec.contract_value if spec else Decimal("1.0"),
                 lot_size_step=lot_step,
                 min_quantity=min_qty,
             )

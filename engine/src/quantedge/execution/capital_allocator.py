@@ -58,8 +58,28 @@ class CapitalAllocator:
         available_balance: Decimal,
         leverage: int = 10,
         contract_unit: Decimal = Decimal("1.0"),
-        lot_size_step: Decimal = Decimal("0.001"),
-        min_quantity: Decimal = Decimal("0.001"),
+        # Delta sizes an order in whole contracts. Its REST reference types
+        # `size` as an unquoted integer ("Integer numbers (like contract size,
+        # product_id and impact size) are unquoted"), its order-tool reference
+        # types `size` as `int`, "order size in contracts (positive)", and its
+        # India user guide defines an order as "an order to buy or sell a
+        # specified number of futures contracts". No product on Delta accepts a
+        # fractional contract count, and no size-side increment field exists in
+        # the product payload -- so the grid is 1 contract for every product,
+        # and the floor is the smallest positive integer.
+        #
+        # These defaults used to be 0.001, which is a BASE-ASSET-shaped grid.
+        # That only made sense alongside the old `contract_unit=1.0` default:
+        # once `contract_unit` is the verified `contract_value`, `raw_quantity`
+        # is a contract count and a 0.001 grid produces fractional contracts
+        # (e.g. 127.272 BTCUSD) that Delta cannot accept. `min_quantity` moves
+        # for the same reason: below one contract there is no order.
+        #
+        # The parameters stay caller-overridable -- the stepping arithmetic is
+        # general -- but the default is now the documented exchange rule instead
+        # of a fractional grid no product has.
+        lot_size_step: Decimal = Decimal("1"),
+        min_quantity: Decimal = Decimal("1"),
         max_quantity: Optional[Decimal] = None,
         custom_safety_buffer: Optional[Decimal] = None,
     ) -> PositionSizingResult:
@@ -70,9 +90,9 @@ class CapitalAllocator:
             entry_price: Planned entry price.
             available_balance: Authoritative available/net margin balance.
             leverage: Configured leverage limit (1 to 100).
-            contract_unit: Multiplier for contract value (e.g. 1.0 or 0.001).
-            lot_size_step: Minimum quantity increment (e.g. 0.001 or 1).
-            min_quantity: Exchange minimum order quantity.
+            contract_unit: Base-asset amount of ONE contract (`contract_value`).
+            lot_size_step: Quantity increment; defaults to 1 whole contract.
+            min_quantity: Minimum order quantity; defaults to 1 whole contract.
             max_quantity: Exchange maximum order quantity (optional).
             custom_safety_buffer: Override safety buffer percentage (optional).
 
@@ -87,6 +107,20 @@ class CapitalAllocator:
             raise CapitalAllocationError(f"Invalid leverage: {leverage}. Must be between 1 and 100")
         if lot_size_step <= Decimal("0") or min_quantity <= Decimal("0"):
             raise CapitalAllocationError("Lot size step and minimum quantity must be positive")
+        if contract_unit <= Decimal("0"):
+            # `contract_unit` is the divisor in step 3 and the multiplier in
+            # step 6. Zero raised `decimal.DivisionByZero` straight out of this
+            # method -- `market_orchestrator` catches only
+            # `CapitalAllocationError`, so that escaped its scan loop while
+            # `multi_user_orchestrator`'s broad handler absorbed it; the same
+            # bad input failed closed in one caller and crashed the other. A
+            # negative unit was worse: it produced a negative `raw_quantity`
+            # that surfaced as the unrelated "below exchange minimum" message.
+            # Raising here makes both callers fail closed on the same error
+            # class with an accurate reason. No positive unit is affected, so
+            # no accepted sizing result changes.
+            raise CapitalAllocationError(
+                f"Contract unit must be positive, got {contract_unit}")
 
         buffer_pct = custom_safety_buffer if custom_safety_buffer is not None else self.safety_buffer_pct
         if buffer_pct <= Decimal("0") or buffer_pct > Decimal("100.00"):

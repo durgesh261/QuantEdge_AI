@@ -29,6 +29,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Optional, Dict, Any, List, Callable, Set
 
+from quantedge.instruments import delta_india_registry
 from quantedge.execution.models import (
     OrderSide,
     OrderType,
@@ -237,7 +238,18 @@ class EventValidator:
             raise ValueError("Order event missing order_id")
 
         client_order_id = data.get("client_order_id")
-        symbol = str(data.get("product_symbol") or data.get("symbol", "BTCUSD")).upper()
+        # A stream frame without a usable symbol must not be handed a fabricated
+        # identity (this used to default to "BTCUSD" and `.upper()` its way into
+        # a registered symbol). `event.symbol` becomes an `OrderRecord.symbol`
+        # and a `state_store.positions` key downstream, so a fabricated value
+        # would attribute a live order to an instrument the exchange never
+        # named. The registry is the single source of verified symbols and
+        # performs the same exact, fail-closed lookup used at the REST parse
+        # boundaries; anything it cannot resolve raises `UnknownInstrumentError`,
+        # which `parse_and_validate` already quarantines like any other
+        # normalization failure.
+        raw_symbol = data.get("product_symbol", data.get("symbol"))
+        symbol = delta_india_registry().get(raw_symbol).symbol
         side = OrderSide.from_str(str(data.get("side", "BUY")))
         order_type = OrderType.from_str(str(data.get("order_type", "LIMIT_ORDER")))
         
@@ -273,7 +285,9 @@ class EventValidator:
         )
 
     def _normalize_position(self, data: Dict[str, Any]) -> DeltaPositionEvent:
-        symbol = str(data.get("product_symbol") or data.get("symbol", "BTCUSD")).upper()
+        # Registry-resolved identity, exactly as in `_normalize_order`.
+        raw_symbol = data.get("product_symbol", data.get("symbol"))
+        symbol = delta_india_registry().get(raw_symbol).symbol
         size_dec = Decimal(str(data.get("size", "0")))
         side = PositionSide.LONG if size_dec >= Decimal("0") else PositionSide.SHORT
         abs_size = abs(size_dec)
@@ -305,7 +319,9 @@ class EventValidator:
     def _normalize_fill(self, data: Dict[str, Any]) -> DeltaFillEvent:
         trade_id = str(data.get("id") or data.get("trade_id") or data.get("fill_id", ""))
         order_id = str(data.get("order_id", ""))
-        symbol = str(data.get("product_symbol") or data.get("symbol", "BTCUSD")).upper()
+        # Registry-resolved identity, exactly as in `_normalize_order`.
+        raw_symbol = data.get("product_symbol", data.get("symbol"))
+        symbol = delta_india_registry().get(raw_symbol).symbol
         side = OrderSide.from_str(str(data.get("side", "BUY")))
         size = Decimal(str(data.get("size", "0")))
         price = Decimal(str(data.get("price", "0")))

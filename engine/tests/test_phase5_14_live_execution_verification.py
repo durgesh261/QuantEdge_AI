@@ -181,7 +181,9 @@ def test_live_product_specifications():
 
     sol_spec = get_product_specification("SOLUSD")
     assert sol_spec.product_id == 14823
-    assert sol_spec.tick_size == Decimal("0.01")
+    # Authoritative Delta India tick for SOLUSD is 0.0001; the pre-registry
+    # product table carried a stale 0.01.
+    assert sol_spec.tick_size == Decimal("0.0001")
 
 
 # ── Test 3: Small Balance ($2.31) Margin & Contract Sizing ───────────────────
@@ -222,7 +224,11 @@ async def test_live_small_balance_constraint_reporting(live_lifecycle_mgr, live_
         stop_loss=Decimal("2352.00"),
         take_profit=Decimal("2484.71"),
         risk_reward=Decimal("1.76"),
-        quantity=Decimal("1.0"),
+        # 1 ETH of exposure = 100 contracts at the authoritative 0.01 ETH per
+        # contract. Test 3 above shows a SINGLE contract does fit inside $2.31
+        # at 35x, so the constraint verified here exists for the position size
+        # the strategy actually intends, not for one contract.
+        quantity=Decimal("100"),
     )
 
     rec = await live_lifecycle_mgr.execute_trade_setup(decision, "acct-live-231", "usr-live")

@@ -67,6 +67,7 @@ from quantedge.execution.validation import (
     OrderValidationGateway,
     OrderValidationRequest,
     OrderValidationResult,
+    UnknownProductError,
     get_product_specification,
     RiskConfiguration,
     ValidationContext,
@@ -479,7 +480,25 @@ class TradeLifecycleManager:
             self._active_trades[setup_id] = record
 
         # 8. Submit Entry Order via OrderValidationGateway
-        product_spec = get_product_specification(symbol)
+        try:
+            product_spec = get_product_specification(symbol)
+        except UnknownProductError as e:
+            # An unregistered symbol is the same fail-closed condition the
+            # gateway reports as UNSUPPORTED_SYMBOL, so it is returned as a
+            # rejected record rather than raised out of a function whose
+            # callers read the outcome from the returned record. Nothing has
+            # been sent to the exchange at this point, so the single-trade lock
+            # this call acquired must be released instead of stranded.
+            record.record_transition(
+                TradeLifecycleState.ENTRY_REJECTED,
+                f"Order validation rejected: "
+                f"{RejectionReasonCode.UNSUPPORTED_SYMBOL.value} - {e}"
+            )
+            record.rejection_code = RejectionReasonCode.UNSUPPORTED_SYMBOL.value
+            record.error_message = str(e)
+            self._release_setup_lock(user_id, account_id, setup_id)
+            return record
+
         client_order_id = override_client_order_id or generate_client_order_id(f"QE_{symbol}_ENTRY")
         record.entry_client_order_id = client_order_id
 
@@ -487,7 +506,12 @@ class TradeLifecycleManager:
 
         order_req = DeltaOrderRequest(
             product_id=product_spec.product_id,
-            product_symbol=symbol,
+            # Both identity fields come from the spec resolved above. `symbol`
+            # is necessarily equal to it -- `get_product_specification` is an
+            # exact lookup and every record in that table is keyed by its own
+            # `spec.symbol` -- so this is the same value, sourced structurally
+            # from the authority rather than from `StrategyDecision.symbol`.
+            product_symbol=product_spec.symbol,
             side=side,
             order_type=OrderType.LIMIT_ORDER,
             size=record.requested_quantity,
@@ -538,6 +562,9 @@ class TradeLifecycleManager:
             )
             record.rejection_code = val_result.rejection_code.value
             record.error_message = val_result.rejection_reason
+            # Rejected before submission: no order and no position exist, so
+            # the lock acquired by this call is released here.
+            self._release_setup_lock(user_id, account_id, setup_id)
             return record
 
         # 9. Submit Order to Exchange
@@ -577,14 +604,25 @@ class TradeLifecycleManager:
         except DeltaOrderRejectedError as e:
             record.record_transition(TradeLifecycleState.ENTRY_REJECTED, f"Exchange rejected order: {str(e)}")
             record.error_message = str(e)
+            # An explicit exchange rejection means the order does not exist, so
+            # no position can exist and the lock is released.
+            self._release_setup_lock(user_id, account_id, setup_id)
             return record
         except (DeltaConnectionError, asyncio.TimeoutError) as e:
             record.record_transition(TradeLifecycleState.RECONCILIATION_REQUIRED, f"Network timeout during entry submission: {str(e)}")
             record.error_message = str(e)
+            # LOCK INTENTIONALLY RETAINED. The order may have reached Delta, so
+            # a position may exist. Releasing here would allow a second trade
+            # alongside a possibly-live, possibly-unprotected one (safety rules
+            # #11, #14). The lock is released by close_position/reconciliation.
             return record
         except Exception as e:
             record.record_transition(TradeLifecycleState.ENTRY_REJECTED, f"Unexpected error during entry: {str(e)}")
             record.error_message = str(e)
+            # LOCK INTENTIONALLY RETAINED. This handler also covers failures
+            # after place_order returned (response parsing, fill handling and
+            # bracket placement), so exchange state is unknown here. Retaining
+            # is the fail-safe direction (safety rules #11, #14).
             return record
 
     # ── Partial Fill & Fill Lifecycle Handlers ────────────────────────────────
@@ -644,7 +682,7 @@ class TradeLifecycleManager:
             sl_client_id = generate_client_order_id(f"QE_{record.symbol}_SL")
             sl_req = DeltaOrderRequest(
                 product_id=product_spec.product_id,
-                product_symbol=record.symbol,
+                product_symbol=product_spec.symbol,
                 side=close_side,
                 order_type=OrderType.STOP_MARKET_ORDER,
                 size=target_protected_size,
@@ -660,7 +698,7 @@ class TradeLifecycleManager:
             tp_client_id = generate_client_order_id(f"QE_{record.symbol}_TP")
             tp_req = DeltaOrderRequest(
                 product_id=product_spec.product_id,
-                product_symbol=record.symbol,
+                product_symbol=product_spec.symbol,
                 side=close_side,
                 order_type=OrderType.LIMIT_ORDER,
                 size=target_protected_size,
@@ -830,6 +868,30 @@ class TradeLifecycleManager:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    def _release_setup_lock(
+        self,
+        user_id: Optional[str],
+        account_id: str,
+        setup_id: str,
+    ) -> None:
+        """
+        Release the single-trade lock this setup owns.
+
+        Uses the same resolution of `effective_user_id` and the same
+        `release_lock` call as `_create_rejected_record`, so there is one
+        release mechanism rather than two. `release_lock` is setup-scoped and
+        idempotent: it is a no-op when the lock is held by a different setup or
+        has already been released, so this can neither steal another setup's
+        lock nor double-release its own.
+
+        Call this only on exits where nothing can exist on the exchange. When
+        an order may be live, or a position may be open or unprotected, the
+        lock is retained on purpose (safety rules #11, #14) and released by
+        `close_position` / reconciliation instead.
+        """
+        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
+        self.single_trade_lock.release_lock(effective_user_id, account_id, setup_id)
+
     def _create_rejected_record(
         self,
         setup_id: str,
@@ -845,10 +907,11 @@ class TradeLifecycleManager:
         code: str,
         message: str,
     ) -> TradeLifecycleRecord:
-        # Release single trade lock if it was acquired for this rejected attempt
-        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
+        # Release single trade lock if it was acquired for this rejected attempt.
+        # SINGLE_TRADE_LIMIT_EXCEEDED is the one code where acquisition failed
+        # because another setup owns the lock, so it must not be released here.
         if code != RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value:
-            self.single_trade_lock.release_lock(effective_user_id, account_id, setup_id)
+            self._release_setup_lock(user_id, account_id, setup_id)
 
         dir_enum = direction if isinstance(direction, TradeDirection) else TradeDirection.LONG
         rec = TradeLifecycleRecord(

@@ -132,7 +132,7 @@ async def test_successful_position_sync_long_and_short():
                 "margin": "5652.00",
             },
             {
-                "product_id": 28,
+                "product_id": 3136,
                 "product_symbol": "ETHUSD",
                 "size": "-8",  # Negative = SHORT
                 "entry_price": "3450.00",

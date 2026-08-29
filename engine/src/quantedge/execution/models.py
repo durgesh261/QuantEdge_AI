@@ -6,9 +6,29 @@ All currency and financial numerical quantities use Decimal for exact precision.
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from enum import Enum
+import math
 from typing import Optional, Dict, Any, List
+
+from quantedge.instruments import UnknownInstrumentError, delta_india_registry
+
+
+class OrderSizeContractError(Exception):
+    """An order size is not a positive whole number of contracts.
+
+    Delta sizes an order in contracts and types `size` as an integer:
+    its REST reference states "Integer numbers (like contract size, product_id
+    and impact size) are unquoted" and sends `"size": 10`; its order-tool
+    reference types `size` as `int`, "order size in contracts (positive)"; and
+    the Delta India user guide defines an order as "an order to buy or sell a
+    specified number of futures contracts".
+
+    A fractional count is therefore not submittable. It is refused rather than
+    truncated: flooring 98.492 to 98 here would silently change the exposure a
+    validated order was approved for, and rounding up would exceed the margin
+    the allocator sized against.
+    """
 
 
 class OrderSide(str, Enum):
@@ -171,9 +191,50 @@ class DeltaPosition:
         leverage = Decimal(str(data.get("leverage", "1")))
         margin = Decimal(str(data.get("margin", "0")))
 
+        # An inbound payload without a usable `product_symbol` must not be
+        # handed a fabricated identity (this used to default to "BTCUSD").
+        # The instrument registry is the single source of verified symbols and
+        # refuses exactly this set of inputs -- missing, None, blank, non-string,
+        # `.P` and unregistered symbols all raise `UnknownInstrumentError`
+        # rather than resolving to some other product.
+        raw_symbol = data.get("product_symbol", data.get("symbol"))
+        spec = delta_india_registry().get(raw_symbol)
+
+        # `product_id` used to default to 0, so a payload that never identified
+        # its product still became a position. It now fails closed, and the two
+        # identity fields must agree with each other -- the same contract
+        # `DeltaOrderResponse.from_dict` enforces. Integral numeric strings and
+        # floats are accepted because they are exact; fractional, non-numeric,
+        # bool, zero and negative values are not.
+        raw_product_id = data.get("product_id")
+        try:
+            if isinstance(raw_product_id, bool) or raw_product_id is None:
+                raise ValueError(raw_product_id)
+            as_decimal = Decimal(str(raw_product_id).strip())
+            product_id = int(as_decimal)
+            if as_decimal != product_id or product_id <= 0:
+                raise ValueError(raw_product_id)
+        except (ArithmeticError, TypeError, ValueError):
+            raise UnknownInstrumentError(
+                f"{raw_product_id!r} is not a usable product id for "
+                f"{spec.symbol}; refusing to default to 0") from None
+
+        # A payload naming one symbol under another symbol's product id
+        # (`ETHUSD` + 27, say, where 27 is BTCUSD and ETHUSD is 3136) is
+        # self-contradictory: whichever field downstream code trusts -- the
+        # synchronizer keys `state_store.positions` by symbol, reconciliation
+        # and the flatten path send by product id -- the other one misidentifies
+        # the position. The verified id comes from the registry snapshot, so no
+        # product id is written here.
+        if product_id != spec.product_id:
+            raise UnknownInstrumentError(
+                f"product id {product_id} does not belong to {spec.symbol} "
+                f"(verified id {spec.product_id}); refusing to accept a "
+                f"position whose identity is self-contradictory")
+
         return cls(
-            product_id=int(data.get("product_id", 0)),
-            product_symbol=str(data.get("product_symbol", data.get("symbol", "BTCUSD"))).upper(),
+            product_id=product_id,
+            product_symbol=spec.symbol,
             side=side,
             size=abs_size,
             entry_price=entry_price,
@@ -204,16 +265,91 @@ class DeltaOrderRequest:
     stop_loss_price: Optional[Decimal] = None
     take_profit_price: Optional[Decimal] = None
 
-    def to_exchange_payload(self) -> Dict[str, Any]:
-        """Serialize into Delta Exchange REST API POST /v2/orders payload."""
-        if isinstance(self.size, Decimal):
-            size_val = int(self.size) if self.size == self.size.to_integral_value() else float(self.size)
+    def exchange_contract_count(self) -> int:
+        """Return `size` as a positive whole number of contracts, or refuse.
+
+        Delta's order `size` is an integer contract count (see
+        `OrderSizeContractError`). Every value that is not exactly a positive
+        whole number is refused here; nothing is floored, rounded or clamped,
+        because changing the count would change the exposure the order was
+        sized and validated for.
+
+        This replaces a float fallback that serialized a fractional count as-is
+        (`Decimal("127.272")` -> `127.272`). Only the market-scan path floors to
+        whole contracts in the allocator and is independently re-checked by the
+        validation gateway's step rule; the multi-user path does not use that
+        gateway at all, so before this check a fractional count reached the wire.
+        """
+        raw = self.size
+        if isinstance(raw, bool) or not isinstance(raw, (Decimal, int, float)):
+            raise OrderSizeContractError(
+                f"order size must be a whole number of contracts, got "
+                f"{raw!r} of type {type(raw).__name__}")
+
+        if isinstance(raw, Decimal):
+            if not raw.is_finite():
+                raise OrderSizeContractError(
+                    f"order size must be a finite whole number of contracts, "
+                    f"got {raw!r}")
+            integral = raw.to_integral_value(rounding=ROUND_DOWN)
+            if raw != integral:
+                raise OrderSizeContractError(
+                    f"order size {raw} is not a whole number of contracts; "
+                    f"Delta accepts only integer contract counts and this is "
+                    f"refused rather than truncated to {integral}")
+            count = int(integral)
+        elif isinstance(raw, float):
+            if not math.isfinite(raw):
+                raise OrderSizeContractError(
+                    f"order size must be a finite whole number of contracts, "
+                    f"got {raw!r}")
+            truncated = math.floor(raw)
+            if raw != truncated:
+                raise OrderSizeContractError(
+                    f"order size {raw} is not a whole number of contracts; "
+                    f"Delta accepts only integer contract counts and this is "
+                    f"refused rather than truncated to {truncated}")
+            count = truncated
         else:
-            size_val = int(self.size) if int(self.size) == self.size else float(self.size)
+            count = raw
+
+        if count <= 0:
+            raise OrderSizeContractError(
+                f"order size must be a positive contract count, got {count}")
+        return count
+
+    def to_exchange_payload(self) -> Dict[str, Any]:
+        """Serialize into Delta Exchange REST API POST /v2/orders payload.
+
+        This is the single choke point every production order passes through:
+        `DeltaIndiaClient.create_order` (aliased `place_order`) is the only
+        caller, so the identity invariant is enforced here rather than relying
+        on each of the six upstream construction sites to source its fields
+        correctly. `product_symbol` is resolved through the authoritative
+        instrument registry with exact matching -- an unknown, blank, padded,
+        lowercase, `.P`, separator-bearing or non-string symbol raises
+        `UnknownInstrumentError` instead of being normalized onto a real
+        product -- and `product_id` must be the verified id for that symbol, so
+        a self-contradictory pair cannot be serialized. No normalized or
+        defaulted identity is ever written into the payload.
+
+        `size` is serialized as the positive integer contract count Delta
+        documents, and a value that is not one raises `OrderSizeContractError`
+        here -- before `DeltaIndiaClient.create_order` issues the POST -- rather
+        than being silently truncated onto the grid.
+        """
+        spec = delta_india_registry().get(self.product_symbol)
+        if self.product_id != spec.product_id:
+            raise UnknownInstrumentError(
+                f"product id {self.product_id!r} does not belong to "
+                f"{spec.symbol} (verified id {spec.product_id}); refusing to "
+                f"submit an order whose identity is self-contradictory")
+
+        size_val = self.exchange_contract_count()
 
         payload: Dict[str, Any] = {
-            "product_id": self.product_id,
-            "product_symbol": self.product_symbol,
+            "product_id": spec.product_id,
+            "product_symbol": spec.symbol,
             "side": self.side.to_exchange(),
             "order_type": self.order_type.to_exchange(),
             "size": size_val,
@@ -305,12 +441,50 @@ class DeltaOrderResponse:
         avg_fill_raw = data.get("average_fill_price", data.get("avg_fill_price"))
         avg_fill_price = Decimal(str(avg_fill_raw)) if avg_fill_raw is not None and str(avg_fill_raw).strip() != "" else None
 
+        # Inbound identity is resolved through the instrument registry -- the
+        # single source of verified symbols -- exactly as `DeltaPosition` does.
+        # A missing, None, blank, case-folded, padded, `.P`, separator, unknown
+        # or non-string symbol raises `UnknownInstrumentError` here instead of
+        # becoming "" (the previous default) or being `.upper()`-ed into a
+        # registered product. `product_symbol` is Delta's field name; `symbol`
+        # is the fallback key some payloads use.
+        raw_symbol = data.get("product_symbol", data.get("symbol"))
+        spec = delta_india_registry().get(raw_symbol)
+
+        # A missing or malformed `product_id` used to become 0, i.e. an order
+        # whose product could not be identified was still parsed. It now fails
+        # closed. Integral numeric strings and floats are accepted because they
+        # are exact; a fractional or non-numeric value is not.
+        raw_product_id = data.get("product_id")
+        try:
+            if isinstance(raw_product_id, bool) or raw_product_id is None:
+                raise ValueError(raw_product_id)
+            as_decimal = Decimal(str(raw_product_id).strip())
+            product_id = int(as_decimal)
+            if as_decimal != product_id:
+                raise ValueError(raw_product_id)
+        except (ArithmeticError, TypeError, ValueError):
+            raise UnknownInstrumentError(
+                f"{raw_product_id!r} is not a usable product id for "
+                f"{spec.symbol}; refusing to default to 0") from None
+
+        # The two identity fields must agree. A payload naming one symbol under
+        # another symbol's product id (`ETHUSD` + 27, say, where 27 is BTCUSD
+        # and ETHUSD is 3136) is self-contradictory: whichever field downstream
+        # code trusts, the other one misidentifies the order. The verified id
+        # comes from the registry snapshot, so no product id is written here.
+        if product_id != spec.product_id:
+            raise UnknownInstrumentError(
+                f"product id {product_id} does not belong to {spec.symbol} "
+                f"(verified id {spec.product_id}); refusing to accept a "
+                f"payload whose identity is self-contradictory")
+
         return cls(
             id=int(data.get("id", 0)),
             client_order_id=data.get("client_order_id"),
             user_id=data.get("user_id"),
-            product_id=int(data.get("product_id", 0)),
-            product_symbol=str(data.get("product_symbol", data.get("symbol", ""))).upper(),
+            product_id=product_id,
+            product_symbol=spec.symbol,
             side=OrderSide.from_str(str(data.get("side", "BUY"))),
             order_type=OrderType.from_str(str(data.get("order_type", "LIMIT_ORDER"))),
             size=Decimal(str(data.get("size", "0"))),

@@ -1,0 +1,270 @@
+{
+  "snapshot_version": "1.0.0",
+  "exchange": "Delta Exchange India",
+  "source_base_url": "https://api.india.delta.exchange",
+  "endpoint_template": "/v2/products/{symbol}",
+  "retrieved_at_utc": "2026-08-28T09:44:42.722139+00:00",
+  "retrieved_by": "engine/scripts/fetch_delta_product_specs.py",
+  "policy": "Authoritative exchange response only. No value in this file is derived from repository tables, Java registries, existing tests, comments, third parties, or arithmetic assumptions.",
+  "field_paths": {
+    "contract_spec": {
+      "id": "result.id",
+      "symbol": "result.symbol",
+      "contract_type": "result.contract_type",
+      "notional_type": "result.notional_type",
+      "tick_size": "result.tick_size",
+      "contract_value": "result.contract_value",
+      "contract_unit_currency": "result.contract_unit_currency",
+      "underlying_asset": "result.underlying_asset.symbol",
+      "quoting_asset": "result.quoting_asset.symbol",
+      "settling_asset": "result.settling_asset.symbol"
+    },
+    "margin_and_limits": {
+      "initial_margin": "result.initial_margin",
+      "maintenance_margin": "result.maintenance_margin",
+      "default_leverage": "result.default_leverage",
+      "max_leverage_notional": "result.max_leverage_notional",
+      "position_size_limit": "result.position_size_limit",
+      "maker_commission_rate": "result.maker_commission_rate",
+      "taker_commission_rate": "result.taker_commission_rate",
+      "state": "result.state",
+      "trading_status": "result.trading_status"
+    }
+  },
+  "unverified": {
+    "minimum_order_size": "no such field in the /v2/products payload nor in Delta's published product schema; deliberately not invented",
+    "size_step": "no size-side increment field exists in the payload; the docs state only that contract size is an unquoted integer",
+    "max_leverage": "not a Delta field; initial_margin / default_leverage / max_leverage_notional are recorded raw instead of deriving a cap",
+    "notional_to_contracts_formula": "Delta's public documentation never states how order size relates to contract_value; a converter must still be supplied explicitly"
+  },
+  "products": {
+    "BTCUSD": {
+      "endpoint": "/v2/products/BTCUSD",
+      "http_date": "Fri, 28 Aug 2026 09:44:42 GMT",
+      "contract_spec": {
+        "id": 27,
+        "symbol": "BTCUSD",
+        "contract_type": "perpetual_futures",
+        "notional_type": "vanilla",
+        "tick_size": "0.5",
+        "contract_value": "0.001",
+        "contract_unit_currency": "BTC",
+        "underlying_asset": "BTC",
+        "quoting_asset": "USD",
+        "settling_asset": "USD"
+      },
+      "pinned_sha256": "8eb7d511aebac0ebdd1b27938c432ef0d9f53b78ceaaab5778107059e5ec2ab5",
+      "margin_and_limits": {
+        "initial_margin": "0.5",
+        "maintenance_margin": "0.25",
+        "default_leverage": "200.000000000000000000",
+        "max_leverage_notional": "100000",
+        "position_size_limit": 125000,
+        "maker_commission_rate": "0.0002",
+        "taker_commission_rate": "0.0005",
+        "state": "live",
+        "trading_status": "operational"
+      },
+      "verified_fields": [
+        "contract_type",
+        "contract_unit_currency",
+        "contract_value",
+        "id",
+        "notional_type",
+        "quoting_asset",
+        "settling_asset",
+        "symbol",
+        "tick_size",
+        "underlying_asset"
+      ],
+      "recorded_not_hashed": [
+        "default_leverage",
+        "initial_margin",
+        "maintenance_margin",
+        "maker_commission_rate",
+        "max_leverage_notional",
+        "position_size_limit",
+        "state",
+        "taker_commission_rate",
+        "trading_status"
+      ],
+      "absent_from_payload": [
+        "minimum_order_size",
+        "min_size",
+        "size_step",
+        "max_leverage"
+      ]
+    },
+    "ETHUSD": {
+      "endpoint": "/v2/products/ETHUSD",
+      "http_date": "Fri, 28 Aug 2026 09:44:42 GMT",
+      "contract_spec": {
+        "id": 3136,
+        "symbol": "ETHUSD",
+        "contract_type": "perpetual_futures",
+        "notional_type": "vanilla",
+        "tick_size": "0.05",
+        "contract_value": "0.01",
+        "contract_unit_currency": "ETH",
+        "underlying_asset": "ETH",
+        "quoting_asset": "USD",
+        "settling_asset": "USD"
+      },
+      "pinned_sha256": "1c13b0968676ee422e5b5edc1735ec9ae3db50b2638789e32fe2b988d8b9defb",
+      "margin_and_limits": {
+        "initial_margin": "0.5",
+        "maintenance_margin": "0.25",
+        "default_leverage": "200.000000000000000000",
+        "max_leverage_notional": "100000",
+        "position_size_limit": 162683,
+        "maker_commission_rate": "0.0002",
+        "taker_commission_rate": "0.0005",
+        "state": "live",
+        "trading_status": "operational"
+      },
+      "verified_fields": [
+        "contract_type",
+        "contract_unit_currency",
+        "contract_value",
+        "id",
+        "notional_type",
+        "quoting_asset",
+        "settling_asset",
+        "symbol",
+        "tick_size",
+        "underlying_asset"
+      ],
+      "recorded_not_hashed": [
+        "default_leverage",
+        "initial_margin",
+        "maintenance_margin",
+        "maker_commission_rate",
+        "max_leverage_notional",
+        "position_size_limit",
+        "state",
+        "taker_commission_rate",
+        "trading_status"
+      ],
+      "absent_from_payload": [
+        "minimum_order_size",
+        "min_size",
+        "size_step",
+        "max_leverage"
+      ]
+    },
+    "SOLUSD": {
+      "endpoint": "/v2/products/SOLUSD",
+      "http_date": "Fri, 28 Aug 2026 09:44:42 GMT",
+      "contract_spec": {
+        "id": 14823,
+        "symbol": "SOLUSD",
+        "contract_type": "perpetual_futures",
+        "notional_type": "vanilla",
+        "tick_size": "0.0001",
+        "contract_value": "1",
+        "contract_unit_currency": "SOL",
+        "underlying_asset": "SOL",
+        "quoting_asset": "USD",
+        "settling_asset": "USD"
+      },
+      "pinned_sha256": "becb5595f257379fd2bb3a645b12032fed0c713257cd6ce2a73cc6dacffaa34b",
+      "margin_and_limits": {
+        "initial_margin": "1",
+        "maintenance_margin": "0.5",
+        "default_leverage": "100.000000000000000000",
+        "max_leverage_notional": "100000",
+        "position_size_limit": 11111,
+        "maker_commission_rate": "0.0002",
+        "taker_commission_rate": "0.0005",
+        "state": "live",
+        "trading_status": "operational"
+      },
+      "verified_fields": [
+        "contract_type",
+        "contract_unit_currency",
+        "contract_value",
+        "id",
+        "notional_type",
+        "quoting_asset",
+        "settling_asset",
+        "symbol",
+        "tick_size",
+        "underlying_asset"
+      ],
+      "recorded_not_hashed": [
+        "default_leverage",
+        "initial_margin",
+        "maintenance_margin",
+        "maker_commission_rate",
+        "max_leverage_notional",
+        "position_size_limit",
+        "state",
+        "taker_commission_rate",
+        "trading_status"
+      ],
+      "absent_from_payload": [
+        "minimum_order_size",
+        "min_size",
+        "size_step",
+        "max_leverage"
+      ]
+    },
+    "XRPUSD": {
+      "endpoint": "/v2/products/XRPUSD",
+      "http_date": "Fri, 28 Aug 2026 09:44:43 GMT",
+      "contract_spec": {
+        "id": 14969,
+        "symbol": "XRPUSD",
+        "contract_type": "perpetual_futures",
+        "notional_type": "vanilla",
+        "tick_size": "0.0001",
+        "contract_value": "1",
+        "contract_unit_currency": "XRP",
+        "underlying_asset": "XRP",
+        "quoting_asset": "USD",
+        "settling_asset": "USD"
+      },
+      "pinned_sha256": "9164cbf960465d81fdc330ca906ecd2b96950699ea5e07a0d32297dae1450b8d",
+      "margin_and_limits": {
+        "initial_margin": "1",
+        "maintenance_margin": "0.5",
+        "default_leverage": "100.000000000000000000",
+        "max_leverage_notional": "100000",
+        "position_size_limit": 300000,
+        "maker_commission_rate": "0.0002",
+        "taker_commission_rate": "0.0005",
+        "state": "live",
+        "trading_status": "operational"
+      },
+      "verified_fields": [
+        "contract_type",
+        "contract_unit_currency",
+        "contract_value",
+        "id",
+        "notional_type",
+        "quoting_asset",
+        "settling_asset",
+        "symbol",
+        "tick_size",
+        "underlying_asset"
+      ],
+      "recorded_not_hashed": [
+        "default_leverage",
+        "initial_margin",
+        "maintenance_margin",
+        "maker_commission_rate",
+        "max_leverage_notional",
+        "position_size_limit",
+        "state",
+        "taker_commission_rate",
+        "trading_status"
+      ],
+      "absent_from_payload": [
+        "minimum_order_size",
+        "min_size",
+        "size_step",
+        "max_leverage"
+      ]
+    }
+  }
+}

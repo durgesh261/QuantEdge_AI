@@ -346,7 +346,7 @@ async def test_get_positions_long_and_short(mock_client_factory):
                 "adl_level": 1,
             },
             {
-                "product_id": 28,
+                "product_id": 3136,
                 "product_symbol": "ETHUSD",
                 "size": "-10",  # Negative = SHORT
                 "entry_price": "3400.00",
@@ -359,7 +359,7 @@ async def test_get_positions_long_and_short(mock_client_factory):
                 "adl_level": 2,
             },
             {
-                "product_id": 29,
+                "product_id": 14823,
                 "product_symbol": "SOLUSD",
                 "size": "0",  # Zero size -> closed position, should be filtered
                 "entry_price": "0",
@@ -393,7 +393,7 @@ async def test_get_positions_long_and_short(mock_client_factory):
     assert btc_pos.adl_level == 1
 
     eth_pos = positions[1]
-    assert eth_pos.product_id == 28
+    assert eth_pos.product_id == 3136
     assert eth_pos.product_symbol == "ETHUSD"
     assert eth_pos.side == PositionSide.SHORT
     assert eth_pos.size == Decimal("10")
