@@ -26,6 +26,13 @@ THE MATHEMATICS (oracle-faithful; do not "clean up")
 float throughout — no Decimal. Decimal quantization belongs at the execution
 boundary (quantization.py, a later phase), not here.
 
+The ONE exception is `ContractSpec.contract_value`, which may be an exact
+`Decimal` because it is an exchange-published constant, not a capital
+expression: the shared `quantedge.instruments` registry reads it as a Decimal
+and a caller injects it here without rounding. It participates in no
+expression above. `require_verified()` still returns a float for existing
+callers; `require_verified_exact()` returns the Decimal.
+
 QUANTITY IS NOT COMPUTED HERE — BY DESIGN
 -----------------------------------------
 Delta's contract-value and order-quantity semantics are NOT yet verified, so
@@ -51,6 +58,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Callable, Dict, Optional, Union
 
 from quantedge.strategy.manual_smc.lifecycle import (
@@ -111,7 +119,7 @@ class _UnverifiedContractValue:
 #: The single sentinel instance. Compare with `is`.
 UNVERIFIED = _UnverifiedContractValue()
 
-ContractValue = Union[float, _UnverifiedContractValue]
+ContractValue = Union[float, Decimal, _UnverifiedContractValue]
 
 @dataclass(frozen=True)
 class ContractSpec:
@@ -135,10 +143,15 @@ class ContractSpec:
                     f"contract_value is still UNVERIFIED")
             return
         if isinstance(self.contract_value, bool) or not isinstance(
-                self.contract_value, (int, float)):
+                self.contract_value, (int, float, Decimal)):
             raise ContractValueUnverifiedError(
                 f"{self.symbol}: contract_value must be UNVERIFIED or a "
                 f"positive number, got {self.contract_value!r}")
+        if isinstance(self.contract_value, Decimal) and \
+                not self.contract_value.is_finite():
+            raise ContractValueUnverifiedError(
+                f"{self.symbol}: contract_value must be finite, got "
+                f"{self.contract_value!r}")
         if float(self.contract_value) <= 0.0:
             raise ContractValueUnverifiedError(
                 f"{self.symbol}: contract_value must be positive, got "
@@ -160,6 +173,22 @@ class ContractSpec:
                 f"{self.symbol}: contract value is UNVERIFIED — it must be "
                 f"established against Delta before any order quantity exists")
         return float(self.contract_value)          # type: ignore[arg-type]
+
+    def require_verified_exact(self) -> Decimal:
+        """
+        The same value without a float crossing.
+
+        Use this wherever the exchange's exact constant matters (order
+        quantity, once its semantics are verified). A float or int that was
+        injected as-is is widened via `str` so no binary artefact is created.
+        """
+        if not self.is_verified:
+            raise ContractValueUnverifiedError(
+                f"{self.symbol}: contract value is UNVERIFIED — it must be "
+                f"established against Delta before any order quantity exists")
+        raw = self.contract_value
+        return raw if isinstance(raw, Decimal) else Decimal(str(raw))
+
 
 #: The four Manual SMC assets, registered with UNVERIFIED contract values.
 #: They are listed so that a KNOWN symbol is distinguishable from a TYPO,

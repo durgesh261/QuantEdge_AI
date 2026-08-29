@@ -1319,13 +1319,27 @@ STEP_8_MODULES = (
     "models.py", "portfolio.py", "quantization.py", "scanner.py", "sizing.py",
     "state.py", "strategy.py",
 )
+#: Phase 2's quantization half added the executable-baseline reporting layer.
+#: The whole-package inventory is pinned once, in
+#: `test_manual_smc_executable.py::TestPackageInventory`.
+PHASE_2_MODULES = ("executable.py",)
 
 
 class TestStep8ScopeMarker:
 
     def test_the_package_now_holds_exactly_the_step_8_modules(self):
-        assert tuple(sorted(p.name for p in PACKAGE.glob("*.py"))) == \
-            STEP_8_MODULES
+        """
+        Every Step 8 module is present, and everything added since is a
+        NON-STRATEGY layer above the driver rather than a new rule owner.
+
+        The Step 8 form asserted equality with `STEP_8_MODULES`. Phase 2 added
+        `executable.py`, so the assertion is converted to the requirement it
+        encoded — no module may appear here that Step 8 or a later approved step
+        did not put there — instead of being deleted.
+        """
+        present = tuple(sorted(p.name for p in PACKAGE.glob("*.py")))
+        assert set(STEP_8_MODULES) <= set(present)
+        assert set(present) - set(STEP_8_MODULES) == set(PHASE_2_MODULES)
 
     def test_the_package_docstring_documents_the_backtest_module(self):
         import quantedge.strategy.manual_smc as pkg

@@ -1162,11 +1162,14 @@ SIBLINGS = ("__init__.py", "geometry.py", "lifecycle.py", "models.py",
 
 STEP_7_MODULES = tuple(sorted(SIBLINGS + ("adapter.py",)))
 
-# Step 8 added `backtest.py`. The adapter's own scope claim below is therefore
-# expressed as "adapter.py plus the Step 7 siblings, and NOTHING application-
-# facing beyond it" rather than as an inventory of the whole package, which is
-# pinned once in `test_manual_smc_backtest.py::TestStep8ScopeMarker`.
+# Step 8 added `backtest.py`; Phase 2's quantization half added
+# `executable.py`. The adapter's own scope claim below is therefore expressed as
+# "adapter.py plus the Step 7 siblings, and NOTHING application-facing beyond
+# it" rather than as an inventory of the whole package, which is pinned once in
+# `test_manual_smc_executable.py::TestPackageInventory`.
 STEP_8_ADDITIONS = ("backtest.py",)
+PHASE_2_ADDITIONS = ("executable.py",)
+NON_APPLICATION_ADDITIONS = tuple(sorted(STEP_8_ADDITIONS + PHASE_2_ADDITIONS))
 
 
 class TestImportBoundary:
@@ -1279,14 +1282,21 @@ class TestImportBoundary:
         (It also replaced Step 6's `test_the_adapter_and_backtest_modules_do_not
         _exist_yet`, which has itself been converted to a dependency-direction
         check in `test_manual_smc_strategy.py`, per the testing rules.)
+
+        Phase 2's `executable.py` is held to the same requirement: a reporting
+        layer above the driver is still not allowed to become a second
+        translation boundary.
         """
         assert ADAPTER_PATH.exists()
         present = tuple(sorted(p.name for p in PACKAGE.glob("*.py")))
         assert set(STEP_7_MODULES) <= set(present)
-        assert set(present) - set(STEP_7_MODULES) == set(STEP_8_ADDITIONS)
+        assert set(present) - set(STEP_7_MODULES) == set(
+            NON_APPLICATION_ADDITIONS)
 
-        # The Step 8 driver is not a second application boundary, and it does
-        # not reach back into the adapter either.
-        driver = PACKAGE / "backtest.py"
-        assert "quantedge.strategy.models" not in _imports_of(driver)
-        assert "quantedge.strategy.manual_smc.adapter" not in _imports_of(driver)
+        # Neither the Step 8 driver nor the Phase 2 reporting layer is a second
+        # application boundary, and neither reaches back into the adapter.
+        for name in NON_APPLICATION_ADDITIONS:
+            path = PACKAGE / name
+            assert "quantedge.strategy.models" not in _imports_of(path), name
+            assert ("quantedge.strategy.manual_smc.adapter"
+                    not in _imports_of(path)), name

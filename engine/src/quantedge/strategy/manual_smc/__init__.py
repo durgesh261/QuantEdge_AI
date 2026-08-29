@@ -182,6 +182,44 @@ Phase 1 Step 8 scope: `backtest.py`, covered by
     if it is ever flipped. No exchange, no database, no Java, no WebSocket, no
     runtime composition root, no CLI on import.
 
+Phase 2 scope (quantization half): `executable.py`, covered by
+`engine/tests/test_manual_smc_executable.py`.
+
+  * The MEASUREMENT that Step 8 section 11 promised to keep possible: the
+    ideal (unquantized) baseline and the exchange-executable (on-grid)
+    baseline reported side by side, per asset and in total, with the
+    divergence between them named leg by leg and trade by trade.
+  * A pure READER of the Step 8 ledger. It re-runs no candle, re-quantizes no
+    price and owns no rule: the tick grid stays in `quantization.py` (the
+    on-grid bracket is the one `strategy.py` already computed at fill and
+    `backtest.py` now retains verbatim on the trade row), risk percentage and
+    leverage come from `sizing.compute_sl_dist_pct` / `compute_leverage`, R
+    comes from `sizing.realized_r_for_outcome` called on the trade's OWN
+    `PositionSizing` with only its five bracket fields re-expressed, and the
+    summaries come from `backtest.aggregate` — `ExecutableTrade` deliberately
+    satisfies that one function structurally so the two baselines cannot be
+    summarised by two different implementations.
+  * A PRICE-LEVEL counterfactual, and it says so in code:
+    `TIMING_IS_RESIMULATED` is `False` and is asserted. Order blocks, fills,
+    exits, outcomes and bar indices are the ideal run's. An executable-mode
+    re-run in which a grid-snapped entry fills on a different bar would need
+    either a second lifecycle or changed geometry predicates, both forbidden,
+    so it is reported as an OPEN DECISION rather than approximated.
+  * Capital is not re-compounded: a different leverage changes every
+    subsequent notional, fee and balance, which is a sequential re-run rather
+    than a post-hoc measurement. Prices, distances, risk percentages,
+    leverage and R are reported; notional, fee, PnL, balance and return
+    percentage are not.
+  * `APPLIES_TO_STRATEGY_GEOMETRY` and `ORDER_QUANTITY_IS_COMPUTED` are
+    `False` and asserted at every entry point. The two conservative-rounding
+    guarantees are checked per trade and counted (`risk_grew_count`,
+    `budget_breach_count`, both of which must be 0). There is no symbol table,
+    no default tick and no quantity field — the tick size arrives inside the
+    recorded bracket, from an injected product specification (rules #8, #15,
+    #16).
+  * Like `adapter.py` and `backtest.py` it is DELIBERATELY NOT re-exported
+    below; consumers import `quantedge.strategy.manual_smc.executable`.
+
 This package has NO production wiring and NO execution wiring. Importing it
 cannot place, cancel or authorise an order.
 """

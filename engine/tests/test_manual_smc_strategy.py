@@ -116,7 +116,8 @@ class FakeSpec:
 REAL_TICKS = {
     "BTCUSD": Decimal("0.5"),
     "ETHUSD": Decimal("0.05"),
-    "SOLUSD": Decimal("0.01"),
+    # Authoritative Delta India tick; the pre-registry product table said 0.01.
+    "SOLUSD": Decimal("0.0001"),
     "XRPUSD": Decimal("0.0001"),
 }
 

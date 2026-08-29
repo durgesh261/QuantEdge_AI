@@ -75,6 +75,12 @@ import. `LIVE_EXECUTION_AUTHORIZED` is False and every public entry point
 asserts it, mirroring the oracle's own governance guard. Quantization is
 REPORTED, never applied to strategy geometry: the ideal behavioural baseline
 and the exchange-executable baseline must stay distinguishable.
+
+The on-grid bracket the strategy produced at fill is RETAINED on the trade row
+(`BacktestTrade.quantized_bracket`) so that the executable baseline can be
+measured from this ledger without any module re-quantizing a price. Measuring
+it is `executable.py`'s job, not this driver's: nothing here reads that field,
+compares it to the ideal legs, or lets it influence a single recorded number.
 """
 
 from __future__ import annotations
@@ -108,8 +114,14 @@ from quantedge.strategy.manual_smc.models import (
     ManualOBRecord,
     ManualSpecConfig,
 )
-from quantedge.strategy.manual_smc.quantization import TickSizeSpec
-from quantedge.strategy.manual_smc.sizing import ContractSpecRegistry
+from quantedge.strategy.manual_smc.quantization import (
+    QuantizedBracket,
+    TickSizeSpec,
+)
+from quantedge.strategy.manual_smc.sizing import (
+    ContractSpecRegistry,
+    PositionSizing,
+)
 from quantedge.strategy.manual_smc.strategy import (
     ManualSMCClose,
     ManualSMCEvaluation,
@@ -430,6 +442,17 @@ class BacktestTrade:
     #: Reported, never applied — strategy geometry above is unquantized.
     quantized_at_fill: bool
     quantization_refusal: Optional[str]
+    #: The on-grid bracket the strategy computed at fill, retained VERBATIM so
+    #: the exchange-executable baseline can be MEASURED post-hoc without any
+    #: module re-quantizing a price. `None` when no product specification was
+    #: injected, or when the grid snap was refused. Transcription, not
+    #: derivation: `executable.py` reads it, this driver never acts on it.
+    quantized_bracket: Optional[QuantizedBracket]
+    #: The strategy's own `PositionSizing` for this trade, retained verbatim.
+    #: The scalar sizing fields above are copied out of it for convenience; the
+    #: whole object is kept so no reporting layer has to reassemble one from
+    #: scalars and accidentally invent a field the strategy never computed.
+    sizing_at_fill: PositionSizing
     data_timeframe: str
     displacement_mode: str = DISPLACEMENT_MODE
     strategy_name: str = MANUAL_SMC_STRATEGY_NAME
@@ -824,6 +847,8 @@ class ManualSMCBacktest:
             mfe_from_proximal=ctx.mfe_from_proximal,
             quantized_at_fill=ctx.fill.quantized is not None,
             quantization_refusal=ctx.fill.quantization_refusal,
+            quantized_bracket=ctx.fill.quantized,
+            sizing_at_fill=sizing,
             data_timeframe=self.cfg.data_timeframe,
         ))
 

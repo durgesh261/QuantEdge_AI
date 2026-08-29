@@ -140,7 +140,8 @@ class TestTickSizeComesFromTheProductSpec:
     @pytest.mark.parametrize("symbol,expected", [
         ("BTCUSD", Decimal("0.5")),
         ("ETHUSD", Decimal("0.05")),
-        ("SOLUSD", Decimal("0.01")),
+        # Authoritative Delta India tick; the pre-registry table said 0.01.
+        ("SOLUSD", Decimal("0.0001")),
         ("XRPUSD", Decimal("0.0001")),
     ])
     def test_the_four_manual_smc_ticks_are_read_not_invented(
