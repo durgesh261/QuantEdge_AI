@@ -453,7 +453,7 @@ export const RiskAlgoPage: React.FC = () => {
                 className="w-full h-1.5 bg-background rounded-lg appearance-none cursor-pointer accent-brand-cyan"
               />
               <p className="text-[11px] text-slate-500 font-sans">
-                Hard ceiling for order leverage dispatched to the exchange (up to 100x on BTC/ETH, 50x on SOL/XRP). Orders exceeding limit are rejected by pre-trade risk filter.
+                Hard ceiling for order leverage, 1x&ndash;100x on every symbol. Orders outside the band are rejected by the pre-trade risk filter, never clamped into it.
               </p>
             </div>
 

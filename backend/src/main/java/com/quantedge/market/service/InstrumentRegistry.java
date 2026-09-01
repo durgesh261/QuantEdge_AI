@@ -55,6 +55,32 @@ public class InstrumentRegistry {
         }
     }
 
+    /**
+     * Authoritative maximum leverage: the 1x..100x band, uniform across every
+     * instrument. Mirrors {@code quantedge.execution.leverage.MAX_LEVERAGE} in
+     * the Python engine, which is the primary definition.
+     * <p>
+     * SOLUSD and XRPUSD previously carried 50 here, a value retained from the
+     * pre-registry gateway. That made the Python gateway, this gateway and the
+     * order-ticket UI all refuse a requested 100x on those two symbols while
+     * every other layer permitted it. The owner authorised a uniform band, so
+     * the two 50s were raised rather than the other layers lowered.
+     * <p>
+     * NOT an exchange fact: Delta India publishes no leverage ceiling. The
+     * snapshot records a {@code default_leverage} of 100 for SOLUSD/XRPUSD
+     * (200 for BTCUSD/ETHUSD), so 100 is no looser than a figure Delta itself
+     * records -- corroboration of direction only, not verification.
+     */
+    public static final int MAX_LEVERAGE = 100;
+
+    /**
+     * Smallest leverage that is a trade; below this there is no position.
+     * Mirrors {@code quantedge.execution.leverage.MIN_LEVERAGE}. Declared
+     * beside its maximum so a validator cannot reference one bound from here
+     * and hardcode the other.
+     */
+    public static final int MIN_LEVERAGE = 1;
+
     private static final List<String> CANONICAL_TIMEFRAMES = List.of(
             "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"
     );
@@ -77,7 +103,7 @@ public class InstrumentRegistry {
                 new BigDecimal("0.5"),
                 BigDecimal.ONE,
                 BigDecimal.ONE,
-                100,
+                MAX_LEVERAGE,
                 CANONICAL_TIMEFRAMES,
                 true
         ));
@@ -97,7 +123,7 @@ public class InstrumentRegistry {
                 new BigDecimal("0.05"),
                 BigDecimal.ONE,
                 BigDecimal.ONE,
-                100,
+                MAX_LEVERAGE,
                 CANONICAL_TIMEFRAMES,
                 true
         ));
@@ -117,7 +143,7 @@ public class InstrumentRegistry {
                 new BigDecimal("0.01"),
                 BigDecimal.ONE,
                 BigDecimal.ONE,
-                50,
+                MAX_LEVERAGE,
                 CANONICAL_TIMEFRAMES,
                 true
         ));
@@ -137,7 +163,7 @@ public class InstrumentRegistry {
                 new BigDecimal("0.0001"),
                 BigDecimal.ONE,
                 BigDecimal.ONE,
-                50,
+                MAX_LEVERAGE,
                 CANONICAL_TIMEFRAMES,
                 true
         ));

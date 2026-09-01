@@ -36,6 +36,7 @@ import pytest
 
 import quantedge.instruments as instruments_pkg
 from quantedge.execution import validation as validation_module
+from quantedge.execution.leverage import MAX_LEVERAGE, MIN_LEVERAGE
 from quantedge.execution.validation import (
     DEFAULT_DELTA_INDIA_PRODUCTS,
     UNVERIFIED_MAX_LEVERAGE,
@@ -313,23 +314,40 @@ def test_the_registry_refuses_the_three_unverified_fields(symbol, registry):
         assert instrument.is_verified(field) is False
 
 
-@pytest.mark.parametrize("symbol,cap", [("BTCUSD", 100), ("ETHUSD", 100),
-                                        ("SOLUSD", 50), ("XRPUSD", 50)])
-def test_no_gateway_bound_was_loosened(symbol, cap):
+@pytest.mark.parametrize("symbol", ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"])
+def test_no_gateway_quantity_bound_was_loosened(symbol):
     """
-    The pre-registry gateway used min_size 1, size_step 1, and capped SOL and
-    XRP at 50x. Every bound is retained verbatim, so no quantity or leverage
-    check became more permissive in this migration.
+    The pre-registry gateway used min_size 1 and size_step 1. Both are retained
+    verbatim, so no quantity check became more permissive in this migration.
+
+    Leverage is asserted separately below: that bound DID move, deliberately.
     """
     spec = get_product_specification(symbol)
     assert spec.min_size == Decimal("1") == UNVERIFIED_MIN_SIZE
     assert spec.size_step == Decimal("1") == UNVERIFIED_SIZE_STEP
-    assert spec.max_leverage == cap == UNVERIFIED_MAX_LEVERAGE[symbol]
+
+
+@pytest.mark.parametrize("symbol", ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"])
+def test_the_leverage_cap_is_the_authorised_band_on_every_symbol(symbol):
+    """
+    The pre-registry gateway capped SOL and XRP at 50x and BTC and ETH at 100x.
+    That per-symbol split was raised to a uniform `MAX_LEVERAGE` on the owner's
+    explicit authorisation: a requested 100x was otherwise rejected on two of
+    the four symbols while every other layer accepted it.
+
+    Corroborated, not verified. `max_leverage` remains in
+    `PERMANENTLY_UNVERIFIED`; the snapshot's recorded `default_leverage` is 100
+    for SOLUSD/XRPUSD and 200 for BTCUSD/ETHUSD, so 100 is still no looser than
+    a figure Delta itself records.
+    """
+    spec = get_product_specification(symbol)
+    assert spec.max_leverage == MAX_LEVERAGE == UNVERIFIED_MAX_LEVERAGE[symbol]
+    assert "max_leverage" in spec.unverified_fields
 
 
 def test_an_unlisted_symbol_would_get_the_strictest_cap():
     assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == min(UNVERIFIED_MAX_LEVERAGE.values())
-    assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == 50
+    assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == MAX_LEVERAGE
 
 
 def test_no_quantity_semantics_were_invented():

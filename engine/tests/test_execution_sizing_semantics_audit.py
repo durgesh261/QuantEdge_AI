@@ -132,6 +132,7 @@ from quantedge.execution.trade_lifecycle import (
     TradeLifecycleManager,
     TradeLifecycleState,
 )
+from quantedge.execution.leverage import MAX_LEVERAGE, MIN_LEVERAGE
 from quantedge.execution.validation import (
     DEFAULT_DELTA_INDIA_PRODUCTS,
     UNVERIFIED_MAX_LEVERAGE,
@@ -288,7 +289,21 @@ class TestTheLeverageCapIsNeverMorePermissiveThanTheSnapshot:
     def test_the_fallback_is_the_strictest_retained_cap(self):
         assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == \
             min(UNVERIFIED_MAX_LEVERAGE.values())
-        assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == 50
+        assert UNVERIFIED_MAX_LEVERAGE_FALLBACK == MAX_LEVERAGE
+
+    def test_the_policy_table_is_uniform_at_the_authorised_band(self):
+        """The table used to read BTC/ETH 100, SOL/XRP 50.
+
+        The two 50s were retained from the pre-registry gateway and made a
+        requested 100x unreachable on those symbols. The owner authorised a
+        uniform 1x..100x band, so every entry is `MAX_LEVERAGE` now and the
+        fallback above coincides with it. The `policy <= recorded` check in
+        this class still holds -- SOLUSD and XRPUSD record a
+        `default_leverage` of exactly 100 -- so the one-sided safety direction
+        is preserved, not bypassed.
+        """
+        assert set(UNVERIFIED_MAX_LEVERAGE.values()) == {MAX_LEVERAGE}
+        assert MIN_LEVERAGE == 1 and MAX_LEVERAGE == 100
 
     def test_recorded_margin_fields_are_not_hashed_as_verified(self, snapshot):
         """

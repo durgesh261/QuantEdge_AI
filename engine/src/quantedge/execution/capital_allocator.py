@@ -18,6 +18,8 @@ from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 import logging
 from typing import Optional, Tuple
 
+from quantedge.execution.leverage import MAX_LEVERAGE, MIN_LEVERAGE
+
 logger = logging.getLogger("capital_allocator")
 
 
@@ -89,7 +91,7 @@ class CapitalAllocator:
             symbol: Trading pair symbol (e.g. 'BTCUSD').
             entry_price: Planned entry price.
             available_balance: Authoritative available/net margin balance.
-            leverage: Configured leverage limit (1 to 100).
+            leverage: Configured leverage limit (MIN_LEVERAGE to MAX_LEVERAGE).
             contract_unit: Base-asset amount of ONE contract (`contract_value`).
             lot_size_step: Quantity increment; defaults to 1 whole contract.
             min_quantity: Minimum order quantity; defaults to 1 whole contract.
@@ -103,8 +105,10 @@ class CapitalAllocator:
             raise CapitalAllocationError(f"Cannot allocate capital with non-positive balance: {available_balance}")
         if entry_price <= Decimal("0"):
             raise CapitalAllocationError(f"Cannot calculate position size with non-positive price: {entry_price}")
-        if leverage < 1 or leverage > 100:
-            raise CapitalAllocationError(f"Invalid leverage: {leverage}. Must be between 1 and 100")
+        if leverage < MIN_LEVERAGE or leverage > MAX_LEVERAGE:
+            raise CapitalAllocationError(
+                f"Invalid leverage: {leverage}. Must be between "
+                f"{MIN_LEVERAGE} and {MAX_LEVERAGE}")
         if lot_size_step <= Decimal("0") or min_quantity <= Decimal("0"):
             raise CapitalAllocationError("Lot size step and minimum quantity must be positive")
         if contract_unit <= Decimal("0"):
@@ -204,7 +208,7 @@ class CapitalAllocator:
         entry_price: Decimal,
         stop_loss_price: Decimal,
         max_loss_pct: Decimal = Decimal("35.0"),
-        max_leverage_cap: int = 100,
+        max_leverage_cap: int = MAX_LEVERAGE,
     ) -> int:
         """Calculate dynamic leverage such that maximum planned loss at SL is <= max_loss_pct of allocated margin.
 
@@ -247,8 +251,9 @@ class CapitalAllocator:
         """
         if entry_price <= Decimal("0"):
             raise CapitalAllocationError("Entry price must be positive")
-        if leverage < 1:
-            raise CapitalAllocationError("Leverage must be at least 1x")
+        if leverage < MIN_LEVERAGE:
+            raise CapitalAllocationError(
+                f"Leverage must be at least {MIN_LEVERAGE}x")
 
         price_move_fraction = (target_roe_pct / Decimal("100")) / Decimal(str(leverage))
         is_long = direction.upper() in ("LONG", "BUY")

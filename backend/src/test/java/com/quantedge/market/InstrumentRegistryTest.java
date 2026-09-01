@@ -51,12 +51,27 @@ class InstrumentRegistryTest {
         var sol = InstrumentRegistry.getSpec("SOLUSD");
         assertThat(sol).isPresent();
         assertThat(sol.get().tickSize()).isEqualByComparingTo("0.01");
-        assertThat(sol.get().maxLeverage()).isEqualTo(50);
+        assertThat(sol.get().maxLeverage()).isEqualTo(100);
 
         var xrp = InstrumentRegistry.getSpec("XRPUSD");
         assertThat(xrp).isPresent();
         assertThat(xrp.get().tickSize()).isEqualByComparingTo("0.0001");
-        assertThat(xrp.get().maxLeverage()).isEqualTo(50);
+        assertThat(xrp.get().maxLeverage()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("Every instrument carries the same authoritative leverage band")
+    void shouldApplyOneLeverageBandToEveryInstrument() {
+        // SOLUSD and XRPUSD used to carry 50 here while BTCUSD and ETHUSD
+        // carried 100, which is how a requested 100x came to be rejected on
+        // two of the four symbols. Pinned uniform so a per-symbol cap cannot
+        // reappear silently.
+        assertThat(InstrumentRegistry.MAX_LEVERAGE).isEqualTo(100);
+        for (var spec : InstrumentRegistry.getAllSupported()) {
+            assertThat(spec.maxLeverage())
+                    .as("maxLeverage for %s", spec.internalSymbol())
+                    .isEqualTo(InstrumentRegistry.MAX_LEVERAGE);
+        }
     }
 
     @Test

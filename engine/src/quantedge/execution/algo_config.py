@@ -29,6 +29,11 @@ import logging
 import threading
 from typing import Optional, Dict, Any, Tuple, Union
 
+from quantedge.execution.leverage import (
+    MAX_LEVERAGE,
+    MIN_LEVERAGE,
+    is_within_band,
+)
 from quantedge.strategy.models import TradeDirection, StrategyDirection
 
 logger = logging.getLogger("algo_config")
@@ -57,7 +62,7 @@ class AlgoConfiguration:
     max_loss_pct: Decimal = Decimal("35.00")         # Max loss on allocated margin
     max_risk_usd: Optional[Decimal] = None
     max_daily_loss_usd: Decimal = Decimal("500.00")
-    max_leverage: int = 100
+    max_leverage: int = MAX_LEVERAGE
     algo_enabled: bool = False                       # Fail-safe default
     kill_switch_active: bool = True                  # Fail-safe default
     version: int = 1
@@ -76,8 +81,10 @@ class AlgoConfiguration:
             raise AlgoConfigValidationError("Risk per trade percentage must be between 0 and 100")
         if self.max_loss_pct <= Decimal("0") or self.max_loss_pct > Decimal("100"):
             raise AlgoConfigValidationError("Max loss percentage must be between 0 and 100")
-        if self.max_leverage < 1 or self.max_leverage > 100:
-            raise AlgoConfigValidationError("Max leverage must be between 1 and 100")
+        if not is_within_band(self.max_leverage):
+            raise AlgoConfigValidationError(
+                f"Max leverage must be between {MIN_LEVERAGE} and "
+                f"{MAX_LEVERAGE}, got {self.max_leverage!r}")
         if self.max_daily_loss_usd <= Decimal("0"):
             raise AlgoConfigValidationError("Max daily loss limit must be greater than 0")
 
@@ -112,6 +119,18 @@ class AlgoConfiguration:
         # Validate numeric ranges
         if eff_tp <= Decimal("0") or new_sl <= Decimal("0") or new_risk <= Decimal("0") or new_risk > Decimal("100") or new_daily_loss <= Decimal("0"):
             raise AlgoConfigValidationError("Invalid numeric ranges in configuration update")
+
+        # `_validate` enforced the leverage band on construction but `update`
+        # never re-checked it, so `update(max_leverage=0)`, `-1`, `101` and
+        # `1000` were all stored verbatim on an object that could not legally
+        # have been constructed with them. `AlgoConfigStore.update_config`
+        # delegates straight here, so the store inherited the same hole.
+        # Rejected before any field is assigned, so a refused update leaves the
+        # configuration and its version untouched.
+        if not is_within_band(new_lev):
+            raise AlgoConfigValidationError(
+                f"Max leverage must be between {MIN_LEVERAGE} and "
+                f"{MAX_LEVERAGE}, got {new_lev!r}")
 
         self.take_profit_pct = eff_tp
         self.take_profit_target_pct = eff_tp
@@ -180,7 +199,7 @@ class AlgoConfiguration:
             max_loss_pct=Decimal(str(data.get("max_loss_pct", "35.00"))),
             max_risk_usd=Decimal(str(data["max_risk_usd"])) if data.get("max_risk_usd") is not None else None,
             max_daily_loss_usd=Decimal(str(data.get("max_daily_loss_usd", "500.00"))),
-            max_leverage=int(data.get("max_leverage", 100)),
+            max_leverage=int(data.get("max_leverage", MAX_LEVERAGE)),
             algo_enabled=bool(data.get("algo_enabled", False)),
             kill_switch_active=bool(data.get("kill_switch_active", True)),
             version=int(data.get("version", 1)),
@@ -194,7 +213,18 @@ class AlgoConfiguration:
 
 @dataclass(frozen=True)
 class AlgoConfigurationSnapshot:
-    """Immutable snapshot of the algorithm configuration used for a specific trade execution."""
+    """
+    Immutable snapshot of the algorithm configuration used for a specific trade execution.
+
+    `max_leverage` is band-checked here as well as on `AlgoConfiguration`.
+    `create_snapshot` copies from an already-validated configuration, but
+    `from_dict` reconstructs from exported state, and `TradeLifecycleManager`
+    feeds `snapshot.max_leverage` straight into `RiskConfiguration(...)` on the
+    live path without a surrounding `try`. Validating at construction is what
+    makes that call provably unable to raise, so a tampered or legacy export
+    fails closed at import time rather than mid-dispatch with the single-trade
+    lock still held.
+    """
     setup_id: Optional[str]
     account_id: str
     user_id: Optional[str]
@@ -211,13 +241,19 @@ class AlgoConfigurationSnapshot:
     max_loss_pct: Decimal = Decimal("35.00")
     snapshot_timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
+    def __post_init__(self):
+        if not is_within_band(self.max_leverage):
+            raise AlgoConfigValidationError(
+                f"Snapshot max leverage must be between {MIN_LEVERAGE} and "
+                f"{MAX_LEVERAGE}, got {self.max_leverage!r}")
+
     def calculate_authoritative_ob_trade_parameters(
         self,
         entry_price: Decimal,
         direction: Union[TradeDirection, StrategyDirection, str],
         ob_top: Decimal,
         ob_bottom: Decimal,
-        max_instrument_leverage: int = 100,
+        max_instrument_leverage: int = MAX_LEVERAGE,
         tick_size: Decimal = Decimal("0.50"),
     ) -> Dict[str, Any]:
         """
@@ -351,7 +387,7 @@ class AlgoConfigurationSnapshot:
             risk_per_trade_pct=Decimal(str(data["risk_per_trade_pct"])),
             max_risk_usd=Decimal(str(data["max_risk_usd"])) if data.get("max_risk_usd") is not None else None,
             max_daily_loss_usd=Decimal(str(data.get("max_daily_loss_usd", "500.00"))),
-            max_leverage=int(data.get("max_leverage", 100)),
+            max_leverage=int(data.get("max_leverage", MAX_LEVERAGE)),
             algo_enabled_at_snapshot=bool(data.get("algo_enabled_at_snapshot", False)),
             kill_switch_active_at_snapshot=bool(data.get("kill_switch_active_at_snapshot", True)),
             snapshot_timestamp=datetime.fromisoformat(data["snapshot_timestamp"]) if "snapshot_timestamp" in data else datetime.now(timezone.utc),

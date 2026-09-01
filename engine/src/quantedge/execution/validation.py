@@ -19,6 +19,13 @@ from decimal import Decimal
 from enum import Enum
 from typing import Optional, Dict, Any, List, Set, Tuple, Union
 
+from quantedge.execution.leverage import (
+    MAX_LEVERAGE,
+    MIN_LEVERAGE,
+    LeverageBandError,
+    normalize_requested_leverage,
+    validate_leverage,
+)
 from quantedge.execution.models import (
     OrderSide,
     OrderType,
@@ -97,10 +104,10 @@ class ProductSpecification:
     snapshot provenance line that establishes them.
 
     NOT verified: `min_size`, `size_step`, `max_leverage`. Delta publishes
-    none of the three, so they are local execution policy retained from the
-    pre-registry gateway — deliberately unchanged so no validation check is
-    weakened — and they are named in `unverified_fields`. They must not be
-    treated as exchange facts.
+    none of the three, so they are local execution policy — `min_size` and
+    `size_step` retained verbatim from the pre-registry gateway, `max_leverage`
+    the authorised band from `quantedge.execution.leverage` — and they are
+    named in `unverified_fields`. They must not be treated as exchange facts.
 
     The `contract_value` and `max_leverage` defaults exist only so a locally
     constructed spec (a test fixture, say) still builds. A default-constructed
@@ -112,7 +119,7 @@ class ProductSpecification:
     min_size: Decimal
     size_step: Decimal
     tick_size: Decimal
-    max_leverage: int = 100
+    max_leverage: int = MAX_LEVERAGE
     contract_value: Decimal = Decimal("1.0")
     verification_source: Optional[str] = None
     unverified_fields: Tuple[str, ...] = ("min_size", "size_step",
@@ -132,17 +139,31 @@ class ProductSpecification:
 # values the gateway already used are retained verbatim and labelled. Nothing
 # here is authoritative; nothing here may be presented as exchange metadata.
 #
-# `max_leverage` is kept per symbol because the pre-registry gateway capped
-# SOL/XRP at 50x, and raising a cap would weaken an existing safety check. An
-# unlisted symbol gets the strictest retained cap, never the loosest.
+# `max_leverage` is now the single authorised band (`MAX_LEVERAGE`) for every
+# symbol. It used to be 100 for BTCUSD/ETHUSD and 50 for SOLUSD/XRPUSD — a
+# value retained from the pre-registry gateway, which meant a requested 100x
+# was rejected on SOL and XRP even though every other layer permitted it. The
+# owner authorised a uniform 1x..100x band, so the two 50s were raised rather
+# than the other layers lowered.
+#
+# The direction is corroborated, not verified: the snapshot records
+# `margin_and_limits.default_leverage` of 100 for SOLUSD and XRPUSD (200 for
+# BTCUSD/ETHUSD), so 100 still sits at or below the strictest figure Delta
+# itself records, and the one-sided `policy <= recorded` assertion in
+# `test_execution_sizing_semantics_audit` continues to hold. `max_leverage`
+# stays in `PERMANENTLY_UNVERIFIED`; nothing here became an exchange fact.
+#
+# The table is kept per symbol, and the unlisted-symbol fallback is still the
+# strictest entry rather than the loosest, so re-tightening one instrument
+# later needs no structural change.
 
 UNVERIFIED_MIN_SIZE: Decimal = Decimal("1")
 UNVERIFIED_SIZE_STEP: Decimal = Decimal("1")
 UNVERIFIED_MAX_LEVERAGE: Dict[str, int] = {
-    "BTCUSD": 100,
-    "ETHUSD": 100,
-    "SOLUSD": 50,
-    "XRPUSD": 50,
+    "BTCUSD": MAX_LEVERAGE,
+    "ETHUSD": MAX_LEVERAGE,
+    "SOLUSD": MAX_LEVERAGE,
+    "XRPUSD": MAX_LEVERAGE,
 }
 UNVERIFIED_MAX_LEVERAGE_FALLBACK: int = min(UNVERIFIED_MAX_LEVERAGE.values())
 
@@ -226,16 +247,33 @@ def get_product_specification(symbol: str) -> ProductSpecification:
 
 @dataclass(frozen=True)
 class RiskConfiguration:
-    """Account-level risk parameters."""
+    """
+    Account-level risk parameters.
+
+    `max_leverage` is band-checked on construction. It previously took any
+    integer — 0, -1, 101 and 100000 were all stored verbatim — and gateway
+    check 14 then folded it into `min(spec, risk_config)`. A 0 or -1 there
+    silently made every order unexecutable, and a value above the band was
+    harmlessly absorbed by the `min` only for as long as the per-symbol table
+    stayed the stricter of the two. Neither is a state this object should be
+    able to reach, so it fails closed at construction instead.
+
+    Only `max_leverage` is validated here. The other fields are left exactly as
+    they were: this change is scoped to the leverage band.
+    """
     risk_per_trade_pct: Decimal = Decimal("35.0")
     target_reward_pct: Decimal = Decimal("60.0")
-    max_leverage: int = 100
+    max_leverage: int = MAX_LEVERAGE
     max_concurrent_trades: int = 1
     minimum_risk_reward: Decimal = Decimal("1.5")
     max_daily_loss_pct: Optional[Decimal] = None
     supported_symbols: List[str] = field(default_factory=lambda: [
         "BTCUSD", "BTCUSD.P", "ETHUSD", "ETHUSD.P", "SOLUSD", "SOLUSD.P", "XRPUSD", "XRPUSD.P"
     ])
+
+    def __post_init__(self):
+        validate_leverage(self.max_leverage,
+                          field_name="RiskConfiguration.max_leverage")
 
 
 # ── Validation Request & Context ──────────────────────────────────────────────
@@ -452,9 +490,51 @@ class OrderValidationGateway:
             )
 
         # ── 14. Leverage Validation ───────────────────────────────────────────
-        leverage = request.leverage or 1
+        # `None` means "the caller specified nothing" and resolves to the
+        # minimum, the least risky value available. Every other value is taken
+        # literally: this used to read `request.leverage or 1`, which made an
+        # explicit `leverage=0` PASS as 1x while the `leverage < 1` test below
+        # implied it was refused. The Java twin
+        # (`OrderValidationGateway.java:302`) already used `!= null` and
+        # rejected 0, so the coercion was a defect rather than parity.
+        #
+        # `normalize_requested_leverage` runs first because the band comparison
+        # alone is not fail-closed against a malformed value. The field is typed
+        # `Optional[int]` and every production producer honours that -- Manual
+        # SMC casts through `represent_leverage`, the risk calculator returns an
+        # int -- but the two comparisons below are plain numeric ones, so before
+        # this call `leverage=float("nan")` and `leverage=True` both passed the
+        # band (neither `< 1` nor `> 100` is true of NaN, and `True` is 1) and
+        # then raised `decimal.InvalidOperation` out of the margin arithmetic at
+        # check 16, while `leverage="100"` raised `TypeError` here. An
+        # unhandled exception is not a rejection. A fractional `50.5` passed
+        # too, which the INTEGER column could not have stored. An integral
+        # `100.0` or `Decimal("100")` is still accepted and normalises to 100.
+        #
+        # Nothing is clamped in either direction: 101x is rejected, not reduced
+        # to 100x, and 0x is rejected, not raised to 1x.
+        if request.leverage is None:
+            leverage = MIN_LEVERAGE
+        else:
+            try:
+                leverage = normalize_requested_leverage(request.leverage)
+            except LeverageBandError as exc:
+                return self._reject(
+                    RejectionReasonCode.EXCESSIVE_LEVERAGE,
+                    str(exc),
+                    "CHECK_LEVERAGE_CAP",
+                    now,
+                )
         max_allowed_leverage = min(spec.max_leverage, context.risk_config.max_leverage)
-        if leverage > max_allowed_leverage or leverage < 1:
+        if leverage < MIN_LEVERAGE:
+            return self._reject(
+                RejectionReasonCode.EXCESSIVE_LEVERAGE,
+                f"Requested leverage {leverage}x is below the minimum "
+                f"{MIN_LEVERAGE}x.",
+                "CHECK_LEVERAGE_CAP",
+                now,
+            )
+        if leverage > max_allowed_leverage:
             return self._reject(
                 RejectionReasonCode.EXCESSIVE_LEVERAGE,
                 f"Requested leverage {leverage}x exceeds maximum allowed {max_allowed_leverage}x.",

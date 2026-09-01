@@ -65,7 +65,12 @@ export const CANONICAL_INSTRUMENTS: Record<string, InstrumentMeta> = {
     qtyPrecision: 4,
     tickSize: 0.01,
     lotSize: 1,
-    maxLeverage: 50,
+    // 50 previously, which made the engine's 1x-100x band unreachable here:
+    // `OrderTicketCard` binds the slider's `max` to this field and clamps the
+    // held value down to it, so SOL could not be ticketed above 50x even
+    // though the gateway accepted it. Matches
+    // `quantedge.execution.leverage.MAX_LEVERAGE`.
+    maxLeverage: 100,
     description: 'Solana Perpetual Futures (Delta Exchange India)',
     supportedTimeframes: [...CANONICAL_TIMEFRAMES],
   },
@@ -79,7 +84,8 @@ export const CANONICAL_INSTRUMENTS: Record<string, InstrumentMeta> = {
     qtyPrecision: 2,
     tickSize: 0.0001,
     lotSize: 1,
-    maxLeverage: 50,
+    // 50 previously — same UI-side ceiling as SOLUSD above.
+    maxLeverage: 100,
     description: 'XRP Perpetual Futures (Delta Exchange India)',
     supportedTimeframes: [...CANONICAL_TIMEFRAMES],
   },

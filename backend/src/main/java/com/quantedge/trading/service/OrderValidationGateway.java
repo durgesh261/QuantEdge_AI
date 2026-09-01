@@ -1,5 +1,6 @@
 package com.quantedge.trading.service;
 
+import com.quantedge.market.service.InstrumentRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -61,15 +62,26 @@ public class OrderValidationGateway {
     public static final Map<String, ProductSpecification> DEFAULT_PRODUCTS;
 
     static {
+        // Leverage is `InstrumentRegistry.MAX_LEVERAGE` for every row, never a
+        // per-symbol literal. SOLUSD/SOLUSD.P/XRPUSD/XRPUSD.P used to be 50
+        // here while BTCUSD/ETHUSD were 100, which is the same symbol-specific
+        // cap that had drifted into the Python policy table -- and because the
+        // ceiling below is `Math.min(spec.maxLeverage(), context ceiling)`, a
+        // 50 in this table silently overrode any account configured above it.
+        // The constant is `public static final int`, so javac inlines it and
+        // referencing it neither initialises the registry nor involves Spring.
+        // The productId values are NOT authoritative -- see the class comment
+        // on InstrumentRegistry for the verified ids.
+        final int maxLev = InstrumentRegistry.MAX_LEVERAGE;
         Map<String, ProductSpecification> map = new HashMap<>();
-        map.put("BTCUSD", new ProductSpecification("BTCUSD", 27, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.5"), 100));
-        map.put("BTCUSD.P", new ProductSpecification("BTCUSD.P", 27, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.5"), 100));
-        map.put("ETHUSD", new ProductSpecification("ETHUSD", 28, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.05"), 100));
-        map.put("ETHUSD.P", new ProductSpecification("ETHUSD.P", 28, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.05"), 100));
-        map.put("SOLUSD", new ProductSpecification("SOLUSD", 29, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.01"), 50));
-        map.put("SOLUSD.P", new ProductSpecification("SOLUSD.P", 29, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.01"), 50));
-        map.put("XRPUSD", new ProductSpecification("XRPUSD", 30, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.0001"), 50));
-        map.put("XRPUSD.P", new ProductSpecification("XRPUSD.P", 30, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.0001"), 50));
+        map.put("BTCUSD", new ProductSpecification("BTCUSD", 27, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.5"), maxLev));
+        map.put("BTCUSD.P", new ProductSpecification("BTCUSD.P", 27, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.5"), maxLev));
+        map.put("ETHUSD", new ProductSpecification("ETHUSD", 28, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.05"), maxLev));
+        map.put("ETHUSD.P", new ProductSpecification("ETHUSD.P", 28, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.05"), maxLev));
+        map.put("SOLUSD", new ProductSpecification("SOLUSD", 29, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.01"), maxLev));
+        map.put("SOLUSD.P", new ProductSpecification("SOLUSD.P", 29, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.01"), maxLev));
+        map.put("XRPUSD", new ProductSpecification("XRPUSD", 30, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.0001"), maxLev));
+        map.put("XRPUSD.P", new ProductSpecification("XRPUSD.P", 30, new BigDecimal("1"), new BigDecimal("1"), new BigDecimal("0.0001"), maxLev));
         DEFAULT_PRODUCTS = Collections.unmodifiableMap(map);
     }
 
@@ -172,7 +184,21 @@ public class OrderValidationGateway {
             this.availableBalance = availableBalance != null ? availableBalance : BigDecimal.ZERO;
             this.activePositionsCount = activePositionsCount;
             this.maxConcurrentTrades = maxConcurrentTrades > 0 ? maxConcurrentTrades : 1;
-            this.maxLeverage = maxLeverage > 0 ? maxLeverage : 100;
+            // Not defaulted like its siblings above. This used to read
+            // `maxLeverage > 0 ? maxLeverage : 100`, which answered a safety
+            // question with a default: a context carrying 0 -- an account whose
+            // ceiling failed to load -- was handed the loosest ceiling in the
+            // application. The Python side cannot express that, because
+            // `RiskConfiguration` band-validates `max_leverage` when it is
+            // constructed and raises for 0 or 101; this is the Java analogue,
+            // so an out-of-band ceiling is refused on both paths instead of
+            // being substituted on one.
+            if (maxLeverage < InstrumentRegistry.MIN_LEVERAGE || maxLeverage > InstrumentRegistry.MAX_LEVERAGE) {
+                throw new IllegalArgumentException(
+                        "maxLeverage must be between " + InstrumentRegistry.MIN_LEVERAGE + " and "
+                                + InstrumentRegistry.MAX_LEVERAGE + " inclusive, got " + maxLeverage);
+            }
+            this.maxLeverage = maxLeverage;
             this.riskPerTradePct = riskPerTradePct != null ? riskPerTradePct : new BigDecimal("35.0");
             this.minRiskReward = minRiskReward != null ? minRiskReward : new BigDecimal("1.5");
             this.activeClientOrderIds = activeClientOrderIds != null ? activeClientOrderIds : Collections.emptySet();
@@ -299,9 +325,17 @@ public class OrderValidationGateway {
         }
 
         // 14. Leverage Cap Check
-        int leverage = request.getLeverage() != null ? request.getLeverage() : 1;
+        // Both bounds reject; neither clamps. Split into two branches only so a
+        // sub-1x request is not logged as having "exceeded" a maximum, matching
+        // the two distinct messages the Python gateway emits. `Integer` makes
+        // the Python type guards unnecessary here -- a bool, a NaN or a
+        // fractional leverage cannot reach this method in a typed language.
+        int leverage = request.getLeverage() != null ? request.getLeverage() : InstrumentRegistry.MIN_LEVERAGE;
         int maxAllowedLeverage = Math.min(spec.maxLeverage(), context.getMaxLeverage());
-        if (leverage > maxAllowedLeverage || leverage < 1) {
+        if (leverage < InstrumentRegistry.MIN_LEVERAGE) {
+            return reject(RejectionReasonCode.EXCESSIVE_LEVERAGE, "Requested leverage " + leverage + "x is below the minimum " + InstrumentRegistry.MIN_LEVERAGE + "x", "CHECK_LEVERAGE_CAP", now);
+        }
+        if (leverage > maxAllowedLeverage) {
             return reject(RejectionReasonCode.EXCESSIVE_LEVERAGE, "Requested leverage " + leverage + "x exceeds maximum allowed " + maxAllowedLeverage + "x", "CHECK_LEVERAGE_CAP", now);
         }
 

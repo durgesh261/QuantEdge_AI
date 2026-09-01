@@ -86,6 +86,7 @@ from quantedge.execution.multi_user_orchestrator import (
 )
 from quantedge.execution.single_trade_lock import SingleTradeLockManager
 from quantedge.execution.synchronizer import AccountRecord, ConnectionRecord
+from quantedge.execution.leverage import MAX_LEVERAGE, MIN_LEVERAGE
 from quantedge.execution.validation import (
     DEFAULT_DELTA_INDIA_PRODUCTS,
     UNVERIFIED_MAX_LEVERAGE,
@@ -1080,29 +1081,59 @@ def _sol_request(leverage: int) -> OrderValidationRequest:
 
 
 @pytest.mark.parametrize("leverage,valid", [
-    (1, True), (50, True), (51, False), (100, False), (-1, False),
+    (1, True), (50, True), (51, True), (100, True), (101, False), (-1, False),
 ])
 def test_the_gateway_applies_the_per_symbol_cap(leverage, valid):
-    """Gateway check 14 takes the stricter of spec and risk config."""
+    """Gateway check 14 takes the stricter of spec and risk config.
+
+    SOLUSD used to carry a 50x entry in `UNVERIFIED_MAX_LEVERAGE`, so 51x and
+    100x were refused here while BTCUSD accepted both. The table is uniform at
+    `MAX_LEVERAGE` now, so the boundary this asserts moved from 50/51 to
+    100/101. The `min(spec, risk_config)` structure is unchanged and still
+    honours a stricter risk config -- see
+    `test_a_stricter_risk_config_still_wins`.
+    """
     result = OrderValidationGateway().validate(_sol_request(leverage),
                                                _gateway_context())
     assert result.is_valid is valid
     if not valid:
         assert result.rejection_code == RejectionReasonCode.EXCESSIVE_LEVERAGE
+        assert result.failed_check == "CHECK_LEVERAGE_CAP"
 
 
-@pytest.mark.parametrize("leverage", [0, None])
-def test_the_gateway_reads_a_falsy_leverage_as_unset(leverage):
-    """`request.leverage or 1` -- pinned as it is, not changed.
+def test_a_stricter_risk_config_still_wins():
+    """Raising the per-symbol table did not make the `min(...)` decorative."""
+    context = _gateway_context()
+    context.risk_config = RiskConfiguration(max_leverage=25)
+    assert OrderValidationGateway().validate(
+        _sol_request(25), context).is_valid is True
+    refused = OrderValidationGateway().validate(_sol_request(26), context)
+    assert refused.is_valid is False
+    assert refused.failed_check == "CHECK_LEVERAGE_CAP"
+    assert "25x" in refused.rejection_reason
 
-    Zero is not rejected: it is treated as "not specified" and becomes 1x, the
-    least risky value available, so the coercion is fail-safe in direction. It
-    is pinned here because the surrounding check does test `leverage < 1`, and
-    reading that as "zero is refused" would be wrong.
+
+def test_the_gateway_reads_only_none_as_unset():
+    """`None` means unset and resolves to the minimum. `0` does not.
+
+    This used to be `test_the_gateway_reads_a_falsy_leverage_as_unset`, pinning
+    `request.leverage or 1` -- under which an explicit `leverage=0` PASSED as
+    1x. The owner's contract is that leverage below the band is rejected and
+    never substituted, and the Java twin (`OrderValidationGateway.java:302`)
+    already used `!= null` and rejected 0, so the coercion was a defect rather
+    than deliberate parity. `None` keeps its old meaning: nothing was
+    requested, so the least risky value in the band applies.
     """
-    result = OrderValidationGateway().validate(_sol_request(leverage),
-                                               _gateway_context())
-    assert result.is_valid is True
+    unset = OrderValidationGateway().validate(_sol_request(None),
+                                              _gateway_context())
+    assert unset.is_valid is True
+
+    zero = OrderValidationGateway().validate(_sol_request(0),
+                                             _gateway_context())
+    assert zero.is_valid is False
+    assert zero.rejection_code == RejectionReasonCode.EXCESSIVE_LEVERAGE
+    assert zero.failed_check == "CHECK_LEVERAGE_CAP"
+    assert "below the minimum" in zero.rejection_reason
 
 
 def test_the_gateway_cap_is_the_stricter_of_two_local_numbers():
@@ -1113,14 +1144,14 @@ def test_the_gateway_cap_is_the_stricter_of_two_local_numbers():
 
 
 @pytest.mark.asyncio
-async def test_path_b_is_bounded_only_by_the_allocator_band():
-    """A pinned asymmetry, class 1, not a gap.
+async def test_both_paths_now_share_the_same_leverage_band():
+    """The pinned asymmetry is gone -- both paths permit 1..100 on every symbol.
 
-    Path B permits the full 1..100 band on every symbol, where path A applies
-    the per-symbol figure and would refuse 100x here. Both bounds are named
-    local policy over a field Delta does not publish, and path B is a
-    whole-balance allocator by design, so tightening it would be inventing a
-    limit rather than enforcing one. Pinned so the difference is deliberate.
+    This used to be `test_path_b_is_bounded_only_by_the_allocator_band`, which
+    pinned path A refusing 100x on SOLUSD while path B allowed it. The
+    per-symbol 50 that produced the split was raised to `MAX_LEVERAGE`, so the
+    two paths now agree at the top of the band. The bound is still named local
+    policy over a field Delta does not publish; only its value changed.
     """
     client = _client(mark_price=Decimal("180"))
     result = await _execute(_session(client), symbol="SOLUSD",
@@ -1128,11 +1159,11 @@ async def test_path_b_is_bounded_only_by_the_allocator_band():
                                     Decimal("195")),
                             leverage=100)
     assert result.status == "EXECUTED"
-    assert UNVERIFIED_MAX_LEVERAGE["SOLUSD"] < 100  # path A would refuse it
+    assert UNVERIFIED_MAX_LEVERAGE["SOLUSD"] == MAX_LEVERAGE
 
     gateway = OrderValidationGateway().validate(_sol_request(100),
                                                 _gateway_context())
-    assert gateway.is_valid is False
+    assert gateway.is_valid is True
 
 
 @pytest.mark.asyncio
