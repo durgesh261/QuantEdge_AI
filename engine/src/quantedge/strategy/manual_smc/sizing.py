@@ -15,7 +15,7 @@ THE MATHEMATICS (oracle-faithful; do not "clean up")
     notional_usd   = account_balance * applied_lev
     fee_usd        = notional_usd * 0.0008             round-trip, charged once
     gross_sl_pct   = applied_lev * sl_dist_pct
-    gross_tp_pct   = 0.60 * applied_lev
+    gross_tp_pct   = cfg.fixed_tp_market_pct * applied_lev   (0.60 in production)
     ret_pct        = +gross_tp_pct           (TP)
                      -gross_sl_pct           (SL)
                      realized_r * gross_sl_pct  (TIMEOUT)

@@ -44,6 +44,7 @@ from pathlib import Path
 import pytest
 
 from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_ORACLE_C,
     OUTCOME_SL,
     OUTCOME_TP,
     REASON_DUAL_TOUCH,
@@ -126,6 +127,33 @@ def _specs(*assets: str):
     return {a: FakeSpec(REAL_TICKS[a]) for a in assets}
 
 
+# ---------------------------------------------------------------------------
+# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE — deliberately.
+# ---------------------------------------------------------------------------
+# Every candle sequence below is a Mode-C script: a probe candle, then a
+# pullback candle, then the fill. It was authored before the manual
+# specification's first-touch rule existed, and under that rule the SAME rows
+# mean something different (bar 2 both touches the zone and reaches the 25%
+# entry, so it fills two bars earlier and the probe/pullback candles are no
+# longer gates at all).
+#
+# Rather than delete or rewrite these acceptance tests, they keep testing what
+# they were written to test — the orchestration layer over the ORACLE-faithful
+# activation mode, with the oracle's own 0.60% take profit — by naming that mode
+# explicitly. That preserves every assertion in this file verbatim AND keeps the
+# research path provably reproducible.
+#
+# The PRODUCTION policy (first touch -> 3-candle window -> permanent
+# invalidation, an authorized 0.60% TP — the same take profit as the oracle, so
+# ORACLE_KW above pins the ACTIVATION MODE and not the TP) is what
+# `ManualSMCStrategy()` does by default, and it
+# is covered by `test_manual_smc_first_touch_window.py`.
+ORACLE_KW = {
+    "activation_mode": ACTIVATION_MODE_ORACLE_C,
+    "config": ManualSpecConfig(),
+}
+
+
 # A SHORT setup. Origin bar 0 is bullish, so ob_top = origin.close = 105.0 and
 # ob_bottom = origin.low = 99.0 (never origin.high).
 #   width 6.0 -> proximal 99.0, distal 105.0
@@ -160,7 +188,7 @@ LONG_ENTRY, LONG_SL, LONG_TP = 104.5, 100.0, 105.127
 def _new(assets=("BTCUSD",), **kwargs) -> ManualSMCStrategy:
     """A strategy with tick specs for `assets` unless overridden."""
     kwargs.setdefault("tick_specs", _specs(*assets))
-    return ManualSMCStrategy(assets=list(assets), **kwargs)
+    return ManualSMCStrategy(assets=list(assets), **{**ORACLE_KW, **kwargs})
 
 
 def _drive(strategy: ManualSMCStrategy, asset: str, rows):
@@ -734,7 +762,7 @@ class TestQuantizationBoundary:
 
     def test_a_missing_tick_spec_yields_a_non_executable_setup(self):
         """Safety rule #15: no default tick, and no guess."""
-        strategy = ManualSMCStrategy(assets=["BTCUSD"])      # no tick_specs
+        strategy = ManualSMCStrategy(assets=["BTCUSD"], **ORACLE_KW)  # no tick_specs
         setup = _drive(strategy, "BTCUSD", SHORT_ROWS[:4])[-1].setups[0]
         assert setup.state is S.LIMIT_RESTING
         assert setup.limit_is_live is True
@@ -745,7 +773,7 @@ class TestQuantizationBoundary:
 
     def test_a_missing_tick_spec_does_not_stop_the_lifecycle(self):
         """A refusal is reported, not raised — the candle still processes."""
-        strategy = ManualSMCStrategy(assets=["BTCUSD"])
+        strategy = ManualSMCStrategy(assets=["BTCUSD"], **ORACLE_KW)
         evals = _drive(strategy, "BTCUSD", SHORT_ROWS)
         fill = _only_fill(evals)
         assert fill.quantized is None
@@ -755,7 +783,8 @@ class TestQuantizationBoundary:
 
     def test_a_bad_tick_spec_is_reported_not_raised(self):
         strategy = ManualSMCStrategy(
-            assets=["BTCUSD"], tick_specs={"BTCUSD": FakeSpec(Decimal("0"))})
+            assets=["BTCUSD"], tick_specs={"BTCUSD": FakeSpec(Decimal("0"))},
+            **ORACLE_KW)
         setup = _drive(strategy, "BTCUSD", SHORT_ROWS[:4])[-1].setups[0]
         assert setup.quantized is None
         assert setup.is_executable is False
@@ -777,7 +806,8 @@ class TestQuantizationBoundary:
             assert isinstance(spec, TickSizeSpec)
             assert spec.tick_size == tick
             strategy = ManualSMCStrategy(assets=[symbol],
-                                         tick_specs={symbol: spec})
+                                         tick_specs={symbol: spec},
+                                         **ORACLE_KW)
             setup = _drive(strategy, symbol, SHORT_ROWS[:4])[-1].setups[0]
             assert setup.quantized.tick_size == tick
             assert setup.is_executable is True
@@ -1372,7 +1402,7 @@ class TestNonAtomicPersistence:
     def test_a_watermark_that_cannot_advance_raises_a_torn_state_error(self):
         strategy = ManualSMCStrategy(
             assets=["BTCUSD"], tick_specs=_specs("BTCUSD"),
-            watermark=_TornWatermark(fail_at=1))
+            watermark=_TornWatermark(fail_at=1), **ORACLE_KW)
         strategy.evaluate_closed_candle("BTCUSD", 0, _ts(0), *SHORT_ROWS[0][1:])
         with pytest.raises(TornStateError) as exc:
             strategy.evaluate_closed_candle(
@@ -1392,7 +1422,7 @@ class TestNonAtomicPersistence:
         """
         strategy = ManualSMCStrategy(
             assets=["BTCUSD"], tick_specs=_specs("BTCUSD"),
-            watermark=_TornWatermark(fail_at=1))
+            watermark=_TornWatermark(fail_at=1), **ORACLE_KW)
         strategy.evaluate_closed_candle("BTCUSD", 0, _ts(0), *SHORT_ROWS[0][1:])
         with pytest.raises(TornStateError):
             strategy.evaluate_closed_candle(

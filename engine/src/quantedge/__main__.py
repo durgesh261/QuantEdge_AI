@@ -8,6 +8,7 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from quantedge.config import settings
+from quantedge.runtime.manual_smc_runtime import build_manual_smc_runtime
 
 logging.basicConfig(
     level=getattr(logging, settings.log_level),
@@ -49,6 +50,17 @@ async def main():
     logger.info(f"Default timeframe: {settings.default_timeframe}")
 
     health_server = start_health_server()
+
+    # Register the Manual SMC strategy with the runtime. This is inert by
+    # design: no socket, no order, no scan. The execution boundary stays
+    # unbound until an operator supplies an orchestrator, matching the
+    # existing algo_enabled=False fail-safe.
+    manual_smc = build_manual_smc_runtime()
+    logger.info(
+        "Registered %s v%s on %s for %s",
+        manual_smc.strategy_name, manual_smc.strategy_version,
+        manual_smc.timeframe, list(manual_smc.symbols))
+
     logger.info("Engine started; execution loops remain disabled until explicitly configured")
 
     # Keep running

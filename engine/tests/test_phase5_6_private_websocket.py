@@ -36,6 +36,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, AsyncMock
 import pytest
 
+from quantedge.instruments import delta_india_registry
 from quantedge.execution.models import (
     OrderSide,
     OrderType,
@@ -117,10 +118,10 @@ def test_01_hmac_authentication_generation():
     """1. Verify HMAC-SHA256 signature matches official Delta key-auth formula: GET + ts + /live."""
     timestamp = "1724318400"
     sig = generate_ws_auth_signature(FIXTURE_SECRET, timestamp)
-    
+
     assert isinstance(sig, str)
     assert len(sig) == 64  # SHA-256 hex string is 64 characters
-    
+
     # Deterministic check
     sig2 = generate_ws_auth_signature(FIXTURE_SECRET, timestamp)
     assert sig == sig2
@@ -129,14 +130,41 @@ def test_01_hmac_authentication_generation():
     sig_diff_ts = generate_ws_auth_signature(FIXTURE_SECRET, "1724318401")
     assert sig != sig_diff_ts
 
+    # Task O §O5: STRENGTHENED, not weakened. The documented `key-auth`
+    # timestamp is numeric seconds, and the signing message is
+    # 'GET' + str(timestamp) + '/live' -- so a numeric timestamp must sign
+    # IDENTICALLY to the digit string this test has always used. That is what
+    # makes the §O5 correction a change to the wire representation only, not to
+    # the signature vector.
+    assert generate_ws_auth_signature(FIXTURE_SECRET, 1724318400) == sig
+
+    # A value the exchange would sign differently is refused rather than
+    # truncated or reshaped: a silently mis-signed auth frame yields a socket
+    # that connects and then delivers nothing.
+    for bad in (1724318400.7, "1724318400.5", "", "  ", "not-a-timestamp", True, 0, -1, None):
+        with pytest.raises(ValueError):
+            generate_ws_auth_signature(FIXTURE_SECRET, bad)
+
 
 def test_02_successful_connection_handshake(ws_client):
     """2. Verify key-auth JSON payload construction."""
     payload = ws_client.build_auth_payload(timestamp="1724318400")
     assert payload["type"] == "key-auth"
     assert payload["payload"]["api-key"] == FIXTURE_KEY
-    assert payload["payload"]["timestamp"] == "1724318400"
+    # Task O §O5: STRENGTHENED, not weakened. This previously asserted the
+    # timestamp was the STRING "1724318400". Delta's documented `key-auth` frame
+    # types `timestamp` as a number; serializing it as a JSON string risks a
+    # rejected auth, and a rejected auth on this transport is silent -- the
+    # socket connects and then simply never delivers an order, fill or closure.
+    assert payload["payload"]["timestamp"] == 1724318400
+    assert isinstance(payload["payload"]["timestamp"], int)
+    assert not isinstance(payload["payload"]["timestamp"], str)
     assert len(payload["payload"]["signature"]) == 64
+    # The numeric form signs identically to the digit string.
+    assert payload["payload"]["signature"] == generate_ws_auth_signature(
+        FIXTURE_SECRET, 1724318400)
+    # A default timestamp is still numeric seconds.
+    assert isinstance(ws_client.build_auth_payload()["payload"]["timestamp"], int)
 
 
 def test_03_authentication_failure_handling(ws_client):
@@ -160,6 +188,24 @@ def test_04_subscription_payload_and_ack(ws_client):
     assert "positions" in names
     assert "user_trades" in names
     assert "margins" in names
+
+    # Task O §O5: STRENGTHENED, not weakened. Channel NAMES alone never proved
+    # the subscription was actually scoped. Delta's symbol-scoped private
+    # channels deliver nothing for a symbol that was not named, so an
+    # unscoped `orders`/`positions`/`user_trades` subscription is a silent
+    # blindness to fills and closures. The symbols must come from the
+    # provenance-backed instrument registry, never from a guessed literal
+    # and never from an `"all"` wildcard.
+    by_name = {c["name"]: c for c in channels}
+    registry_symbols = set(delta_india_registry().symbols)
+    assert registry_symbols, "instrument registry must expose at least one symbol"
+    for scoped in ("orders", "positions", "user_trades"):
+        assert "symbols" in by_name[scoped], f"{scoped} must be symbol-scoped"
+        assert set(by_name[scoped]["symbols"]) == registry_symbols
+        assert "all" not in by_name[scoped]["symbols"]
+    # `margins` is account-scoped: it carries no product, so sending a
+    # `symbols` list would be inventing a scoping the exchange does not define.
+    assert "symbols" not in by_name["margins"]
 
 
 def test_05_malformed_event_quarantine(ws_client):

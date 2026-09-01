@@ -22,6 +22,8 @@ from typing import Optional, Dict, Any, List, Set, Tuple, Union
 from quantedge.execution.models import (
     OrderSide,
     OrderType,
+    StopOrderType,
+    StopTriggerMethod,
     TimeInForce,
     DeltaOrderRequest,
 )
@@ -583,6 +585,11 @@ class OrderValidationGateway:
         # holds native symbols only) that would have emitted a symbol differing
         # from the spec whose `product_id` accompanies it if a `.P` record were
         # ever registered.
+        # A validated request that is a stop must carry the fields that make it
+        # one on the wire (`stop_order_type`, `stop_trigger_method`), otherwise
+        # `DeltaOrderRequest.to_exchange_payload` refuses it -- a gateway must
+        # not hand back an approved request that cannot legally be submitted.
+        is_stop = order_type in (OrderType.STOP_LIMIT_ORDER, OrderType.STOP_MARKET_ORDER)
         delta_order_req = DeltaOrderRequest(
             product_id=spec.product_id,
             product_symbol=spec.symbol,
@@ -590,7 +597,10 @@ class OrderValidationGateway:
             order_type=order_type,
             size=request.quantity,
             limit_price=request.entry_price,
-            stop_price=request.stop_loss if order_type in (OrderType.STOP_LIMIT_ORDER, OrderType.STOP_MARKET_ORDER) else None,
+            stop_price=request.stop_loss if is_stop else None,
+            stop_order_type=StopOrderType.STOP_LOSS_ORDER if is_stop else None,
+            stop_trigger_method=(
+                StopTriggerMethod.LAST_TRADED_PRICE if is_stop else None),
             time_in_force=request.time_in_force,
             reduce_only=request.reduce_only,
             client_order_id=request.client_order_id,

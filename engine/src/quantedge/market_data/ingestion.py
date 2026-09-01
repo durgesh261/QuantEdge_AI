@@ -438,15 +438,21 @@ def upsert_closed_candles(
     return result
 
 
-def _fetch_window(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
+def _fetch_window(start_ts: int, end_ts: int,
+                  symbol: str = SYMBOL_EXCHANGE) -> List[Dict[str, Any]]:
     """Fetch a single window of raw candles from Delta REST API.
 
     Returns a list of raw Delta candle dicts (with field "time").
     Retries up to 3 times with 3-second backoff on failure.
+
+    `symbol` is the exchange symbol this window belongs to. It defaults to
+    BTCUSD, which is what every existing caller means; the endpoint has always
+    taken the symbol as a query parameter, so no new API semantics are assumed.
+    Callers are responsible for passing a registry-verified symbol.
     """
     url = (
         f"https://api.india.delta.exchange/v2/history/candles?"
-        f"{urllib.parse.urlencode({'symbol': SYMBOL_EXCHANGE, 'resolution': RESOLUTION, 'start': str(start_ts), 'end': str(end_ts)})}"
+        f"{urllib.parse.urlencode({'symbol': symbol, 'resolution': RESOLUTION, 'start': str(start_ts), 'end': str(end_ts)})}"
     )
     for attempt in range(3):
         try:
@@ -478,12 +484,17 @@ def _fetch_window(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
 MIN_CANONICAL_YEAR_START_TS = int(datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc).timestamp())
 
 
-def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
+def fetch_closed_candles(start_ts: int, end_ts: int,
+                         symbol: str = SYMBOL_EXCHANGE) -> List[Dict[str, Any]]:
     """Fetch all CLOSED candles in [start_ts, end_ts) from Delta REST API.
 
     Excludes the currently forming candle by capping at current_hour_start.
     Enforces minimum start_ts >= 2026-01-01 00:00:00 UTC (canonical year boundary).
     Returns raw Delta dicts sorted chronologically, deduplicated by "time".
+
+    `symbol` defaults to BTCUSD so every existing caller is unchanged; a
+    multi-pair caller passes its own registry-verified exchange symbol so a gap
+    is never filled with another product's prices.
     """
     now_ts = int(datetime.now(timezone.utc).timestamp())
     # Current hour start = floor(now to hour)
@@ -494,7 +505,8 @@ def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
     effective_start = max(start_ts, MIN_CANONICAL_YEAR_START_TS)
 
     print(
-        f"  Fetching closed candles [{datetime.fromtimestamp(effective_start, tz=timezone.utc).isoformat()} -> "
+        f"  Fetching closed candles for {symbol} "
+        f"[{datetime.fromtimestamp(effective_start, tz=timezone.utc).isoformat()} -> "
         f"{datetime.fromtimestamp(cursor_end, tz=timezone.utc).isoformat()}]"
     )
 
@@ -502,7 +514,7 @@ def fetch_closed_candles(start_ts: int, end_ts: int) -> List[Dict[str, Any]]:
     while cursor_end > effective_start:
         cursor_start = max(effective_start, cursor_end - MAX_PER_REQ * 3600)
         try:
-            candles = _fetch_window(cursor_start, cursor_end)
+            candles = _fetch_window(cursor_start, cursor_end, symbol)
         except Exception as e:
             print(f"    [ERROR] Failed to fetch window: {e}")
             break

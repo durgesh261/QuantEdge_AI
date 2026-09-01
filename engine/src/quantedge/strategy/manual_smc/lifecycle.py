@@ -13,13 +13,42 @@ tests.
 PER-CANDLE ORDERING (preserved from the oracle, load-bearing)
 -------------------------------------------------------------
   1. Resolve the active trade's exit (TP / SL / dual-touch / 72-bar timeout).
-  2. Update every live OB for this asset (invalidation, probe, displacement,
-     entry fill).
+  2. Update every live OB for this asset (invalidation, first touch / probe,
+     entry-window expiry, entry fill).
   3. Run the BOS scanner and admit new OBs AFTER the bar is fully processed
      — this is what makes admission break+1 rather than break+2.
 
 Step 3 must stay last: admitting a new OB before step 2 would let the BOS
-candle act as its own displacement candle.
+candle act as its own displacement candle, and would let the OB-creation candle
+trade itself — which the manual specification forbids outright.
+
+ACTIVATION MODES (the manual-specification change)
+--------------------------------------------------
+`activation_mode` selects how a live OB's 25% entry limit becomes executable:
+
+  * `ACTIVATION_MODE_FIRST_TOUCH` — THE PRODUCTION POLICY, i.e. the manual
+    specification. The OB is active from creation and waits indefinitely. The
+    first touch of the zone (proximal edge, wick or body, edge inclusive) arms
+    the limit on that same candle for exactly `entry_window_candles` candles
+    inclusive. Reached inside the window -> filled. Window expires -> cancelled
+    and PERMANENTLY invalidated.
+
+  * `ACTIVATION_MODE_ORACLE_C` — the oracle's Mode C probe -> pullback
+    displacement gate, arming from `displacement_bar + 1` with no expiry.
+    Retained unchanged so research parity stays provable.
+
+`ACTIVATION_MODE_ORACLE_C` is this class's CONSTRUCTOR DEFAULT and
+`ACTIVATION_MODE_FIRST_TOUCH` is the PRODUCTION default — the split is
+deliberate. It is an ACTIVATION split only: the take profit is an authorized
+0.60% under both `ManualSpecConfig()` (research) and
+`manual_smc_production_config()` (production). A bare
+`ManualSMCLifecycle()` must keep reproducing the frozen oracle, so production
+policy is injected at the production entry point (`ManualSMCStrategy`) and
+nowhere else.
+
+Both modes share every other rule: OB geometry, the 25% entry depth, the
+opposite-edge stop, wick-based distal invalidation, the single-active-trade
+gate, and the post-fill exit resolution.
 
 THE ONE INTENTIONAL DEVIATION FROM THE ORACLE
 ---------------------------------------------
@@ -47,19 +76,27 @@ was weakened. A rejected OB stays `LIMIT_RESTING` and remains eligible later.
 
 EVERYTHING ELSE IS ORACLE-FAITHFUL
 ----------------------------------
-Wick predicates, close-based Mode C probe→pullback, `limit_active_from_bar =
-displacement_bar + 1`, wick distal invalidation, dual-touch SL-first with
+Wick predicates, the oracle's close-based Mode C probe→pullback (still selectable
+via `ACTIVATION_MODE_ORACLE_C`, including `limit_active_from_bar =
+displacement_bar + 1`), wick distal invalidation, dual-touch SL-first with
 `DUAL_TOUCH_CONSERVATIVE_SL` / `is_ambiguous=True`, the 72-bar post-fill
 timeout and its `int(seconds/3600)` arithmetic, `max(1.0, hours)` holding
 normalisation, MFE tracking, and SHORT-before-LONG scanner emission order are
 all copied expression-for-expression. float throughout; no Decimal.
 
-RESTING-ORDER EXPIRY (approved policy)
---------------------------------------
-There is NO time-based expiry while an entry limit rests. A `LIMIT_RESTING` OB
-is cancelled ONLY by: entry fill, distal wick breach, the single-trade gate, or
-an explicit external operational cancellation. `max_holding_bars` (72) applies
-strictly AFTER fill.
+RESTING-ORDER EXPIRY (manual specification — supersedes the original policy)
+---------------------------------------------------------------------------
+Before the first touch there is NO expiry of any kind: an untouched OB stays
+active indefinitely, across days and across a backtest warm-up boundary, and OB
+age alone never invalidates it.
+
+After the first touch, in `ACTIVATION_MODE_FIRST_TOUCH`, the resting limit lives
+for exactly `entry_window_candles` candles inclusive of the first-touch candle.
+A `LIMIT_RESTING` OB is then cancelled by: entry fill, distal wick breach,
+entry-window expiry, or an explicit external operational cancellation. An OB
+invalidated by any of those can never become active again. In
+`ACTIVATION_MODE_ORACLE_C` there is no expiry, exactly as the oracle had it.
+`max_holding_bars` (72) applies strictly AFTER fill in both modes.
 
 OUT OF SCOPE FOR THIS STEP (deliberately absent)
 ------------------------------------------------
@@ -83,8 +120,10 @@ from quantedge.strategy.manual_smc.geometry import (
     _manual_entry_touched,
     _manual_sl_hit,
     _manual_tp_hit,
+    _manual_zone_touched,
 )
 from quantedge.strategy.manual_smc.models import (
+    MANUAL_SMC_ENTRY_WINDOW_CANDLES,
     MANUAL_SMC_STRATEGY_NAME,
     MANUAL_SMC_STRATEGY_VERSION,
     ManualOBRecord,
@@ -105,6 +144,33 @@ REASON_TIMEOUT = "TIMEOUT"
 
 DISPLACEMENT_MODE = "C_PROBE_PULLBACK"
 
+# ---------------------------------------------------------------------------
+# ACTIVATION MODES — how an OB's 25% entry limit becomes live
+# ---------------------------------------------------------------------------
+#: The manual specification, and the policy every PRODUCTION entry point selects
+#: (see `ManualSMCStrategy`). An OB is active from creation and waits, untouched,
+#: indefinitely. The FIRST TOUCH of the OB zone (the proximal edge, wick or body,
+#: edge inclusive) arms the 25% limit for exactly `entry_window_candles` candles
+#: INCLUSIVE of the first-touch candle. Entry reached inside the window ->
+#: filled. Window expires -> the order is cancelled and the OB is PERMANENTLY
+#: invalidated.
+ACTIVATION_MODE_FIRST_TOUCH: str = "FIRST_TOUCH_WINDOW"
+
+#: The frozen research oracle's Mode C displacement gate, retained verbatim so
+#: research parity remains provable and reproducible. A close-based probe beyond
+#: the proximal, then a pullback close back through it, arms the limit from
+#: `displacement_bar + 1` with NO expiry. This is `ManualSMCLifecycle`'s own
+#: constructor default — a bare lifecycle is the research engine — but it is
+#: never what production runs.
+ACTIVATION_MODE_ORACLE_C: str = DISPLACEMENT_MODE
+
+ACTIVATION_MODES: frozenset = frozenset(
+    {ACTIVATION_MODE_FIRST_TOUCH, ACTIVATION_MODE_ORACLE_C})
+
+#: Candle count for the first-touch entry window, INCLUSIVE of the first-touch
+#: candle: bars [limit_active_from_bar, limit_active_from_bar + 2].
+ENTRY_WINDOW_CANDLES: int = MANUAL_SMC_ENTRY_WINDOW_CANDLES
+
 
 class ManualLifecycleEventType(Enum):
     """Observable lifecycle transitions, emitted in the order they occur."""
@@ -112,6 +178,7 @@ class ManualLifecycleEventType(Enum):
     PRE_DISPLACEMENT_TOUCH = "PRE_DISPLACEMENT_TOUCH"
     PROBE_CONFIRMED = "PROBE_CONFIRMED"
     DISPLACEMENT_CONFIRMED = "DISPLACEMENT_CONFIRMED"
+    FIRST_TOUCH_LIMIT_ACTIVATED = "FIRST_TOUCH_LIMIT_ACTIVATED"
     INVALIDATED = "INVALIDATED"
     ENTRY_FILLED = "ENTRY_FILLED"
     ENTRY_BLOCKED_BY_ACTIVE_TRADE = "ENTRY_BLOCKED_BY_ACTIVE_TRADE"
@@ -214,8 +281,39 @@ class ManualSMCLifecycle:
         self,
         config: Optional[ManualSpecConfig] = None,
         assets: Optional[List[str]] = None,
+        activation_mode: str = ACTIVATION_MODE_ORACLE_C,
+        entry_window_candles: int = ENTRY_WINDOW_CANDLES,
     ) -> None:
+        """
+        A BARE `ManualSMCLifecycle()` IS THE RESEARCH ENGINE, NOT PRODUCTION.
+
+        Its defaults reproduce the frozen oracle exactly — `C_PROBE_PULLBACK`
+        activation and `ManualSpecConfig()`'s 0.60% take profit — for the same
+        reason `manual_smc_production_config()` exists separately: the extraction
+        is only provable against the oracle while the bare object still behaves
+        like it.
+
+        PRODUCTION never constructs one directly. `ManualSMCStrategy` injects
+        `FIRST_TOUCH_WINDOW` and the authorized production config, so there is
+        exactly one place where the production policy is chosen and it is the
+        production entry point. The authorized production TP is the same 0.60%,
+        so today the two configs differ in no field; the injection point is what
+        keeps that a verifiable fact rather than an assumption.
+        """
+        if activation_mode not in ACTIVATION_MODES:
+            raise ValueError(
+                f"unknown activation_mode {activation_mode!r}; expected one of "
+                f"{sorted(ACTIVATION_MODES)}. Refusing to guess how an entry "
+                f"limit becomes live (safety rule #13)")
+        if not isinstance(entry_window_candles, int) or isinstance(
+                entry_window_candles, bool) or entry_window_candles < 1:
+            raise ValueError(
+                f"entry_window_candles must be an int >= 1, got "
+                f"{entry_window_candles!r}; a zero or negative window would "
+                f"cancel every order before it could fill")
         self.cfg: ManualSpecConfig = config or ManualSpecConfig()
+        self.activation_mode: str = activation_mode
+        self.entry_window_candles: int = entry_window_candles
         self.live_obs: Dict[str, ManualOBRecord] = {}
         self.active_trade: Optional[ManualActiveTrade] = None
         self.exits: List[ManualTradeExit] = []
@@ -331,7 +429,8 @@ class ManualSMCLifecycle:
             elif hit_tp:
                 outcome, reason, exit_p, ambiguous = (
                     OUTCOME_TP, REASON_TP_HIT, at.tp_price, False)
-                narrative = f"Fixed +0.60% TP reached at {at.tp_price:.6f}."
+                narrative = (f"Fixed +{self.cfg.fixed_tp_market_pct:.2f}% TP "
+                             f"reached at {at.tp_price:.6f}.")
             else:
                 outcome, reason, exit_p, ambiguous = (
                     OUTCOME_SL, REASON_SL_HIT, at.sl_price, False)
@@ -395,6 +494,7 @@ class ManualSMCLifecycle:
             pre_displacement_touches=ob.pre_displacement_touches,
             retest_number=ob.retest_number,
             mfe_from_proximal=ob.mfe_from_proximal,
+            displacement_mode=self.activation_mode,
             data_timeframe=self.cfg.data_timeframe,
             narrative=narrative,
         ))
@@ -487,19 +587,84 @@ class ManualSMCLifecycle:
         """
         AWAITING_DISPLACEMENT branch. Returns True if the OB died this candle.
 
-        Mode C displacement is CLOSE-based and needs two distinct candles: a
-        probe close beyond the proximal, then a pullback close back through it.
-        A single candle can therefore never both confirm the probe and confirm
-        displacement — the `if not probe_confirmed / else` split is the oracle's
-        and is load-bearing.
+        The state name is the oracle's and is preserved for record-structure
+        equivalence. Under `ACTIVATION_MODE_FIRST_TOUCH` it means simply
+        "ACTIVE, waiting for the first touch" — and it waits indefinitely:
+        nothing in this branch can invalidate an OB because time passed.
         """
-        # (a) wick distal breach kills the setup before any entry.
+        # (a) wick distal breach kills the setup before any entry. Checked first
+        #     in both modes: a candle that reaches the far edge has crossed the
+        #     whole block, and refusing the trade is the conservative direction.
         if _manual_distal_breached(ob, c_h, c_l):
             ob.state = ManualOBState.INVALIDATED
             self._emit(events, ManualLifecycleEventType.INVALIDATED, ob,
                        bar_idx, ts, "distal wick breach before displacement")
             return True
 
+        if self.activation_mode == ACTIVATION_MODE_FIRST_TOUCH:
+            return self._awaiting_first_touch(ob, bar_idx, ts, c_h, c_l, events)
+        return self._awaiting_oracle_mode_c(
+            ob, bar_idx, ts, c_c, c_h, c_l, events)
+
+    def _awaiting_first_touch(
+        self,
+        ob: ManualOBRecord,
+        bar_idx: int,
+        ts: datetime,
+        c_h: float,
+        c_l: float,
+        events: List[ManualLifecycleEvent],
+    ) -> bool:
+        """
+        Manual specification: the FIRST TOUCH of the zone arms the 25% limit.
+
+        A touch is `high >= proximal` (SHORT) / `low <= proximal` (LONG) — wick
+        or body, edge inclusive, no penetration-depth requirement. The limit
+        becomes live on the first-touch candle ITSELF (`limit_active_from_bar =
+        bar_idx`, not `bar_idx + 1`), so an entry reached on that same candle
+        fills normally. That is why this method ends by delegating to
+        `_update_resting` for the very same candle.
+        """
+        if not _manual_zone_touched(ob, c_h, c_l):
+            return False            # untouched: still ACTIVE, indefinitely
+
+        ob.pre_displacement_touches += 1
+        if ob.first_touch_dt is None:
+            ob.first_touch_dt = ts
+        ob.state = ManualOBState.LIMIT_RESTING
+        ob.displacement_confirmed_dt = ts
+        ob.displacement_confirmed_bar = bar_idx
+        ob.limit_active_from_bar = bar_idx
+        last_bar = bar_idx + self.entry_window_candles - 1
+        self._emit(events,
+                   ManualLifecycleEventType.FIRST_TOUCH_LIMIT_ACTIVATED, ob,
+                   bar_idx, ts,
+                   f"first zone touch at proximal {ob.proximal:.6f}; "
+                   f"{ob.entry_price:.6f} limit live for bars "
+                   f"{bar_idx}..{last_bar} "
+                   f"({self.entry_window_candles} candles, inclusive)")
+        # The activating candle may itself reach the entry.
+        return self._update_resting(ob, bar_idx, ts, c_h, c_l, events)
+
+    def _awaiting_oracle_mode_c(
+        self,
+        ob: ManualOBRecord,
+        bar_idx: int,
+        ts: datetime,
+        c_c: float,
+        c_h: float,
+        c_l: float,
+        events: List[ManualLifecycleEvent],
+    ) -> bool:
+        """
+        The oracle's Mode C gate, unchanged.
+
+        Mode C displacement is CLOSE-based and needs two distinct candles: a
+        probe close beyond the proximal, then a pullback close back through it.
+        A single candle can therefore never both confirm the probe and confirm
+        displacement — the `if not probe_confirmed / else` split is the oracle's
+        and is load-bearing.
+        """
         # (b) pre-displacement touches are counted but never fill.
         if _manual_entry_touched(ob, c_h, c_l):
             ob.pre_displacement_touches += 1
@@ -535,6 +700,24 @@ class ManualSMCLifecycle:
                            f"(displacement candle cannot fill)")
         return False
 
+    def _window_last_bar(self, ob: ManualOBRecord) -> Optional[int]:
+        """
+        Last bar index on which this OB's resting limit may still fill.
+
+        `None` means "no window applies": either the oracle activation mode is
+        in force (no expiry at all) or the limit has no activation bar yet.
+
+        The convention, stated once and relied on everywhere: the window is the
+        `entry_window_candles` bars
+        `[limit_active_from_bar, limit_active_from_bar + entry_window_candles - 1]`
+        INCLUSIVE, so with the specification's 3 it is the first-touch candle
+        plus the next two.
+        """
+        if self.activation_mode != ACTIVATION_MODE_FIRST_TOUCH:
+            return None
+        if ob.limit_active_from_bar is None:
+            return None
+        return ob.limit_active_from_bar + self.entry_window_candles - 1
 
     def _update_resting(
         self,
@@ -548,14 +731,39 @@ class ManualSMCLifecycle:
         """
         LIMIT_RESTING branch. Returns True if the OB died this candle.
 
-        There is NO time-based expiry here (approved policy). A resting OB
-        leaves this state only by fill, by distal wick breach, or by external
-        operational cancellation.
+        Exits: entry fill, distal wick breach, entry-window expiry (first-touch
+        mode only), or external operational cancellation. A distal breach is
+        checked before expiry, so on a candle that does both the reported reason
+        is the breach; the outcome — INVALIDATED and out of the pool — is the
+        same either way.
+
+        Expiry is checked BEFORE the entry touch, so a limit can never fill on a
+        candle after its window closed, and never expires on a candle where it
+        could still legitimately fill.
+
+        The expiry message says "without an admitted fill" rather than "without
+        the entry being reached" because the two are not the same: an entry
+        reached inside the window but refused by the single-trade slot leaves the
+        OB resting, and its window still closes on schedule. That is the
+        fail-closed direction (one fewer trade, never an unslotted one), and the
+        specification does not cover the case — see the report accompanying this
+        change.
         """
         if _manual_distal_breached(ob, c_h, c_l):
             ob.state = ManualOBState.INVALIDATED
             self._emit(events, ManualLifecycleEventType.INVALIDATED, ob,
                        bar_idx, ts, "distal wick breach while limit resting")
+            return True
+
+        last_bar = self._window_last_bar(ob)
+        if last_bar is not None and bar_idx > last_bar:
+            ob.state = ManualOBState.INVALIDATED
+            self._emit(events, ManualLifecycleEventType.INVALIDATED, ob,
+                       bar_idx, ts,
+                       f"{self.entry_window_candles}-candle entry window "
+                       f"[{ob.limit_active_from_bar}..{last_bar}] expired "
+                       f"without an admitted fill at {ob.entry_price:.6f}; "
+                       f"order cancelled and this OB is permanently invalid")
             return True
 
         if ob.limit_active_from_bar is None or bar_idx < ob.limit_active_from_bar:
@@ -631,6 +839,10 @@ __all__ = [
     "REASON_DUAL_TOUCH",
     "REASON_TIMEOUT",
     "DISPLACEMENT_MODE",
+    "ACTIVATION_MODE_FIRST_TOUCH",
+    "ACTIVATION_MODE_ORACLE_C",
+    "ACTIVATION_MODES",
+    "ENTRY_WINDOW_CANDLES",
     "ManualLifecycleEventType",
     "ManualLifecycleEvent",
     "ManualActiveTrade",

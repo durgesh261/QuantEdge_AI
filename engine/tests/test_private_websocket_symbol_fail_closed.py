@@ -93,7 +93,10 @@ def _fill(**overrides) -> dict:
         "side": "buy",
         "size": "3",
         "price": "77001.5",
-        "fee": "0.05",
+        # Task O §O2: `commission` is Delta's documented fee field on a fill.
+        # This fixture previously used `fee`, which the exchange never sends;
+        # reading it kept the assertion below green while proving nothing.
+        "commission": "0.05",
         "role": "taker",
     }
     payload.update(overrides)
@@ -441,18 +444,56 @@ class TestUnrelatedBehaviourIsUnchanged:
         assert event.unrealized_pnl == Decimal("9.99")
         assert event.realized_pnl == Decimal("1.11")
 
-    def test_position_optional_fields_still_default(self):
+    def test_position_optional_numerics_are_unobserved_not_fabricated(self):
+        """
+        Amended by Task O §O6 C7 (was `test_position_optional_fields_still_default`).
+
+        Every assertion below that previously pinned a number pinned a
+        fabrication instead of an observation: an absent `mark_price` became the
+        entry price, so an un-marked position reported zero unrealized drift at
+        exactly break-even; an absent `unrealized_pnl` and `margin` became an
+        observed zero; an absent `leverage` became an observed 1x. §O3 had
+        already removed the same defect from `realized_pnl` alone -- this
+        extends that one rule to the remaining four. Absence is `None`.
+
+        The assertions are strengthened, not relaxed: `None` is a strictly
+        narrower claim than a number the payload never carried, and the
+        companion test below proves supplied values are still exact.
+        """
         payload = _position(liquidation_price="")
         for key in ("unrealised_pnl", "realised_pnl", "margin", "leverage",
                     "mark_price"):
             del payload[key]
         event = EventValidator()._normalize_position(payload)
         assert event.liquidation_price is None
-        assert event.mark_price == Decimal("77000.0")  # falls back to entry
+        # No fallback to `entry_price`: an un-marked position is un-marked.
+        assert event.mark_price is None
+        assert event.unrealized_pnl is None
+        # Task O §O3: an absent realized PnL is unobserved, not break-even. The
+        # previous `== Decimal("0")` here encoded the defect that let a real
+        # closure book at exactly zero P&L.
+        assert event.realized_pnl is None
+        assert event.margin is None
+        assert event.leverage is None
+        # Unrelated, unchanged: identity and size still resolve normally.
+        assert event.symbol == "BTCUSD"
+        assert event.entry_price == Decimal("77000.0")
+        assert event.size == Decimal("3")
+
+    def test_position_optional_numerics_that_are_supplied_stay_exact(self):
+        """
+        The other half of §O6 C7. Refusing to fabricate must not blur a value the
+        stream actually sent, including an explicitly observed zero, which is a
+        real fact and must not collapse to `None`.
+        """
+        event = EventValidator()._normalize_position(_position(
+            mark_price="77500.00000001", unrealised_pnl="0", margin="0",
+            leverage="0", liquidation_price="70000.5"))
+        assert str(event.mark_price) == "77500.00000001"
         assert event.unrealized_pnl == Decimal("0")
-        assert event.realized_pnl == Decimal("0")
         assert event.margin == Decimal("0")
-        assert event.leverage == Decimal("1")
+        assert event.leverage == Decimal("0")
+        assert event.liquidation_price == Decimal("70000.5")
 
     def test_the_fill_event_fields_are_unchanged(self):
         event = _normalize(_fill, "_normalize_fill")

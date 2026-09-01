@@ -28,14 +28,30 @@ Manual SMC is identified as MANUAL_SMC / 1.0.0 and must remain
 distinguishable from the pre-existing LuxAlgo "SMC" / "2.1" strategy in
 database records, logs, execution decisions, reconciliation and tests.
 
-RESTING-ORDER EXPIRY POLICY (approved)
---------------------------------------
-There is NO arbitrary time-based expiry while an entry limit is resting.
-A LIMIT_RESTING setup remains valid until exactly one of:
+RESTING-ORDER EXPIRY POLICY (superseded — see below)
+----------------------------------------------------
+The ORIGINAL approved policy was: no time-based expiry at all while an entry
+limit is resting. The manual specification supersedes it with a two-phase rule,
+implemented in `lifecycle.py`:
+
+  PHASE 1 — before the first touch (state AWAITING_DISPLACEMENT):
+      NO expiry whatsoever. An untouched OB stays active indefinitely, across
+      days and across a backtest warm-up boundary. OB age alone never
+      invalidates it.
+
+  PHASE 2 — after the first touch (state LIMIT_RESTING):
+      the 25% limit is live for exactly `MANUAL_SMC_ENTRY_WINDOW_CANDLES` (3)
+      candles INCLUSIVE of the first-touch candle. If the entry is not reached
+      inside that window the order is cancelled and the OB is PERMANENTLY
+      invalidated — it can never become active again.
+
+A LIMIT_RESTING setup therefore ends in exactly one of:
     A. the entry is filled;
     B. the OB is invalidated by a distal wick breach;
-    C. the account/global trade lock prevents admission;
-    D. an explicit operational cancellation / kill-switch / reconciliation
+    C. the 3-candle entry window expires;
+    D. the account/global trade lock prevents admission and the window then
+       expires;
+    E. an explicit operational cancellation / kill-switch / reconciliation
        event cancels it.
 `ManualSpecConfig.max_holding_bars` (72) applies ONLY to an ACTIVE TRADE
 after entry fill. It is NOT a resting-order lifetime.
@@ -111,7 +127,7 @@ class ManualOBRecord:
     # Trade parameters
     entry_price:                float          # 25% from proximal
     sl_price:                   float          # = distal
-    tp_price:                   float          # entry × (1 ∓ 0.006)
+    tp_price:                   float          # entry × (1 ∓ cfg.fixed_tp_market_pct/100)
     sl_dist_pct:                float
     theoretical_leverage:       float
     applied_leverage:           float
@@ -151,11 +167,71 @@ class ManualSpecConfig:
 # Production-facing alias. Provably behaviour-neutral: identical object.
 ManualSMCConfig = ManualSpecConfig
 
+
+# ---------------------------------------------------------------------------
+# PRODUCTION STRATEGY CONSTANTS (manual specification)
+# ---------------------------------------------------------------------------
+# `ManualSpecConfig`'s DEFAULTS are frozen against the research oracle so that
+# `asdict(ManualSpecConfig()) == asdict(OracleManualSpecConfig())` keeps holding
+# — that equality is the extraction-provenance gate in
+# test_manual_smc_oracle_equivalence.py, and weakening it would destroy the only
+# proof that the extracted geometry is bit-identical to the frozen research
+# engine.
+#
+# AUTHORIZED VALUE: 0.60%. The production take profit is the SAME 0.60% the
+# oracle uses; an earlier proposal to raise it to 0.65% was explicitly withdrawn.
+# The constant is kept as the single injection point rather than being folded
+# back into `ManualSpecConfig` for two reasons: mutating the oracle-pinned
+# default is what would break the provenance proof above, and every production
+# entry point already reads this one symbol, so a future AUTHORIZED change has
+# exactly one place to go. There is exactly ONE take-profit number in production
+# and this is it; `_make_manual_ob` still reads it from the config it is handed,
+# so no second TP computation exists anywhere.
+#
+# Consequence of 0.60% that must not be hidden: against a stop at the far OB
+# edge the R:R the Path A gateway sees is `0.0060 * entry / (0.75 * width)`, so
+# the widest Path-A-executable OB is ~0.533% of price (it was ~0.578% at the
+# withdrawn 0.65%). See `TestFrozenRiskRewardGate` in
+# test_manual_smc_first_touch_window.py — the gateway is frozen and the TP is a
+# flat percentage, so neither side of that arithmetic may be adjusted here.
+MANUAL_SMC_FIXED_TP_PCT: float = 0.60
+
+# The manual specification's entry window: once the first touch has armed the
+# 25% limit, the limit is live for exactly three candles INCLUSIVE of the
+# first-touch candle itself. Deliberately NOT a `ManualSpecConfig` field: adding
+# one would change `fields(ManualSpecConfig)` and break the same provenance
+# gate. `ManualSMCLifecycle` owns it (see `lifecycle.ENTRY_WINDOW_CANDLES`).
+MANUAL_SMC_ENTRY_WINDOW_CANDLES: int = 3
+
+
+def manual_smc_production_config(**overrides: object) -> ManualSpecConfig:
+    """
+    The config every PRODUCTION Manual SMC entry point must use.
+
+    Value-identical to `ManualSpecConfig()` today: the authorized production take
+    profit is the oracle's 0.60%, so `asdict()` of the two is equal. That equality
+    is a CONSEQUENCE of the current authorization, not a guarantee — the seam
+    exists so an authorized change to `MANUAL_SMC_FIXED_TP_PCT` reaches every
+    production entry point without touching the oracle-pinned default. Callers may
+    override any field; an unknown field raises `TypeError` from the dataclass
+    constructor rather than being silently dropped.
+
+    A bare `ManualSpecConfig()` remains the RESEARCH config and still reproduces
+    the oracle exactly. Production code must not construct one directly.
+    """
+    params: dict = {"fixed_tp_market_pct": MANUAL_SMC_FIXED_TP_PCT}
+    params.update(overrides)
+    return ManualSpecConfig(**params)   # type: ignore[arg-type]
+
+
 __all__ = [
     "MANUAL_SMC_STRATEGY_NAME",
     "MANUAL_SMC_STRATEGY_VERSION",
+    "MANUAL_SMC_FIXED_TP_PCT",
+    "MANUAL_SMC_ENTRY_WINDOW_CANDLES",
     "ManualOBState",
     "ManualOBRecord",
     "ManualSpecConfig",
     "ManualSMCConfig",
+    "manual_smc_production_config",
 ]

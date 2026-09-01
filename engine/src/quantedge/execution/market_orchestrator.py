@@ -232,7 +232,7 @@ class MarketScannerOrchestrator:
         setup_id: str,
         reason: CloseReason,
         gross_pnl: Decimal,
-        trading_fees: Decimal = Decimal("0.0"),
+        trading_fees: Optional[Decimal] = Decimal("0.0"),
         funding_costs: Decimal = Decimal("0.0"),
         final_exchange_balance: Optional[Decimal] = None,
     ) -> TradeLifecycleRecord:

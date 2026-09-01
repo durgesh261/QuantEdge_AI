@@ -21,9 +21,11 @@ same decisions.
 TAKE PROFIT IS THE ABSOLUTE OB PRICE — `take_profit_target_pct` IS NOT READ
 --------------------------------------------------------------------------
 `StrategyDecision` carries a `take_profit_target_pct` field whose default,
-60.0, is a target RETURN ON MARGIN. Manual SMC's take profit is a 0.60% PRICE
-move, and the two coincide only at 100x leverage. This module therefore never
-reads that field, never writes it, and never derives a price from it: the
+60.0, is a target RETURN ON MARGIN. Manual SMC's take profit is a PRICE move —
+an authorized 0.60% under both the production and the research config — and a
+price move only coincides with a return on margin at one particular leverage.
+This module therefore never reads that field, never writes it, and never derives
+a price from it: the
 identifier does not occur in the executable source of this file at all. Every
 `take_profit` / `take_profit_price` it emits is the OB's absolute price, taken
 from the quantized bracket whose raw leg is cross-checked back against

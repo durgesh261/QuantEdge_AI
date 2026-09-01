@@ -68,7 +68,10 @@ from quantedge.strategy.manual_smc.backtest import (
     run_manual_smc_backtest,
     run_manual_smc_backtest_from_candles,
 )
-from quantedge.strategy.manual_smc.lifecycle import ManualLifecycleEventType as ET
+from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_ORACLE_C,
+    ManualLifecycleEventType as ET,
+)
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
     MANUAL_SMC_STRATEGY_VERSION,
@@ -145,12 +148,44 @@ LONG_TOP, LONG_BOTTOM, LONG_WIDTH = 106.0, 100.0, 6.0
 LONG_ENTRY, LONG_SL, LONG_TP = 104.5, 100.0, 105.127
 
 
+# ---------------------------------------------------------------------------
+# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE — deliberately.
+# ---------------------------------------------------------------------------
+# Every fixture here, including the published golden BTC window, is a Mode-C
+# script: probe candle, pullback candle, then the fill on `displacement_bar + 1`
+# or later, with the oracle's absolute 0.60% take profit. Those bar indices and
+# prices ARE the published research baseline, which is the whole point of the
+# golden test — so the fixtures keep their oracle meaning and the two oracle
+# keywords are named explicitly.
+#
+# `ManualSMCBacktest` itself now DEFAULTS to the production policy (first touch,
+# three-candle window, an authorized 0.60% TP — the same take profit the oracle
+# uses, so ORACLE_KW below changes the ACTIVATION MODE and not the TP). The
+# production backtest is covered by
+# `test_manual_smc_first_touch_window.py` and by the 2024-2026 preload run.
+ORACLE_KW = {
+    "activation_mode": ACTIVATION_MODE_ORACLE_C,
+    "config": ManualSpecConfig(),
+}
+
+
 def _drive(data, symbols=None, **kwargs):
     """One driver, one strategy, one lock. Returns (driver, [evaluations])."""
     syms = tuple(symbols) if symbols is not None else tuple(data)
-    driver = ManualSMCBacktest(symbols=syms, **kwargs)
+    driver = ManualSMCBacktest(symbols=syms, **{**ORACLE_KW, **kwargs})
     timeline = build_timeline(data, syms)
     return driver, list(driver.iter_run(timeline, data))
+
+
+def _run_oracle(*args, **kwargs) -> BacktestResult:
+    """
+    `run_manual_smc_backtest_from_candles` under the ORACLE activation policy.
+
+    A wrapper rather than a per-call-site edit so that every assertion below
+    stays exactly as it was written, and so there is one place that says why.
+    """
+    return run_manual_smc_backtest_from_candles(
+        *args, **{**ORACLE_KW, **kwargs})
 
 
 def _events(evaluations, ob_id=None):
@@ -295,10 +330,10 @@ class TestGovernance:
         with pytest.raises(BacktestGovernanceError):
             ManualSMCBacktest(symbols=("BTCUSD",))
         with pytest.raises(BacktestGovernanceError):
-            run_manual_smc_backtest_from_candles({"BTCUSD": _c(SHORT_ROWS)})
+            _run_oracle({"BTCUSD": _c(SHORT_ROWS)})
 
     def test_the_driver_reports_the_manual_smc_identity(self):
-        result = run_manual_smc_backtest_from_candles({"BTCUSD": _c(SHORT_ROWS)})
+        result = _run_oracle({"BTCUSD": _c(SHORT_ROWS)})
         assert result.strategy_name == MANUAL_SMC_STRATEGY_NAME == "MANUAL_SMC"
         assert result.strategy_version == MANUAL_SMC_STRATEGY_VERSION == "1.0.0"
         assert all(t.strategy_name == "MANUAL_SMC" for t in result.trades)
@@ -498,7 +533,7 @@ class TestGoldenBTCTradeThroughTheRealBacktestPath:
         dataset = _golden_dataset()
         start = dataset["BTCUSD"][GOLDEN_WINDOW_START_BAR].ts
         driver = ManualSMCBacktest(symbols=("BTCUSD",),
-                                   tick_specs=_specs("BTCUSD"))
+                                   tick_specs=_specs("BTCUSD"), **ORACLE_KW)
         timeline = build_timeline(dataset, ("BTCUSD",), start_date=start)
         evaluations = list(driver.iter_run(timeline, dataset))
         return driver, evaluations
@@ -895,17 +930,17 @@ class TestPortfolioWideGlobalLock:
         assert a == ([("BTCUSD", 4)], [("ETHUSD", 4, "BTCUSD")], "BTCUSD")
 
         # And the closed-trade ledger agrees with itself across both orders.
-        first = run_manual_smc_backtest_from_candles(forward,
+        first = _run_oracle(forward,
                                                      symbols=LOCK_SYMBOLS)
-        second = run_manual_smc_backtest_from_candles(reversed_,
+        second = _run_oracle(reversed_,
                                                       symbols=LOCK_SYMBOLS)
         assert [t.ob_id for t in first.trades] == [t.ob_id for t in second.trades]
         assert first.entry_blocks == second.entry_blocks
 
     def test_the_whole_multi_asset_run_is_reproducible(self):
-        first = run_manual_smc_backtest_from_candles(_lock_data(),
+        first = _run_oracle(_lock_data(),
                                                      symbols=LOCK_SYMBOLS)
-        second = run_manual_smc_backtest_from_candles(_lock_data(),
+        second = _run_oracle(_lock_data(),
                                                       symbols=LOCK_SYMBOLS)
         assert first.trades == second.trades
         assert first.entry_blocks == second.entry_blocks
@@ -983,7 +1018,7 @@ class TestCandleSequencing:
     def test_equal_timestamps_across_assets_are_allowed(self):
         """Four 1h assets on one clock require this; it must not raise."""
         rows = _c([(0, 1, 1, 1, 1), (1, 1, 1, 1, 1)])
-        result = run_manual_smc_backtest_from_candles(
+        result = _run_oracle(
             {"BTCUSD": rows, "ETHUSD": rows}, symbols=LOCK_SYMBOLS)
         assert result.candles_processed == 4
 
@@ -1111,8 +1146,8 @@ class TestQuantizationIsReportingOnly:
     @staticmethod
     def pair():
         data = _lock_data()
-        plain = run_manual_smc_backtest_from_candles(data, symbols=LOCK_SYMBOLS)
-        ticked = run_manual_smc_backtest_from_candles(
+        plain = _run_oracle(data, symbols=LOCK_SYMBOLS)
+        ticked = _run_oracle(
             _lock_data(), symbols=LOCK_SYMBOLS,
             tick_specs=_specs("BTCUSD", "ETHUSD"))
         return plain, ticked
@@ -1139,13 +1174,13 @@ class TestQuantizationIsReportingOnly:
         assert all(t.quantization_refusal for t in plain.trades)
 
     def test_a_partially_specified_portfolio_still_runs(self):
-        result = run_manual_smc_backtest_from_candles(
+        result = _run_oracle(
             _lock_data(), symbols=LOCK_SYMBOLS, tick_specs=_specs("BTCUSD"))
         by_asset = {t.asset: t for t in result.trades}
         assert by_asset["BTCUSD"].quantized_at_fill is True
         assert by_asset["ETHUSD"].quantized_at_fill is False
         assert _behaviour(result) == _behaviour(
-            run_manual_smc_backtest_from_candles(_lock_data(),
+            _run_oracle(_lock_data(),
                                                  symbols=LOCK_SYMBOLS))
 
     def test_the_strategy_prices_stay_off_the_tick_grid_when_the_rule_says_so(self):
@@ -1158,7 +1193,7 @@ class TestQuantizationIsReportingOnly:
         dataset = _golden_dataset()
         start = dataset["BTCUSD"][GOLDEN_WINDOW_START_BAR].ts
         driver = ManualSMCBacktest(symbols=("BTCUSD",),
-                                   tick_specs=_specs("BTCUSD"))
+                                   tick_specs=_specs("BTCUSD"), **ORACLE_KW)
         driver.run(build_timeline(dataset, ("BTCUSD",), start_date=start),
                    dataset)
         trade = _one([t for t in driver.trades if t.ob_id == GOLDEN_OB_ID],
@@ -1190,7 +1225,7 @@ class TestAggregateSemanticsMatchTheOracle:
     def test_only_filled_tp_counts_as_a_win_and_filled_sl_as_a_loss(self):
         rows = SHORT_ROWS[:5] + [
             (b, 100.2, 100.4, 100.0, 100.2) for b in range(5, 78)]
-        agg = run_manual_smc_backtest_from_candles(
+        agg = _run_oracle(
             {"BTCUSD": _c(rows)}, symbols=("BTCUSD",)).overall
         assert (agg.wins, agg.losses, agg.timeouts) == (0, 0, 1)
         assert agg.trades == 1
@@ -1200,7 +1235,7 @@ class TestAggregateSemanticsMatchTheOracle:
         assert agg.classified == 1
 
     def test_win_rate_total_r_and_expectancy_use_the_oracle_rounding(self):
-        result = run_manual_smc_backtest_from_candles(_lock_data(),
+        result = _run_oracle(_lock_data(),
                                                       symbols=LOCK_SYMBOLS)
         agg = result.overall
         raw = sum(t.realized_r for t in result.trades)
@@ -1210,14 +1245,14 @@ class TestAggregateSemanticsMatchTheOracle:
         assert agg.average_r == agg.expectancy_r
 
     def test_the_asset_breakdown_partitions_the_trades(self):
-        result = run_manual_smc_backtest_from_candles(_lock_data(),
+        result = _run_oracle(_lock_data(),
                                                       symbols=LOCK_SYMBOLS)
         assert sorted(result.asset_breakdown) == list(sorted(LOCK_SYMBOLS))
         assert sum(a.trades for a in result.asset_breakdown.values()) == \
             result.overall.trades
 
     def test_the_oracle_shaped_dict_carries_the_documented_keys(self):
-        result = run_manual_smc_backtest_from_candles(_lock_data(),
+        result = _run_oracle(_lock_data(),
                                                       symbols=LOCK_SYMBOLS)
         as_dict = result.as_oracle_dict()
         for key in ("total_executed_trades", "wins", "losses", "win_rate_pct",
@@ -1229,7 +1264,7 @@ class TestAggregateSemanticsMatchTheOracle:
         assert as_dict["total_executed_trades"] == result.overall.trades
 
     def test_the_cumulative_r_column_is_a_running_total(self):
-        result = run_manual_smc_backtest_from_candles(_lock_data(),
+        result = _run_oracle(_lock_data(),
                                                       symbols=LOCK_SYMBOLS)
         running = 0.0
         for trade in result.trades:
@@ -1369,7 +1404,8 @@ class TestStep8ScopeMarker:
         import inspect
         params = list(inspect.signature(run_manual_smc_backtest).parameters)
         assert params == ["data_base_dir", "config", "symbols", "start_date",
-                         "end_date", "tick_specs", "registry", "account_id"]
+                          "end_date", "tick_specs", "registry", "account_id",
+                          "activation_mode", "entry_window_candles"]
         assert all(p.default is not inspect.Parameter.empty
                    for p in inspect.signature(
                        run_manual_smc_backtest).parameters.values())

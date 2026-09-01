@@ -48,6 +48,7 @@ from quantedge.strategy.manual_smc.backtest import (
     build_timeline,
     candles_from_ohlc,
 )
+from quantedge.strategy.manual_smc.lifecycle import ACTIVATION_MODE_ORACLE_C
 from quantedge.strategy.manual_smc.executable import (
     APPLIES_TO_STRATEGY_GEOMETRY,
     ORDER_QUANTITY_IS_COMPUTED,
@@ -112,11 +113,24 @@ LONG_ROWS = [
 ]
 
 
+# The Step 8 fixtures are Mode-C scripts carrying the oracle's 0.60% take
+# profit, and every named number below (99.897, 105.127, the R deltas) is that
+# TP quantized. `ManualSMCBacktest` now defaults to the production policy, so the
+# two oracle keywords are named here to keep the measured trades identical to the
+# ones Step 8 proved the semantics of — this file measures a quantization gap,
+# not an activation rule.
+ORACLE_KW = {
+    "activation_mode": ACTIVATION_MODE_ORACLE_C,
+    "config": ManualSpecConfig(),
+}
+
+
 def _run(rows, tick=BTC_TICK, symbol="BTCUSD"):
     """Drive the Step 8 backtest over one fixture and return its result."""
     data = {symbol: candles_from_ohlc(rows, _ts)}
     specs = None if tick is None else {symbol: FakeSpec(tick)}
-    driver = ManualSMCBacktest(symbols=(symbol,), tick_specs=specs)
+    driver = ManualSMCBacktest(symbols=(symbol,), tick_specs=specs,
+                               **ORACLE_KW)
     timeline = build_timeline(data, (symbol,))
     list(driver.iter_run(timeline, data))
     return driver.result()

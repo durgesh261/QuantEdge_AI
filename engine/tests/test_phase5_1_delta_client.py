@@ -430,7 +430,13 @@ async def test_get_open_orders(mock_client_factory):
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/v2/orders"
-        assert "state=open" in str(request.url)
+        # Task O §O4: strengthened, not weakened. This previously asserted the
+        # undocumented singular `state=open`. The documented query parameters are
+        # `states` and `product_ids` (CSV), and `pending` must be included or a
+        # resting stop-loss order is reported as missing protection.
+        assert request.url.params["states"] == "open,pending"
+        assert request.url.params["product_ids"] == "27"
+        assert "state=open" not in str(request.url)
         return httpx.Response(200, json=mock_orders_json)
 
     client = mock_client_factory(handler)
@@ -505,10 +511,19 @@ async def test_create_order_request_payload_and_idempotency(mock_client_factory)
 
 @pytest.mark.asyncio
 async def test_cancel_order_by_id(mock_client_factory):
-    """Verify DELETE /v2/orders/{id} cancels order."""
+    """Verify the documented DELETE /v2/orders body-form cancel.
+
+    Task O §O4: strengthened, not weakened. This previously pinned
+    `DELETE /v2/orders/9001`, an undocumented path whose body named no order.
+    The documented cancel is `DELETE /v2/orders` with the order identified in
+    the body, so the assertion now covers the body too -- which the path form
+    could not.
+    """
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "DELETE"
-        assert request.url.path == "/v2/orders/9001"
+        assert request.url.path == "/v2/orders"
+        body = json.loads(request.content.decode())
+        assert body == {"id": 9001, "product_id": 27}
         return httpx.Response(200, json={"success": True, "result": {"id": 9001, "state": "cancelled"}})
 
     client = mock_client_factory(handler)

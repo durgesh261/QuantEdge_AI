@@ -73,6 +73,7 @@ from quantedge.strategy.manual_smc.adapter import (
     require_manual_smc_identity,
     to_strategy_decisions,
 )
+from quantedge.strategy.manual_smc.lifecycle import ACTIVATION_MODE_ORACLE_C
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
     MANUAL_SMC_STRATEGY_VERSION,
@@ -186,9 +187,29 @@ for _b in (6, 7, 8, 9, 10):
 ETH_OB_ID = "MANUAL_ETHUSD_SHORT_2_3"
 
 
+# ---------------------------------------------------------------------------
+# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE — deliberately.
+# ---------------------------------------------------------------------------
+# Every row block above is a Mode-C script (probe candle, pullback candle, then
+# the fill) with the oracle's 0.60% take profit baked into `SHORT_RAW` /
+# `LONG_RAW` / the quantized goldens. Under the manual specification's
+# production first-touch rule those same rows fill two bars earlier, so the
+# fixtures would no longer describe the transitions each test names.
+#
+# The adapter's job — state -> `SetupState`, bracket -> Decimal legs, leverage
+# floor, refusal strings, identity — is activation-mode agnostic, so these tests
+# keep their assertions verbatim and simply name the mode their fixtures were
+# built for. Production first-touch adaptation is covered end-to-end in
+# `test_manual_smc_first_touch_window.py`.
+ORACLE_KW = {
+    "activation_mode": ACTIVATION_MODE_ORACLE_C,
+    "config": ManualSpecConfig(),
+}
+
+
 def _new(assets=("BTCUSD",), **kwargs) -> ManualSMCStrategy:
     kwargs.setdefault("tick_specs", _specs(*assets))
-    return ManualSMCStrategy(assets=list(assets), **kwargs)
+    return ManualSMCStrategy(assets=list(assets), **{**ORACLE_KW, **kwargs})
 
 
 def _adapter(**kwargs) -> ManualSMCAdapter:

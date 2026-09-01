@@ -98,9 +98,10 @@ Phase 1 Step 6 scope: `strategy.py`, covered by
     a disagreement surfaces as `TornStateError`, never as a silent replay.
   * Every take profit is the OB's ABSOLUTE `tp_price`. No result type carries a
     percentage-TP field, so the application's `StrategyDecision.
-    take_profit_target_pct` (a 60% return ON MARGIN, which coincides with the
-    Manual SMC 0.60% price move only at 100x) can never be mistaken for one;
-    `TP_SOURCE` records the provenance.
+    take_profit_target_pct` (a 60% return ON MARGIN, which coincides with a
+    Manual SMC price move — an authorized 0.60% under both the production and
+    the research config — only at one particular leverage) can never be mistaken
+    for one; `TP_SOURCE` records the provenance.
   * Quantization happens at the OUTPUT boundary only, against injected product
     specifications. No `ManualOBRecord` is mutated, and an asset with no spec
     yields a NON-executable setup rather than a guessed grid (safety rules #15,
@@ -220,6 +221,43 @@ Phase 2 scope (quantization half): `executable.py`, covered by
   * Like `adapter.py` and `backtest.py` it is DELIBERATELY NOT re-exported
     below; consumers import `quantedge.strategy.manual_smc.executable`.
 
+THE PRODUCTION ACTIVATION POLICY — FIRST TOUCH, THEN A THREE-CANDLE WINDOW
+--------------------------------------------------------------------------
+`ManualSMCLifecycle` supports TWO activation modes and they are not
+interchangeable. The mode is what decides WHEN a created OB becomes executable;
+it changes no geometry, no leverage and no exit rule.
+
+  * `ACTIVATION_MODE_FIRST_TOUCH` ("FIRST_TOUCH_WINDOW") is the PRODUCTION
+    policy and the default of both production entry points, `ManualSMCStrategy`
+    and `ManualSMCBacktest`, together with `ENTRY_WINDOW_CANDLES` and the
+    authorized 0.60% `manual_smc_production_config()`. BOS/CHOCH creates the OB;
+    the OB then
+    waits, ACTIVE and untouched, for as long as it takes — age alone NEVER
+    invalidates it, across days or across a backtest's preloaded history. The
+    FIRST re-entry of the zone (body or wick, edge inclusive, at any depth) arms
+    the exact 25%-depth limit for the window
+    `[touch_bar, touch_bar + ENTRY_WINDOW_CANDLES - 1]` INCLUSIVE — the touch
+    candle itself plus the next two, so an entry reached on the touch candle
+    fills. If the entry is not reached inside that window the resting order is
+    withdrawn (REPORTED, never placed or cancelled here — safety rule #9) and
+    the OB is PERMANENTLY invalid: it is dropped from the live pool and can
+    never re-arm. Only the first touch arms; later touches do not extend or
+    restart the window.
+  * `ACTIVATION_MODE_ORACLE_C` ("C_PROBE_PULLBACK") is the RESEARCH policy and
+    the bare `ManualSMCLifecycle()` default, preserved verbatim so oracle
+    equivalence stays provable: a close-based probe beyond the proximal, then a
+    pullback close back through it, arming from `displacement_bar + 1` with NO
+    window expiry. It is never the production default.
+
+Neither mode trades on the OB-creation candle. The per-candle order — resolve
+the active trade, update every live OB, admit new OBs LAST — is what makes
+admission strictly break+1, so a BOS candle whose own range covers the entry
+emits `OB_CREATED` and nothing else. The window convention, the permanence of
+an expiry and the indefinite survival of an untouched OB are pinned by
+`engine/tests/test_manual_smc_first_touch_window.py`, which constructs every
+subject with NO policy keywords so the shipped production defaults are the
+subject under test.
+
 This package has NO production wiring and NO execution wiring. Importing it
 cannot place, cancel or authorise an order.
 """
@@ -237,7 +275,11 @@ from quantedge.strategy.manual_smc.geometry import (
     manual_tp_hit,
 )
 from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_FIRST_TOUCH,
+    ACTIVATION_MODE_ORACLE_C,
+    ACTIVATION_MODES,
     DISPLACEMENT_MODE,
+    ENTRY_WINDOW_CANDLES,
     OUTCOME_SL,
     OUTCOME_TIMEOUT,
     OUTCOME_TP,
@@ -402,6 +444,10 @@ __all__ = [
     "ManualSpecBOSScanner",
     "ManualSMCBOSScanner",
     "DISPLACEMENT_MODE",
+    "ACTIVATION_MODE_FIRST_TOUCH",
+    "ACTIVATION_MODE_ORACLE_C",
+    "ACTIVATION_MODES",
+    "ENTRY_WINDOW_CANDLES",
     "OUTCOME_TP",
     "OUTCOME_SL",
     "OUTCOME_TIMEOUT",

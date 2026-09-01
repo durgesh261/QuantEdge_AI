@@ -229,9 +229,14 @@ class DeltaReconciliationService:
                 local_acct.last_synced_at = now
                 actions_taken.append("ACCOUNT_BALANCE_SYNCHRONIZED_FROM_DELTA")
 
-            # Sync local store with authoritative Delta data
+            # Sync local store with authoritative Delta data.
+            #
+            # `LiveAccountSyncService` exposes `sync()` / `synchronize()`; there
+            # is no `sync_account`, so calling one raised AttributeError and
+            # aborted auto-resolution before the orphaned lock below could ever
+            # be released.
             if self.sync_service:
-                await self.sync_service.sync_account(account_id)
+                await self.sync_service.sync(account_id)
                 actions_taken.append("LOCAL_STORE_SYNCHRONIZED_FROM_DELTA")
 
             # Release orphaned single trade lock

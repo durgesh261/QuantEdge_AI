@@ -73,13 +73,16 @@ work; hiding it would be worse than the gap.
 
 TAKE PROFIT IS AN ABSOLUTE PRICE — NEVER AN ROE PERCENTAGE
 ----------------------------------------------------------
-Manual SMC's TP is `entry * (1 ∓ 0.006)`, computed by `_make_manual_ob` and
+Manual SMC's TP is `entry * (1 ∓ fixed_tp_market_pct/100)` — an authorized 0.60%
+price move under both the production config this class defaults to and the
+research `ManualSpecConfig()` — computed by `_make_manual_ob` and
 carried as `ManualOBRecord.tp_price`. It must NEVER be re-derived from the
 application's `StrategyDecision.take_profit_target_pct`, which is a target
 RETURN ON MARGIN (60%), not a price move. The collision is easy to miss
 because `ManualSpecConfig.fixed_tp_market_pct` is `0.60` and
-`take_profit_target_pct` is `60.0`: the app's number is the Manual SMC number
-multiplied by 100x leverage (`gross_tp_return_pct = 0.60 * applied_leverage`).
+`take_profit_target_pct` is `60.0`: the app's number is that Manual SMC number
+multiplied by 100x leverage (`gross_tp_return_pct = fixed_tp_market_pct *
+applied_leverage`).
 At any other leverage they disagree, and deriving the price from the ROE figure
 would silently move the target. So: no result type in this module has a
 percentage-TP field at all, every TP is an absolute price taken from the OB,
@@ -112,6 +115,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_FIRST_TOUCH,
+    ENTRY_WINDOW_CANDLES,
     ManualActiveTrade,
     ManualLifecycleEvent,
     ManualLifecycleEventType,
@@ -124,6 +129,7 @@ from quantedge.strategy.manual_smc.models import (
     ManualOBRecord,
     ManualOBState,
     ManualSpecConfig,
+    manual_smc_production_config,
 )
 from quantedge.strategy.manual_smc.portfolio import (
     LockHolder,
@@ -519,10 +525,20 @@ class ManualSMCStrategy:
         lock: Optional[PortfolioLock] = None,
         lifecycle: Optional[ManualSMCLifecycle] = None,
         watermark: Optional[CandleWatermark] = None,
+        activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
+        entry_window_candles: int = ENTRY_WINDOW_CANDLES,
     ) -> None:
-        self.cfg: ManualSpecConfig = config or ManualSpecConfig()
+        # PRODUCTION DEFAULT: `manual_smc_production_config()`, whose take profit
+        # is the authorized 0.60% — the same value a bare `ManualSpecConfig()`
+        # carries, so the two are value-identical today. Production still routes
+        # through the production factory rather than constructing the research
+        # config directly, so the two can never drift by accident — see
+        # `models.manual_smc_production_config`.
+        self.cfg: ManualSpecConfig = (
+            config if config is not None else manual_smc_production_config())
         self.lifecycle: ManualSMCLifecycle = lifecycle or ManualSMCLifecycle(
-            config=self.cfg, assets=assets)
+            config=self.cfg, assets=assets, activation_mode=activation_mode,
+            entry_window_candles=entry_window_candles)
         if self.lifecycle.cfg is not self.cfg:
             # A lifecycle built elsewhere must not silently run under a
             # different config than the one this strategy reports.

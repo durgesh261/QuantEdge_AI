@@ -995,7 +995,10 @@ class TestUnknownEnumRejected:
 class TestSchemaVersionRejected:
     """Requirement 4/5: an explicit, checked schema and strategy identity."""
 
-    @pytest.mark.parametrize("version", [0, 2, 99, -1, 1000])
+    # v1 is in this list on purpose: v2 added the mandatory `activation` block,
+    # and a v1 payload does not record which activation mode produced it. Being
+    # refused rather than upgraded is the fail-closed direction (rule #13).
+    @pytest.mark.parametrize("version", [0, 1, 3, 99, -1, 1000])
     def test_an_unsupported_version_is_refused(self, version):
         payload = _valid_payload()
         with pytest.raises(UnsupportedSchemaVersionError, match="not restorable"):
@@ -1399,8 +1402,8 @@ class TestCodecDriftGuard:
     def test_the_top_level_key_set_is_pinned(self):
         assert TOP_KEYS == (
             "schema", "schema_version", "strategy_name", "strategy_version",
-            "config", "scanners", "live_obs", "active_trade", "exits",
-            "last_trade_closed_dt", "watermark")
+            "config", "activation", "scanners", "live_obs", "active_trade",
+            "exits", "last_trade_closed_dt", "watermark")
 
 
 class TestModuleIndependence:

@@ -118,6 +118,8 @@ from quantedge.execution.models import (
     OrderSizeContractError,
     OrderStatus,
     OrderType,
+    StopOrderType,
+    StopTriggerMethod,
 )
 from quantedge.execution.multi_user_orchestrator import (
     TradeDirection,
@@ -1009,6 +1011,17 @@ class TestFractionalOrderSizesAreRefusedNotTruncated:
         """
         Only `size` changed. Identity still comes from the registry and every
         price is still a string.
+
+        Task O §O1 added the two documented stop companions to the *input*: a
+        `stop_price` without `stop_order_type` / `stop_trigger_method` is now
+        refused locally, so this stop-loss request carries them. The sizing and
+        identity assertions the case exists for are untouched.
+
+        §G2 renamed the two attached-bracket keys on the *output* to Delta's
+        documented `bracket_stop_loss_price` / `bracket_take_profit_price` and
+        added `bracket_stop_trigger_method`; the old spelling was not a
+        parameter of POST /v2/orders and created no protection. Values are
+        unchanged and still strings.
         """
         req = DeltaOrderRequest(
             product_id=delta_india_registry().get("ETHUSD").product_id,
@@ -1017,6 +1030,8 @@ class TestFractionalOrderSizesAreRefusedNotTruncated:
             order_type=OrderType.STOP_MARKET_ORDER,
             size=Decimal("392"),
             stop_price=Decimal("2400.05"),
+            stop_order_type=StopOrderType.STOP_LOSS_ORDER,
+            stop_trigger_method=StopTriggerMethod.LAST_TRADED_PRICE,
             reduce_only=True,
             client_order_id="SL-abc",
             stop_loss_price=Decimal("2400.05"),
@@ -1028,9 +1043,12 @@ class TestFractionalOrderSizesAreRefusedNotTruncated:
         assert payload["side"] == "sell"
         assert payload["reduce_only"] is True
         assert payload["stop_price"] == "2400.05"
+        assert payload["stop_order_type"] == "stop_loss_order"
+        assert payload["stop_trigger_method"] == "last_traded_price"
         assert payload["client_order_id"] == "SL-abc"
-        assert payload["stop_loss_price"] == "2400.05"
-        assert payload["take_profit_price"] == "2700.10"
+        assert payload["bracket_stop_loss_price"] == "2400.05"
+        assert payload["bracket_take_profit_price"] == "2700.10"
+        assert payload["bracket_stop_trigger_method"] == "last_traded_price"
 
     def test_nothing_in_the_execution_layer_floors_an_order_size(self):
         """

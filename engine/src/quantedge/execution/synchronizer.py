@@ -56,12 +56,19 @@ class PositionRecord:
     symbol: str
     side: PositionSide
     quantity: Decimal
-    entry_price: Decimal
-    current_price: Decimal
-    unrealized_pnl: Decimal
-    realized_pnl: Decimal
-    leverage: Decimal
-    margin_used: Decimal
+    # Task O §O6: these mirror the five optional numerics on `DeltaPosition` and
+    # `DeltaPositionEvent`. The exchange may not report them, and the record must
+    # keep "not reported" distinguishable from "reported as zero" (or, for
+    # leverage, from "reported as 1x"). Every consumer assigns, compares for
+    # equality, or logs them; none performs arithmetic on them.
+    entry_price: Optional[Decimal]
+    current_price: Optional[Decimal]
+    unrealized_pnl: Optional[Decimal]
+    # Task O §O3: mirrors `DeltaPosition.realized_pnl` -- `None` when the
+    # exchange did not report a realized PnL, never a fabricated zero.
+    realized_pnl: Optional[Decimal]
+    leverage: Optional[Decimal]
+    margin_used: Optional[Decimal]
     liquidation_price: Optional[Decimal] = None
     status: PositionStatus = PositionStatus.OPEN
     delta_position_id: Optional[str] = None
@@ -440,6 +447,19 @@ class LiveAccountSyncService:
                         local_order.status = OrderStatus.CANCELLED
                         local_order.cancelled_at = sync_time
                         discrepancies.append(f"Order {local_order.delta_order_id or local_order.client_order_id} no longer open on exchange (CANCELLED)")
+                        # This CANCELLED is INFERRED from absence in the open-order
+                        # list, not confirmed by the exchange: an order that filled
+                        # while its fills were never observed locally also
+                        # disappears from that list. Execution paths that must know
+                        # the real terminal state (Task M entry expiry / fill
+                        # reconciliation) query the single-order endpoint instead of
+                        # relying on this inference.
+                        logger.warning(
+                            "Order %s terminal state INFERRED as CANCELLED from absence in the "
+                            "open-order list (local fill %s of %s); not exchange-confirmed",
+                            local_order.delta_order_id or local_order.client_order_id,
+                            local_order.filled_quantity, local_order.quantity,
+                        )
                     local_order.updated_at = sync_time
 
         return len(exchange_orders), discrepancies

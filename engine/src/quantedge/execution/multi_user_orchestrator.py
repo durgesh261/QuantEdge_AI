@@ -30,6 +30,8 @@ from quantedge.execution.models import (
     OrderSide,
     OrderType,
     OrderStatus,
+    StopOrderType,
+    StopTriggerMethod,
     TimeInForce,
     PositionSide,
 )
@@ -340,8 +342,20 @@ class UserExecutionSession:
             contract_value = spec.contract_value
             tick_size = spec.tick_size
 
+            # `get_ticker` is fail-closed: it raises unless the exchange
+            # returned this exact symbol's ticker with a finite, positive
+            # `mark_price`. So there is nothing left to default to here -- and
+            # a default must never answer a safety question. Falling back to the
+            # strategy's *planned* entry price would silently size real capital
+            # off a theoretical number the exchange never confirmed.
             ticker = await client.get_ticker(symbol)
-            mark_price = Decimal(str(ticker.get("mark_price", planned_entry_price)))
+            raw_mark_price = ticker.get("mark_price")
+            if raw_mark_price is None:
+                raise CapitalAllocationError(
+                    f"Live ticker for {symbol} carries no mark_price; refusing "
+                    f"to size a position without an authoritative mark"
+                )
+            mark_price = Decimal(str(raw_mark_price))
 
             # 7. Dynamic Capital Allocation & Position Sizing
             effective_leverage = self.config.leverage_override or default_leverage
@@ -406,6 +420,14 @@ class UserExecutionSession:
                 order_type=OrderType.STOP_MARKET_ORDER,
                 size=sizing_result.position_quantity,
                 stop_price=stop_loss_price.quantize(tick_size),
+                # Delta reads `stop_order_type` to decide an order is a stop and
+                # `stop_trigger_method` for the series that arms it; without
+                # them this reaches the exchange as a plain `market_order` with
+                # an ignored `stop_price` and closes the position immediately.
+                # Same contract, same trigger series as the Path-A protection in
+                # `trade_lifecycle._place_bracket_protection`.
+                stop_order_type=StopOrderType.STOP_LOSS_ORDER,
+                stop_trigger_method=StopTriggerMethod.LAST_TRADED_PRICE,
                 reduce_only=True,
                 client_order_id=sl_client_id,
             )

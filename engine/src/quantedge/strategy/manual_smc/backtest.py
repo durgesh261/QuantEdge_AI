@@ -103,7 +103,9 @@ from typing import (
 )
 
 from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_FIRST_TOUCH,
     DISPLACEMENT_MODE,
+    ENTRY_WINDOW_CANDLES,
     OUTCOME_SL,
     OUTCOME_TIMEOUT,
     OUTCOME_TP,
@@ -113,6 +115,7 @@ from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_VERSION,
     ManualOBRecord,
     ManualSpecConfig,
+    manual_smc_production_config,
 )
 from quantedge.strategy.manual_smc.quantization import (
     QuantizedBracket,
@@ -454,6 +457,12 @@ class BacktestTrade:
     #: scalars and accidentally invent a field the strategy never computed.
     sizing_at_fill: PositionSizing
     data_timeframe: str
+    #: The ACTIVATION MODE the lifecycle actually ran under for this trade, read
+    #: off `ManualSMCLifecycle.activation_mode` at close — `FIRST_TOUCH_WINDOW`
+    #: in production, `C_PROBE_PULLBACK` for the oracle baseline. The default is
+    #: the oracle's only so an explicitly-constructed row keeps its old meaning;
+    #: the driver always passes the real one, because a ledger that labelled
+    #: every production trade with the research mode would be a provenance lie.
     displacement_mode: str = DISPLACEMENT_MODE
     strategy_name: str = MANUAL_SMC_STRATEGY_NAME
     strategy_version: str = MANUAL_SMC_STRATEGY_VERSION
@@ -645,9 +654,28 @@ class ManualSMCBacktest:
         account_id: str = "BACKTEST",
         starting_capital: Optional[float] = None,
         strategy: Optional[ManualSMCStrategy] = None,
+        activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
+        entry_window_candles: int = ENTRY_WINDOW_CANDLES,
     ) -> None:
+        """
+        The DEFAULTS ARE THE PRODUCTION POLICY, not the oracle's.
+
+        A backtest is meant to answer "what would the live strategy have done",
+        so `config` defaults to `manual_smc_production_config()` (authorized
+        0.60% TP) and `activation_mode` to `FIRST_TOUCH_WINDOW` with a
+        three-candle entry window. Pass `config=ManualSpecConfig()` together with
+        `activation_mode=ACTIVATION_MODE_ORACLE_C` to reproduce the frozen
+        research baseline instead; nothing else needs to change. The two configs
+        carry the same TP today, so the ORACLE_C switch is what actually changes
+        the baseline.
+
+        `activation_mode` / `entry_window_candles` are ignored when `strategy` is
+        supplied — a caller-supplied strategy already owns its own lifecycle and
+        is authoritative about its own policy, exactly as it is about its config.
+        """
         _assert_not_live()
-        self.cfg: ManualSpecConfig = config or ManualSpecConfig()
+        self.cfg: ManualSpecConfig = (
+            config if config is not None else manual_smc_production_config())
         self.symbols: Tuple[str, ...] = (
             tuple(symbols) if symbols is not None else DEFAULT_SYMBOLS)
         self.strategy: ManualSMCStrategy = (
@@ -658,6 +686,8 @@ class ManualSMCBacktest:
                 account_balance=starting_capital,
                 tick_specs=tick_specs,
                 registry=registry,
+                activation_mode=activation_mode,
+                entry_window_candles=entry_window_candles,
             ))
         #: A caller-supplied strategy is authoritative about its own config.
         self.cfg = self.strategy.cfg
@@ -850,6 +880,7 @@ class ManualSMCBacktest:
             quantized_bracket=ctx.fill.quantized,
             sizing_at_fill=sizing,
             data_timeframe=self.cfg.data_timeframe,
+            displacement_mode=self.strategy.lifecycle.activation_mode,
         ))
 
     # -- result -----------------------------------------------------------
@@ -905,6 +936,8 @@ def run_manual_smc_backtest(
     tick_specs: Optional[Mapping[str, TickSizeSpec]] = None,
     registry: Optional[ContractSpecRegistry] = None,
     account_id: str = "BACKTEST",
+    activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
+    entry_window_candles: int = ENTRY_WINDOW_CANDLES,
 ) -> BacktestResult:
     """
     Load the canonical dataset and run it through `ManualSMCStrategy`.
@@ -917,6 +950,11 @@ def run_manual_smc_backtest(
 
     `tick_specs` is optional and affects REPORTING only: omitting it leaves
     every setup non-executable and changes no strategy geometry (section 11).
+
+    `activation_mode` / `entry_window_candles` default to the PRODUCTION policy
+    (see `ManualSMCBacktest.__init__`); the two trailing parameters are how the
+    oracle baseline is reproduced, and they are appended rather than inserted so
+    no existing positional call changes meaning.
     """
     _assert_not_live()
     syms = tuple(symbols) if symbols is not None else DEFAULT_SYMBOLS
@@ -924,7 +962,9 @@ def run_manual_smc_backtest(
     timeline = build_timeline(dataset, syms, start_date, end_date)
     driver = ManualSMCBacktest(
         config=config, symbols=syms, tick_specs=tick_specs,
-        registry=registry, account_id=account_id)
+        registry=registry, account_id=account_id,
+        activation_mode=activation_mode,
+        entry_window_candles=entry_window_candles)
     return driver.run(timeline, dataset)
 
 
@@ -938,12 +978,15 @@ def run_manual_smc_backtest_from_candles(
     registry: Optional[ContractSpecRegistry] = None,
     account_id: str = "BACKTEST",
     starting_capital: Optional[float] = None,
+    activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
+    entry_window_candles: int = ENTRY_WINDOW_CANDLES,
 ) -> BacktestResult:
     """
     In-memory variant: same driver, same strategy, no filesystem.
 
     This is the path the acceptance tests use, so a test can never accidentally
     exercise a different lifecycle than the CSV-fed production backtest does.
+    Defaults are the production policy, same as `run_manual_smc_backtest`.
     """
     _assert_not_live()
     syms = (tuple(symbols) if symbols is not None
@@ -952,7 +995,9 @@ def run_manual_smc_backtest_from_candles(
     driver = ManualSMCBacktest(
         config=config, symbols=syms, tick_specs=tick_specs,
         registry=registry, account_id=account_id,
-        starting_capital=starting_capital)
+        starting_capital=starting_capital,
+        activation_mode=activation_mode,
+        entry_window_candles=entry_window_candles)
     return driver.run(timeline, candles_by_symbol)
 
 

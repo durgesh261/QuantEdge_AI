@@ -25,6 +25,7 @@ Zero network access: every payload here is a literal dict.
 from decimal import Decimal
 import pytest
 
+from quantedge.execution.delta_client import DeltaResponseError
 from quantedge.execution.models import DeltaPosition, PositionSide
 from quantedge.instruments import UnknownInstrumentError, delta_india_registry
 
@@ -409,12 +410,25 @@ class TestUnrelatedBehaviourIsUnchanged:
         assert pos.side is side
         assert pos.size == abs_size
 
-    def test_a_missing_size_is_still_a_flat_long(self):
+    def test_a_missing_size_now_fails_closed(self):
+        """
+        Task O §O6: strengthened, not weakened. This previously asserted that an
+        entry with no `size` came back as `Decimal("0")` and `PositionSide.LONG`
+        -- a flat long the exchange never reported. `get_positions` filters on
+        `pos.size > 0`, so that fabricated zero deleted the row from the snapshot
+        entirely, and four consumers read a missing position as a closed one. The
+        assertion is now stronger: no `DeltaPosition` may materialize at all.
+        """
         payload = _payload()
         del payload["size"]
-        pos = DeltaPosition.from_dict(payload)
-        assert pos.size == Decimal("0")
-        assert pos.side is PositionSide.LONG
+        with pytest.raises(DeltaResponseError):
+            DeltaPosition.from_dict(payload)
+
+    @pytest.mark.parametrize("raw", (None, "", "   "))
+    def test_a_blank_size_now_fails_closed(self, raw):
+        """A present-but-empty size is no more an observation than an absent one."""
+        with pytest.raises(DeltaResponseError):
+            DeltaPosition.from_dict(_payload(size=raw))
 
     @pytest.mark.parametrize("raw", (None, "", "   "))
     def test_a_missing_liquidation_price_is_still_none(self, raw):
@@ -443,13 +457,24 @@ class TestUnrelatedBehaviourIsUnchanged:
         assert pos.unrealized_pnl == Decimal("12.5")
         assert pos.realized_pnl == Decimal("4.25")
 
-    def test_leverage_and_margin_still_have_their_defaults(self):
+    def test_leverage_and_margin_are_now_unobserved_rather_than_defaulted(self):
+        """
+        Task O §O6: strengthened, not weakened. This previously asserted
+        `leverage == Decimal("1")` and `margin == Decimal("0")` for values the
+        payload never carried -- an invented 1x leverage and an invented zero
+        margin. Absence is now `None`, and the present-value case is pinned here
+        too so the parse cannot drift in the other direction.
+        """
         payload = _payload()
         del payload["leverage"]
         del payload["margin"]
         pos = DeltaPosition.from_dict(payload)
-        assert pos.leverage == Decimal("1")
-        assert pos.margin == Decimal("0")
+        assert pos.leverage is None
+        assert pos.margin is None
+
+        observed = DeltaPosition.from_dict(_payload())
+        assert observed.leverage == Decimal("10")
+        assert observed.margin == Decimal("231.0")
 
     def test_an_absent_adl_level_is_still_none(self):
         payload = _payload()
@@ -469,10 +494,18 @@ class TestUnrelatedBehaviourIsUnchanged:
         assert pos.entry_price == Decimal("77000.123456789")
         assert pos.mark_price == Decimal("77500.987654321")
 
-    def test_absent_prices_still_default_to_zero(self):
+    def test_absent_prices_are_now_unobserved_rather_than_zero(self):
+        """
+        Task O §O6: strengthened, not weakened. This previously asserted
+        `entry_price == Decimal("0")` and `mark_price == Decimal("0")` for prices
+        the payload never carried. A zero entry price is not a price, and a zero
+        mark is a mark this engine never received. Both are now `None`;
+        `test_prices_are_still_exact_decimals` above continues to pin exact
+        parsing of values that ARE present.
+        """
         payload = _payload()
         del payload["entry_price"]
         del payload["mark_price"]
         pos = DeltaPosition.from_dict(payload)
-        assert pos.entry_price == Decimal("0")
-        assert pos.mark_price == Decimal("0")
+        assert pos.entry_price is None
+        assert pos.mark_price is None

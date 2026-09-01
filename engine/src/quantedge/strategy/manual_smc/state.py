@@ -10,6 +10,8 @@ back, and refuses anything it cannot restore exactly.
 WHAT IS CAPTURED
 ----------------
     config                 every `ManualSpecConfig` field
+    activation             the activation mode and entry-window length the
+                           snapshot was produced under (see below)
     scanners               per asset: lookback, min_width, the bar history
                            deque and the `_consumed` origin key set
     live_obs               every live `ManualOBRecord`, IN INSERTION ORDER,
@@ -30,6 +32,17 @@ refusal, never a silently duplicated OB.
 
 Lifecycle EVENTS are deliberately not captured. They are diagnostics emitted
 per call and are never read back as a control signal.
+
+THE ACTIVATION POLICY IS PART OF THE STATE
+------------------------------------------
+A `LIMIT_RESTING` OB means two different things depending on the activation
+mode it was armed under: under `FIRST_TOUCH_WINDOW` its limit dies at
+`limit_active_from_bar + entry_window_candles - 1`, under the oracle's
+`C_PROBE_PULLBACK` it never times out. Neither the mode nor the window length
+is recoverable from the OB pool, and defaulting one would let a restore silently
+extend or cancel a live order (safety rule #13). Both are therefore persisted in
+a mandatory `activation` block and validated on restore — which is exactly why
+the schema version moved to 2 and v1 payloads are refused rather than upgraded.
 
 THE PROCESSED-CANDLE WATERMARK IS OWNED HERE, NOT BY THE LIFECYCLE
 ------------------------------------------------------------------
@@ -99,6 +112,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODES,
     ManualActiveTrade,
     ManualSMCLifecycle,
     ManualTradeExit,
@@ -117,10 +131,17 @@ from quantedge.strategy.manual_smc.scanner import ManualSpecBOSScanner
 MANUAL_SMC_STATE_SCHEMA: str = "MANUAL_SMC_STATE"
 
 #: Current schema version. Bump on ANY change to the payload shape.
-MANUAL_SMC_STATE_SCHEMA_VERSION: int = 1
+#: v2 added the mandatory `activation` block (activation mode + entry-window
+#: length). A v1 payload does not record which activation mode produced it, and
+#: guessing one would decide a safety question by default (rule #13), so v1 is
+#: deliberately NOT restorable by this build.
+MANUAL_SMC_STATE_SCHEMA_VERSION: int = 2
 
 #: Versions this build can restore. Unknown -> refusal, never best-effort.
-SUPPORTED_SCHEMA_VERSIONS: frozenset = frozenset({1})
+SUPPORTED_SCHEMA_VERSIONS: frozenset = frozenset({2})
+
+#: Exact key set of the `activation` block.
+_ACTIVATION_KEYS: Tuple[str, ...] = ("mode", "entry_window_candles")
 
 #: Exact top-level key set. Missing -> MissingFieldError, extra -> UnknownFieldError.
 _TOP_LEVEL_KEYS: Tuple[str, ...] = (
@@ -129,6 +150,7 @@ _TOP_LEVEL_KEYS: Tuple[str, ...] = (
     "strategy_name",
     "strategy_version",
     "config",
+    "activation",
     "scanners",
     "live_obs",
     "active_trade",
@@ -621,6 +643,43 @@ _SCANNER_KEYS: Tuple[str, ...] = (
     "asset", "lookback", "min_width", "history", "consumed")
 
 
+def encode_activation(lifecycle: "ManualSMCLifecycle") -> Dict[str, Any]:
+    """
+    Encode the activation policy the snapshot was produced under.
+
+    Persisted because it is not derivable from anything else in the payload: the
+    same OB pool means different things under `FIRST_TOUCH_WINDOW` (a resting
+    limit has a deadline) and under `C_PROBE_PULLBACK` (it does not). Restoring
+    under the wrong one would silently change whether live orders expire, so it
+    is recorded and checked rather than defaulted (rule #13).
+    """
+    return {
+        "mode": encode_str(lifecycle.activation_mode, "activation.mode"),
+        "entry_window_candles": encode_int(
+            lifecycle.entry_window_candles, "activation.entry_window_candles"),
+    }
+
+
+def decode_activation(payload: object, where: str = "activation"
+                      ) -> Tuple[str, int]:
+    """Decode and validate the activation block. Returns `(mode, window)`."""
+    body = require_mapping(payload, where)
+    require_exact_keys(body, _ACTIVATION_KEYS, where)
+    mode = encode_str(body["mode"], f"{where}.mode")
+    if mode not in ACTIVATION_MODES:
+        raise StateIntegrityError(
+            f"{where}.mode: {mode!r} is not a known activation mode "
+            f"({sorted(ACTIVATION_MODES)}); refusing to restore state whose "
+            f"entry-activation policy this build cannot reproduce")
+    window = encode_int(body["entry_window_candles"],
+                        f"{where}.entry_window_candles")
+    if window < 1:
+        raise StateIntegrityError(
+            f"{where}.entry_window_candles: {window} would cancel every order "
+            f"before it could fill")
+    return mode, window
+
+
 def encode_scanner(asset: str, scanner: ManualSpecBOSScanner) -> Dict[str, Any]:
     """
     Encode one scanner.
@@ -759,6 +818,7 @@ def capture_state(
         "strategy_name": MANUAL_SMC_STRATEGY_NAME,
         "strategy_version": MANUAL_SMC_STRATEGY_VERSION,
         "config": encode_dataclass(lifecycle.cfg),
+        "activation": encode_activation(lifecycle),
         "scanners": [encode_scanner(asset, lifecycle._scanners[asset])
                      for asset in sorted(lifecycle._scanners)],
         "live_obs": [encode_dataclass(ob)
@@ -949,6 +1009,11 @@ def restore_state(
     before the lifecycle is handed back — a payload that fails any of them
     yields an exception, never a partially-populated lifecycle.
 
+    The rebuilt lifecycle is constructed with the PERSISTED activation mode and
+    entry-window length, not this build's defaults: a snapshot taken under one
+    activation policy must not resume under another, or a resting limit's
+    deadline would move.
+
     Private lifecycle attributes (`_scanners`, `_last_trade_closed_dt`) are
     assigned directly. Step 5 must not modify `lifecycle.py`, so there is no
     public setter to use; the assignments are values only and change no logic.
@@ -960,6 +1025,8 @@ def restore_state(
     config = decode_dataclass(ManualSpecConfig, body["config"], "config")
     if expected_config is not None:
         assert_config_compatible(config, expected_config)
+
+    activation_mode, entry_window = decode_activation(body["activation"])
 
     scanners: Dict[str, ManualSpecBOSScanner] = {}
     for i, entry in enumerate(require_list(body["scanners"], "scanners")):
@@ -981,7 +1048,11 @@ def restore_state(
     watermark = decode_watermark(body["watermark"])
     _check_watermark_covers_state(watermark, pool, scanners)
 
-    lifecycle = ManualSMCLifecycle(config=config)
+    lifecycle = ManualSMCLifecycle(
+        config=config,
+        activation_mode=activation_mode,
+        entry_window_candles=entry_window,
+    )
     lifecycle.live_obs = pool
     lifecycle.active_trade = active
     lifecycle.exits = exits
@@ -1076,6 +1147,8 @@ __all__ = [
     "require_list",
     "encode_watermark",
     "decode_watermark",
+    "encode_activation",
+    "decode_activation",
     "encode_scanner",
     "decode_scanner",
     "validate_header",

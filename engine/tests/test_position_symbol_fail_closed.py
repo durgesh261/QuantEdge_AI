@@ -194,17 +194,38 @@ class TestValidPayloadBehaviourIsUnchanged:
         assert pos.side == PositionSide.LONG
         assert pos.size == Decimal("0")
 
-    def test_optional_fields_still_default(self):
+    def test_optional_fields_are_unobserved_not_zero(self):
         payload = _payload(liquidation_price="")
         for key in ("unrealised_pnl", "realised_pnl", "leverage", "margin"):
             del payload[key]
         pos = DeltaPosition.from_dict(payload)
         assert pos.liquidation_price is None
-        assert pos.unrealized_pnl == Decimal("0")
-        assert pos.realized_pnl == Decimal("0")
-        assert pos.leverage == Decimal("1")
-        assert pos.margin == Decimal("0")
+        # Task O §O3: strengthened, not weakened. This previously asserted
+        # `Decimal("0")` for a realized PnL the payload never carried -- the
+        # fabricated zero that made every unreported closure look like an
+        # observed break-even. Absence is now `None`.
+        assert pos.realized_pnl is None
+        # Task O §O6: strengthened again. `unrealized_pnl`, `leverage` and
+        # `margin` fabricated an observation too -- an unreported unrealized PnL
+        # became an observed zero, an unreported margin became zero margin, and
+        # an unreported leverage became 1x. The same rule now covers all of them:
+        # absent is `None`, and an observed zero stays a distinct fact.
+        assert pos.unrealized_pnl is None
+        assert pos.leverage is None
+        assert pos.margin is None
         assert pos.adl_level is None
+
+    def test_an_observed_zero_is_still_an_observed_zero(self):
+        """
+        Task O §O6: the other half of the contract above. The refusal to
+        fabricate must not turn a real zero into `None`, or reconciliation would
+        lose an observation the exchange actually made.
+        """
+        pos = DeltaPosition.from_dict(
+            _payload(unrealised_pnl="0", leverage="0", margin="0"))
+        assert pos.unrealized_pnl == Decimal("0")
+        assert pos.leverage == Decimal("0")
+        assert pos.margin == Decimal("0")
 
     def test_the_american_spelling_of_pnl_is_still_accepted(self):
         payload = _payload(unrealized_pnl="9.99", realized_pnl="1.11")

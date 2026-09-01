@@ -47,6 +47,8 @@ from quantedge.execution.models import (
     OrderSizeContractError,
     OrderType,
     PositionSide,
+    StopOrderType,
+    StopTriggerMethod,
     TimeInForce,
 )
 from quantedge.execution.reconciliation import DeltaReconciliationService
@@ -147,7 +149,24 @@ class TestTheServializedPayloadCarriesRegistryIdentity:
         assert "self.product_symbol" not in source.split("payload:")[-1]
 
     def test_the_rest_of_the_payload_is_unchanged(self, registry):
-        """Hardening identity changed nothing else about serialization."""
+        """
+        Hardening identity changed nothing else about serialization.
+
+        Task O §O1 amended the *input* of this case, not its assertion style: a
+        `stop_price` now requires the documented `stop_order_type` /
+        `stop_trigger_method` companions, so the request below carries them and
+        the expected payload gains the two keys they serialize to. Every
+        identity assertion this case exists for is unchanged, and the exact-dict
+        comparison is retained so a future stray key still fails here.
+
+        §G2 changed the *expected keys* for the attached bracket, and only
+        those: `stop_loss_price` / `take_profit_price` are not parameters of
+        POST /v2/orders in any authoritative Delta source, so they created no
+        protection. They now serialize to Delta's documented
+        `bracket_stop_loss_price` / `bracket_take_profit_price`, plus
+        `bracket_stop_trigger_method` naming the price series that arms the
+        legs. The dict comparison stays exact.
+        """
         req = DeltaOrderRequest(
             product_id=registry.get("ETHUSD").product_id,
             product_symbol="ETHUSD",
@@ -156,6 +175,8 @@ class TestTheServializedPayloadCarriesRegistryIdentity:
             size=Decimal("7"),
             limit_price=Decimal("2400.50"),
             stop_price=Decimal("2350.25"),
+            stop_order_type=StopOrderType.STOP_LOSS_ORDER,
+            stop_trigger_method=StopTriggerMethod.LAST_TRADED_PRICE,
             time_in_force=TimeInForce.IOC,
             reduce_only=True,
             client_order_id="QE-AUDIT-UNCHANGED",
@@ -173,9 +194,12 @@ class TestTheServializedPayloadCarriesRegistryIdentity:
             "reduce_only": True,
             "limit_price": "2400.50",
             "stop_price": "2350.25",
+            "stop_order_type": "stop_loss_order",
+            "stop_trigger_method": "last_traded_price",
             "client_order_id": "QE-AUDIT-UNCHANGED",
-            "stop_loss_price": "2340.00",
-            "take_profit_price": "2500.00",
+            "bracket_stop_loss_price": "2340.00",
+            "bracket_take_profit_price": "2500.00",
+            "bracket_stop_trigger_method": "last_traded_price",
         }
 
     def test_optional_fields_are_still_omitted_when_absent(self, registry):
@@ -187,7 +211,9 @@ class TestTheServializedPayloadCarriesRegistryIdentity:
             size=Decimal("100"),
         ).to_exchange_payload()
         for absent in ("limit_price", "stop_price", "client_order_id",
-                       "stop_loss_price", "take_profit_price"):
+                       "stop_loss_price", "take_profit_price",
+                       "bracket_stop_loss_price", "bracket_take_profit_price",
+                       "bracket_stop_trigger_method"):
             assert absent not in payload
 
     def test_fractional_sizes_are_refused_rather_than_serialized(self, registry):

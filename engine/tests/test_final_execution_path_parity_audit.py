@@ -492,15 +492,27 @@ def test_the_local_state_store_is_structurally_single_account():
 # == SS C -- runtime reconciliation ownership ==================================
 
 
-def test_nothing_in_production_invokes_reconciliation():
-    """`reconcile_account` is defined once and called nowhere in `src/`.
+def test_only_the_runtime_wiring_layer_invokes_reconciliation():
+    """`reconcile_account` is defined once and called from exactly one place.
 
-    It is the only code path that releases an orphaned semantics-B lock, so a
-    Path-B lock persists until some external composition layer calls it. That
-    layer is not in this repository's Python engine; this test pins the boundary
-    rather than inventing a scheduler.
+    BEFORE Task M this test asserted `_callers(".reconcile_account(") == []` and
+    documented that boundary: reconciliation was the only code path that
+    releases an orphaned semantics-B lock, and nothing in `src/` ever ran it, so
+    the release depended on an external composition layer that does not exist in
+    this repository.
+
+    Task M §M4 was commissioned to remove exactly that boundary
+    ("`DeltaReconciliationService.reconcile_account()` must become reachable
+    from production execution"), so the empty-caller assertion now contradicts
+    the authoritative requirement. It is inverted rather than deleted: the
+    equality below is at least as strict as `== []` and still prevents an
+    unauthorized fourth caller from appearing. `ManualSMCRuntime.reconcile()` is
+    the single owner -- it is reached from startup, from every private-WS
+    (re)connection hook, and from restart recovery.
+
+    `reconcile_all` remains uncalled: Task M added no polling scheduler.
     """
-    assert _callers(".reconcile_account(") == []
+    assert _callers(".reconcile_account(") == ["runtime/manual_smc_runtime.py"]
     assert _callers("reconcile_all") == []
     assert (SRC_ROOT / "execution" / "reconciliation.py").exists()
 

@@ -113,6 +113,32 @@ def _manual_entry_touched(ob: ManualOBRecord, c_h: float, c_l: float) -> bool:
     return c_l <= ob.entry_price
 
 
+# ---------------------------------------------------------------------------
+# NOT AN EXTRACTION — new predicate required by the manual specification.
+# ---------------------------------------------------------------------------
+def _manual_zone_touched(ob: ManualOBRecord, c_h: float, c_l: float) -> bool:
+    """
+    FIRST-TOUCH detection: has price re-entered the order-block zone at all?
+
+    The proximal edge is the near edge, so touching it IS entering the zone::
+
+        SHORT (proximal = ob_bottom): candle.high >= proximal
+        LONG  (proximal = ob_top):    candle.low  <= proximal
+
+    Inclusive on purpose — an exact edge touch counts. Body and wick are not
+    distinguished, because `high`/`low` already cover both.
+
+    This predicate is strictly WEAKER than `_manual_entry_touched`, which tests
+    the 25%-depth level deeper inside the zone: any candle that touches the
+    entry has necessarily touched the zone first. That relationship is what
+    makes "first touch arms the limit, the limit then fills at 25%" a coherent
+    two-stage lifecycle rather than two competing triggers.
+    """
+    if ob.direction == "SHORT":
+        return c_h >= ob.proximal
+    return c_l <= ob.proximal
+
+
 def _manual_sl_hit(direction: str, c_h: float, c_l: float, sl: float) -> bool:
     """Post-entry stop-loss check (wick-based)."""
     if direction == "SHORT":
@@ -135,6 +161,7 @@ def _manual_tp_hit(direction: str, c_h: float, c_l: float, tp: float) -> bool:
 make_manual_ob = _make_manual_ob
 manual_distal_breached = _manual_distal_breached
 manual_entry_touched = _manual_entry_touched
+manual_zone_touched = _manual_zone_touched
 manual_sl_hit = _manual_sl_hit
 manual_tp_hit = _manual_tp_hit
 
@@ -142,11 +169,13 @@ __all__ = [
     "_make_manual_ob",
     "_manual_distal_breached",
     "_manual_entry_touched",
+    "_manual_zone_touched",
     "_manual_sl_hit",
     "_manual_tp_hit",
     "make_manual_ob",
     "manual_distal_breached",
     "manual_entry_touched",
+    "manual_zone_touched",
     "manual_sl_hit",
     "manual_tp_hit",
 ]

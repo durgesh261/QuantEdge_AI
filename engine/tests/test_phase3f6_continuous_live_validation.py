@@ -901,7 +901,7 @@ class TestRESTBackfillPersistsBeforeEngine:
 
             # Mock fetch_closed_candles to return 2 "REST" candles
             original_fetch = ws_mod.fetch_closed_candles
-            def mock_fetch(start, end):
+            def mock_fetch(start, end, symbol="BTCUSD"):
                 return [
                     {"time": last_ts + i * HOUR,
                      "open": 50000.0, "high": 50100.0, "low": 49900.0,
