@@ -34,6 +34,10 @@ from typing import Optional, Callable, Any, Dict, Sequence, Set, Tuple
 import websockets
 
 from quantedge.instruments.registry import delta_india_registry
+from quantedge.market_data.live_aggregator import (
+    SOURCE_CANDLESTICK_FORMING,
+    LiveMarketUpdateError,
+)
 from quantedge.market_data.ingestion import (
     detect_gaps,
     _fetch_window,
@@ -140,6 +144,11 @@ EVENT_SUBSCRIBE = "SUBSCRIBE"
 EVENT_CANDLE_CLOSED = "CANDLE_CLOSED"
 EVENT_CANDLE_FORMING = "CANDLE_FORMING"
 EVENT_CANDLE_DUPLICATE = "CANDLE_DUPLICATE"
+#: A forming frame was handed to the EXECUTION clock. The frame is still not
+#: persisted and still never reaches the structure clock; see
+#: `_market_update_payload`.
+EVENT_MARKET_UPDATE = "MARKET_UPDATE"
+EVENT_MARKET_UPDATE_REFUSED = "MARKET_UPDATE_REFUSED"
 EVENT_GAP_DETECTED = "GAP_DETECTED"
 EVENT_BACKFILL_STARTED = "BACKFILL_STARTED"
 EVENT_BACKFILL_COMPLETED = "BACKFILL_COMPLETED"
@@ -279,6 +288,51 @@ def _parse_candle_from_ws(
     }
 
 
+def _market_update_payload(candle: dict, data: dict) -> Optional[dict]:
+    """Build an EXECUTION-CLOCK payload from a FORMING candlestick frame.
+
+    WHY THIS EXISTS. 1h is the STRUCTURE timeframe, not the data rate. Delta
+    pushes the forming candle repeatedly during the hour, each frame carrying the
+    hour's running OHLC and, separately, the instant of the last tick. Those
+    frames are the live price feed. Discarding them would delay every order-block
+    touch and every 25% entry until the hour closed.
+
+    A NEW dict is built rather than mutating `candle`: the closed-candle path
+    consumes that dict, and adding fields to it could change what is persisted.
+
+    THE LAST-TICK INSTANT IS REQUIRED AND IS NEVER GUESSED. `timestamp` means
+    the last tick in a normal frame, but `_parse_candle_from_ws` also falls back
+    to it as the candle START when `candle_start_time` is absent. In that case
+    its meaning is ambiguous, and an execution-clock update timed by the wrong
+    field would mis-order the feed - so `None` is returned and the frame is used
+    for nothing. Returning `None` is also what happens for a frame whose
+    last-tick field is not an integer.
+
+    Returns `None` for anything unusable. Raises nothing: a refusal here must
+    never disturb the closed-candle path.
+    """
+    if data.get("candle_start_time") is None:
+        return None
+    raw = data.get("last_updated")
+    if raw is None:
+        raw = data.get("timestamp")
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return None
+    return {
+        "symbol": candle["symbol"],
+        "exchange_symbol": candle["exchange_symbol"],
+        "timeframe": candle["timeframe"],
+        "candle_start_ts": candle["timestamp"],
+        "open": candle["open"],
+        "high": candle["high"],
+        "low": candle["low"],
+        "close": candle["close"],
+        "update_ts_us": raw,
+        "is_closed": False,
+        "source": SOURCE_CANDLESTICK_FORMING,
+    }
+
+
 class DeltaWebSocketClient:
     """Delta Exchange WebSocket client — 1H candlesticks, one or many pairs."""
 
@@ -292,12 +346,20 @@ class DeltaWebSocketClient:
         csv_path: Optional[Any] = None,
         meta_path: Optional[Any] = None,
         symbols: Optional[Sequence[str]] = None,
+        on_market_update: Optional[Callable[[dict], Any]] = None,
     ) -> None:
         self._symbol = symbol
         self.symbol = symbol
         self.timeframe = timeframe
         self._timeframe = timeframe
         self.on_candle_closed = on_candle_closed
+        #: The EXECUTION clock's sink. `None` - the default - reproduces the
+        #: previous behaviour exactly: a forming frame is logged and dropped.
+        #: When set, every forming frame is handed over as it arrives, which is
+        #: what lets an order-block touch at 14:23:17 be acted on at 14:23:17
+        #: instead of at 15:00. It never receives a CLOSED candle: that belongs
+        #: to `on_candle_closed` and to the 1h structure clock.
+        self.on_market_update = on_market_update
         self.engine = engine
         # Phase 3F.5: persistence
         self.persist = persist
@@ -495,6 +557,42 @@ class DeltaWebSocketClient:
             )
             self._log_event(EVENT_CANDLE_FORMING, symbol=exchange,
                             candle_ts=candle_ts)
+            # THE EXECUTION CLOCK. The frame is still excluded from the 1h
+            # STRUCTURE clock and is still not persisted - `upsert_closed_candles`
+            # is not reached, `processed` is not touched, `_last_closed` is not
+            # moved and `on_candle_closed` is not called. What changes is that the
+            # live price it carries is no longer thrown away: it is handed to the
+            # execution clock so an active order block can be touched, and its
+            # 25% entry reached, during the hour rather than after it.
+            if self.on_market_update is not None:
+                payload = _market_update_payload(candle, data)
+                if payload is None:
+                    self._log_event(EVENT_MARKET_UPDATE_REFUSED,
+                                    symbol=exchange, candle_ts=candle_ts,
+                                    reason="NO_UNAMBIGUOUS_TICK_TIMESTAMP")
+                else:
+                    try:
+                        self.on_market_update(payload)
+                        self._log_event(EVENT_MARKET_UPDATE, symbol=exchange,
+                                        candle_ts=candle_ts,
+                                        update_ts_us=payload["update_ts_us"])
+                    except LiveMarketUpdateError as e:
+                        # A refused update is a refusal, never a repair: the
+                        # aggregator rejected this frame and the feed keeps
+                        # running. Nothing is retried and nothing is invented.
+                        logger.warning(
+                            "Execution clock refused a forming frame %s %s: %s",
+                            exchange, candle_ts, e)
+                        self._log_event(EVENT_MARKET_UPDATE_REFUSED,
+                                        symbol=exchange, candle_ts=candle_ts,
+                                        reason=type(e).__name__)
+                    except Exception as e:
+                        logger.error(
+                            "Execution clock error on %s %s: %s",
+                            exchange, candle_ts, e)
+                        self._log_event(EVENT_MARKET_UPDATE_REFUSED,
+                                        symbol=exchange, candle_ts=candle_ts,
+                                        reason=type(e).__name__)
             return
 
         # Deduplication: skip already-processed timestamps for THIS pair
