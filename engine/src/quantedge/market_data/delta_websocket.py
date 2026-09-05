@@ -131,15 +131,64 @@ CLOSED_CANDLE_THRESHOLD_SECONDS = 3600
 MAX_RECONNECT_ATTEMPTS = 10
 MAX_BACKOFF_SECONDS = 60
 MIN_BACKOFF_SECONDS = 2
-HEARTBEAT_INTERVAL_SECONDS = 30
-HEARTBEAT_TIMEOUT_SECONDS = 60
+
+# ── TRANSPORT LIVENESS (the socket) ───────────────────────────────────────────
+#
+# These are the `websockets` library's own keepalive settings, PINNED rather
+# than inherited. The values are exactly what websockets 17.0.1 applies by
+# default, so pinning them changes nothing about how this client behaves today;
+# what it changes is that a library upgrade can no longer silently redefine the
+# transport liveness contract of a live trading feed.
+#
+# Delta documents (Detecting Connection Drops) a client-side recommendation of
+# a ping "~ every 30 seconds" and a 5-second pong deadline. 20/20 pings MORE
+# often than that recommendation and waits LONGER for the pong. The 5-second
+# deadline was deliberately not adopted: a transient network stall would then
+# close a healthy socket, and repeated closes walk towards the consecutive
+# failure cap below. A longer deadline was equally not adopted, because that
+# would detect a half-dead transport more slowly than this client does today.
+#
+# A ping/pong exchange proves the SOCKET is alive. It proves nothing about the
+# subscribed market-data channel, which is what the watchdog below measures.
+WS_PING_INTERVAL_SECONDS = 20
+WS_PING_TIMEOUT_SECONDS = 20
+WS_CLOSE_TIMEOUT_SECONDS = 10
+
+# ── MARKET-DATA FRESHNESS (the subscribed channel) ────────────────────────────
+#
+# How long the subscribed `candlestick_1h` channel may stay silent before the
+# feed is treated as stale. This is NOT a cadence assumption, because there is
+# no cadence to assume: Delta documents a publication interval for the `ticker`
+# channel ("published every 5 seconds") and documents NO interval for
+# `candlesticks`, and nothing in this repository measures one. The only rate
+# this system can prove is the bar period itself, and it is proven twice over:
+# `_is_candle_closed` below floors wall-clock time to `now - (now % 3600)`, and
+# `restart_recovery.newest_closed_bar_idx` uses the same 3600-second bar. One
+# closed 1h candle is due per pair per hour, and
+# `restart_recovery.make_durable_feed_callback` escalates a single missing
+# closed candle to a fatal structure fault. So a channel that has produced no
+# valid frame at all for longer than one whole bar period is, by this
+# repository's own definition of a healthy structure clock, already broken -
+# there is no market condition in which that silence is normal and the existing
+# continuity guard stays quiet. Nothing tighter than one bar period is
+# justifiable from the repository, so nothing tighter is asserted here; the
+# constructor takes an override so a deployment that has MEASURED the channel's
+# cadence can tighten it on evidence rather than on a guess.
+FRAME_STALE_TIMEOUT_SECONDS = CLOSED_CANDLE_THRESHOLD_SECONDS
+#: How often the watchdog wakes to compare `now` against the last valid frame.
+#: This is a poll granularity, not a threshold: it only bounds how late the
+#: stale verdict can be (threshold + one poll).
+FRAME_FRESHNESS_POLL_SECONDS = 30
 
 # Event type constants
 EVENT_CONNECT = "CONNECT"
 EVENT_DISCONNECT = "DISCONNECT"
 EVENT_RECONNECT = "RECONNECT"
-EVENT_HEARTBEAT = "HEARTBEAT"
-EVENT_HEARTBEAT_TIMEOUT = "HEARTBEAT_TIMEOUT"
+#: The subscribed market-data channel produced no valid frame for longer than
+#: `FRAME_STALE_TIMEOUT_SECONDS`, so the watchdog closed the socket and handed
+#: recovery to the existing reconnect path. Transport liveness is NOT implied
+#: either way: this event is about frames, not about pings.
+EVENT_FEED_STALE = "FEED_STALE"
 EVENT_SUBSCRIBE = "SUBSCRIBE"
 EVENT_CANDLE_CLOSED = "CANDLE_CLOSED"
 EVENT_CANDLE_FORMING = "CANDLE_FORMING"
@@ -347,6 +396,8 @@ class DeltaWebSocketClient:
         meta_path: Optional[Any] = None,
         symbols: Optional[Sequence[str]] = None,
         on_market_update: Optional[Callable[[dict], Any]] = None,
+        frame_stale_after: float = FRAME_STALE_TIMEOUT_SECONDS,
+        freshness_poll_seconds: float = FRAME_FRESHNESS_POLL_SECONDS,
     ) -> None:
         self._symbol = symbol
         self.symbol = symbol
@@ -401,8 +452,24 @@ class DeltaWebSocketClient:
         self.ws = None
         self.running = False
         self.reconnect_attempt = 0
-        self._heartbeat_task: Optional[asyncio.Task] = None
-        self._last_pong_ts: Optional[float] = None
+
+        # ── frame freshness (the EXECUTION and STRUCTURE clocks' supply line) ──
+        #: Monotonic instant of the last frame `_parse_candle_from_ws` ACCEPTED.
+        #: A control frame - `heartbeat`, `ping`, `pong`, `subscriptions`, `info`
+        #: - and a candle for an unregistered or unsubscribed symbol all leave
+        #: this untouched, because the parser refuses them all. Transport
+        #: liveness therefore cannot masquerade as market data here. Stamped when
+        #: a socket opens too, so a subscription that is silently never honoured
+        #: is detected one threshold after connecting instead of never.
+        self._last_frame_ts: Optional[float] = None
+        self._frame_stale_after = float(frame_stale_after)
+        self._freshness_poll = float(freshness_poll_seconds)
+        self._watchdog_task: Optional[asyncio.Task] = None
+        #: True while `_reconnect` owns the retry loop. `listen()` still ends
+        #: with `if self.running: await self._reconnect()`, and that call is what
+        #: this flag absorbs: the loop takes the next attempt itself instead of
+        #: nesting one more frame per flap for the lifetime of the process.
+        self._reconnecting = False
 
     # ------------------------------------------------------- per-symbol state
     @property
@@ -437,17 +504,24 @@ class DeltaWebSocketClient:
 
     async def connect(self) -> None:
         logger.info("Connecting to Delta WebSocket: %s", WS_ENDPOINT)
-        self.ws = await websockets.connect(WS_ENDPOINT)
+        self.ws = await websockets.connect(
+            WS_ENDPOINT,
+            ping_interval=WS_PING_INTERVAL_SECONDS,
+            ping_timeout=WS_PING_TIMEOUT_SECONDS,
+            close_timeout=WS_CLOSE_TIMEOUT_SECONDS,
+        )
         self.running = True
         self.reconnect_attempt = 0
+        # A fresh socket gets a fresh freshness reference: the watchdog measures
+        # silence on THIS connection, and a channel that never delivers anything
+        # is then detected one threshold later rather than not at all.
+        self._last_frame_ts = time.monotonic()
         self._log_event(EVENT_CONNECT)
-        await self._start_heartbeat()
+        await self._start_watchdog()
 
     async def disconnect(self) -> None:
         self.running = False
-        if self._heartbeat_task:
-            self._heartbeat_task.cancel()
-            self._heartbeat_task = None
+        await self._cancel_watchdog()
         if self.ws:
             try:
                 await self.ws.close()
@@ -483,37 +557,84 @@ class DeltaWebSocketClient:
             ",".join(self._exchange_symbols),
         )
 
-    async def _start_heartbeat(self) -> None:
-        async def _heartbeat_loop() -> None:
-            while self.running:
+    async def _start_watchdog(self) -> None:
+        """Start the market-data freshness watchdog, replacing any previous one.
+
+        Cancel-before-start is the whole point: `connect()` runs again on every
+        reconnect, and without this a flapping feed would accumulate one live
+        loop per reconnect, each still holding a reference to `self` and each
+        waking up to inspect whatever socket happens to be current.
+        """
+        await self._cancel_watchdog()
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+
+    async def _cancel_watchdog(self) -> None:
+        """Cancel and reap the watchdog task, if any."""
+        task = self._watchdog_task
+        self._watchdog_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        # A task cannot await itself. The watchdog never calls this, but a
+        # future caller reached from inside the loop would deadlock silently.
+        if task is asyncio.current_task():
+            return
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning("Watchdog task ended with error: %s", e)
+
+    async def _watchdog_loop(self) -> None:
+        """Close the socket when the subscribed channel goes silent.
+
+        Transport liveness (library ping/pong) and market-data freshness are
+        different questions. The library can keep proving the socket is alive
+        while `candlestick_1h` delivers nothing, and in that state the engine is
+        blind while `/health` still reports UP. This loop answers the second
+        question only, and it answers it by closing the socket - nothing else.
+
+        It deliberately does NOT call `_reconnect`, `disconnect`, `connect` or
+        `subscribe`, and it never clears `running` or `self.ws`. Closing the
+        socket makes `listen()` fall out of its iteration, and `listen()`'s
+        `finally` already owns recovery: backoff, REST gap backfill, reconnect,
+        and - after `MAX_RECONNECT_ATTEMPTS` consecutive failures - the fatal
+        return that unwinds to the entry point's feed-failure exit. Calling
+        `disconnect()` here would clear `running` and thereby CANCEL that
+        recovery, which is exactly the bug in the dead heartbeat-timeout helper
+        that this watchdog replaces.
+        """
+        while self.running:
+            await asyncio.sleep(self._freshness_poll)
+            if not self.running:
+                return
+            last = self._last_frame_ts
+            if last is None:
+                continue
+            silent_for = time.monotonic() - last
+            if silent_for <= self._frame_stale_after:
+                continue
+            ws = self.ws
+            logger.error(
+                "Market-data feed stale: no valid %s frame for %.1f seconds "
+                "(threshold %.1f); closing socket so the existing reconnect "
+                "path can recover",
+                SUBSCRIPTION_CHANNEL,
+                silent_for,
+                self._frame_stale_after,
+            )
+            self._log_event(
+                EVENT_FEED_STALE,
+                silent_for_seconds=round(silent_for, 3),
+                threshold_seconds=self._frame_stale_after,
+            )
+            if ws is not None:
                 try:
-                    await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-                    if not self.running:
-                        break
-                    if self.ws:
-                        await self.ws.ping()
-                        self._last_pong_ts = time.monotonic()
-                        self._log_event(EVENT_HEARTBEAT)
-                except websockets.exceptions.ConnectionClosed:
-                    break
+                    await ws.close()
                 except Exception as e:
-                    logger.warning("Heartbeat error: %s", e)
-                    self._log_event(EVENT_HEARTBEAT_TIMEOUT)
-                    break
-
-        self._heartbeat_task = asyncio.create_task(_heartbeat_loop())
-
-    async def _check_heartbeat_timeout(self) -> None:
-        if self._last_pong_ts is not None:
-            elapsed = time.monotonic() - self._last_pong_ts
-            if elapsed > HEARTBEAT_TIMEOUT_SECONDS:
-                logger.warning(
-                    "Heartbeat timeout: no PONG received for %.1f seconds", elapsed
-                )
-                self._log_event(EVENT_HEARTBEAT_TIMEOUT)
-                await self.disconnect()
-                await self.connect()
-                await self.subscribe()
+                    logger.warning("Error closing stale socket: %s", e)
+            return
 
     async def listen(self) -> None:
         assert self.ws is not None, "WebSocket not connected"
@@ -539,6 +660,14 @@ class DeltaWebSocketClient:
         candle = _parse_candle_from_ws(data, accepted=self._accepted)
         if candle is None:
             return
+
+        # THE FRESHNESS STAMP. Reached only for a frame the parser ACCEPTED, so
+        # a control frame (`subscriptions`, `heartbeat`, `ping`, `pong`, `info`),
+        # a malformed payload, and a candle for an unregistered or unsubscribed
+        # symbol all leave the watchdog's reference untouched. Transport
+        # liveness cannot be mistaken for market data. Stamped for forming and
+        # closed frames alike, because both are market data arriving.
+        self._last_frame_ts = time.monotonic()
 
         candle_ts = candle["timestamp"]
         # Every decision below is scoped to the pair that sent the frame.
@@ -661,30 +790,70 @@ class DeltaWebSocketClient:
                 logger.error("Engine process_new_candles error: %s", e)
 
     async def _reconnect(self) -> None:
-        attempt = self.reconnect_attempt + 1
-        self.reconnect_attempt = attempt
-        if attempt > MAX_RECONNECT_ATTEMPTS:
-            logger.error(
-                "Max reconnect attempts (%s) reached, giving up", MAX_RECONNECT_ATTEMPTS
-            )
+        """Retry the connection, iteratively rather than recursively.
+
+        The recovery contract is unchanged: same attempt numbering, same
+        exponential backoff, same REST gap backfill before each attempt, and the
+        same `MAX_RECONNECT_ATTEMPTS` CONSECUTIVE-failure cap (consecutive
+        because `connect()` resets the counter on success).
+
+        Previously each flap added a stack frame that was never released, from
+        two directions: `listen()`'s `finally` awaits this method, and this
+        method's own `except` awaited itself. A long-lived feed that flaps for
+        days would grow that stack for the life of the process. The re-entrancy
+        guard absorbs the nested call and the loop takes the next attempt, so
+        depth stays constant however many times the feed flaps.
+
+        One path is deliberately no longer identical. When an exception ESCAPED
+        `listen()`, its `finally` ran a whole nested ladder and then the same
+        exception reached the old `except`, which started a SECOND ladder - able
+        to open a second socket and a second subscription while the first was
+        still live. The guard makes that unreachable: the nested call returns
+        immediately and this loop takes exactly one next attempt. Fewer
+        recoveries, never more, and never two sockets at once.
+        """
+        if self._reconnecting:
+            # Re-entered from `listen()`'s `finally`. The loop below owns the
+            # next attempt; adding a frame here is what used to accumulate.
             return
-        backoff = min(MIN_BACKOFF_SECONDS * (2 ** (attempt - 1)), MAX_BACKOFF_SECONDS)
-        logger.info(
-            "Reconnect attempt %s/%s in %s seconds",
-            attempt,
-            MAX_RECONNECT_ATTEMPTS,
-            backoff,
-        )
-        self._log_event("RECONNECT_ATTEMPT", attempt=attempt, backoff=backoff)
-        await asyncio.sleep(backoff)
-        await self._backfill_gaps()
+        self._reconnecting = True
         try:
-            await self.connect()
-            await self.subscribe()
-            await self.listen()
-        except Exception as e:
-            logger.error("Reconnect failed: %s, will retry", e)
-            await self._reconnect()
+            while True:
+                attempt = self.reconnect_attempt + 1
+                self.reconnect_attempt = attempt
+                if attempt > MAX_RECONNECT_ATTEMPTS:
+                    logger.error(
+                        "Max reconnect attempts (%s) reached, giving up",
+                        MAX_RECONNECT_ATTEMPTS,
+                    )
+                    return
+                backoff = min(
+                    MIN_BACKOFF_SECONDS * (2 ** (attempt - 1)), MAX_BACKOFF_SECONDS
+                )
+                logger.info(
+                    "Reconnect attempt %s/%s in %s seconds",
+                    attempt,
+                    MAX_RECONNECT_ATTEMPTS,
+                    backoff,
+                )
+                self._log_event("RECONNECT_ATTEMPT", attempt=attempt, backoff=backoff)
+                await asyncio.sleep(backoff)
+                await self._backfill_gaps()
+                try:
+                    await self.connect()
+                    await self.subscribe()
+                    await self.listen()
+                except Exception as e:
+                    logger.error("Reconnect failed: %s, will retry", e)
+                    continue
+                # `listen()` only returns once the socket is gone. Its `finally`
+                # has already re-entered this method and been absorbed by the
+                # guard, so the next attempt belongs to this loop - taken under
+                # exactly the condition that `finally` itself used.
+                if not self.running:
+                    return
+        finally:
+            self._reconnecting = False
 
     async def _backfill_gaps(self) -> None:
         """Recover missed closed candles for every configured pair.
