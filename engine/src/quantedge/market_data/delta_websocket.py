@@ -150,6 +150,28 @@ EVENT_OB_INVALIDATED = "OB_INVALIDATED"
 EVENT_STATE_SAVED = "STATE_SAVED"
 EVENT_STATE_RESTORED = "STATE_RESTORED"
 
+# ── Backfill outcomes ─────────────────────────────────────────────────────────
+#
+# `EVENT_BACKFILL_COMPLETED` used to carry `success=True` unconditionally, on
+# every path including "there was no watermark so nothing was attempted" and
+# "the fetch raised". An operator (or a supervisor scraping the log) could not
+# tell a completed recovery from a skipped or failed one, which is exactly the
+# signal needed to decide whether the structure stream is still continuous.
+#
+# These names classify how `_backfill_symbol` finished. Only the members of
+# `BACKFILL_SUCCESS_OUTCOMES` may report `success=True`; anything else - and any
+# unclassified path - reports False. This is a REPORTING change only: which
+# candles are fetched, persisted and handed to the engine is untouched.
+BACKFILL_COMPLETE = "COMPLETE"                       # every expected hour covered
+BACKFILL_UP_TO_DATE = "UP_TO_DATE"                   # nothing was due yet
+BACKFILL_NO_WATERMARK = "NO_WATERMARK"               # cold start; nothing attempted
+BACKFILL_FETCH_FAILED = "FETCH_FAILED"
+BACKFILL_PERSIST_FAILED = "PERSIST_FAILED"
+BACKFILL_INCOMPLETE_RANGE = "INCOMPLETE_RANGE"       # short/holed result
+BACKFILL_YEAR_PARTITION_REJECTED = "YEAR_PARTITION_REJECTED"
+BACKFILL_SUCCESS_OUTCOMES = frozenset(
+    {BACKFILL_COMPLETE, BACKFILL_UP_TO_DATE})
+
 
 def _is_candle_closed(candle_ts: int) -> bool:
     """Return True iff the 1H candle at candle_ts is fully closed.
@@ -586,25 +608,51 @@ class DeltaWebSocketClient:
         processed = self._processed[exchange]
         csv_path, meta_path = self._paths[exchange]
 
-        if last_closed is None:
-            logger.info("No prior processed candle for %s; skipping backfill",
-                        exchange)
-            self._log_event(EVENT_BACKFILL_COMPLETED, symbol=exchange,
-                            success=True)
-            return
-
-        start_ts = last_closed + 3600
-        end_ts = int(datetime.now(timezone.utc).timestamp())
-
+        # Fail-closed default. Every exit below either proves a specific outcome
+        # or leaves this one, so an unforeseen path reports success=False rather
+        # than claiming a recovery that never happened.
+        outcome = BACKFILL_FETCH_FAILED
+        year_rejected = False
         try:
+            if last_closed is None:
+                logger.info("No prior processed candle for %s; skipping backfill",
+                            exchange)
+                outcome = BACKFILL_NO_WATERMARK
+                return
+
+            start_ts = last_closed + 3600
+            end_ts = int(datetime.now(timezone.utc).timestamp())
+
             # Paginated REST fetch (fetch_closed_candles handles chunking + dedup)
             raw_candles = fetch_closed_candles(start_ts, end_ts, exchange)
             logger.info("Fetched %s %s candles via REST backfill",
                         len(raw_candles), exchange)
 
+            # Completeness is judged against the hours that were actually due,
+            # not against the length of the reply: fetch_closed_candles breaks
+            # out of its paging loop on a transport error and returns a SHORT
+            # list, so "no candles" and "the request failed" are the same value
+            # there. An hour counts as covered if it came back or was already
+            # processed. A genuine exchange hole also reports incomplete - that
+            # is the fail-closed reading, and detect_gaps already warns on it.
+            now_ts = int(datetime.now(timezone.utc).timestamp())
+            newest_closed = (now_ts - (now_ts % 3600)) - 3600
+            fetched_times = {int(c["time"]) for c in raw_candles}
+            expected_due = [t for t in range(start_ts, newest_closed + 3600, 3600)]
+            missing_hours = [t for t in expected_due
+                             if t not in fetched_times and t not in processed]
+
             if not raw_candles:
-                self._log_event(EVENT_BACKFILL_COMPLETED, symbol=exchange,
-                                success=True)
+                outcome = (BACKFILL_UP_TO_DATE if not missing_hours
+                           else BACKFILL_INCOMPLETE_RANGE)
+                if missing_hours:
+                    logger.error(
+                        "REST backfill returned no candles for %s while %d "
+                        "closed hour(s) were due (oldest %s); treating the "
+                        "range as INCOMPLETE, not up to date",
+                        exchange, len(missing_hours),
+                        datetime.fromtimestamp(missing_hours[0],
+                                               tz=timezone.utc).isoformat())
                 return
 
             # Normalize raw Delta REST dicts
@@ -627,13 +675,18 @@ class DeltaWebSocketClient:
                     validate_candle_year(candle_dict, csv_path=csv_path)
                 except ValueError as e:
                     logger.warning("Backfill candle rejected by year partition: %s", e)
+                    year_rejected = True
                     continue
                 candle_dicts.append(candle_dict)
 
             if not candle_dicts:
                 logger.info("No new closed candles to backfill for %s", exchange)
-                self._log_event(EVENT_BACKFILL_COMPLETED, symbol=exchange,
-                                success=True)
+                if year_rejected:
+                    outcome = BACKFILL_YEAR_PARTITION_REJECTED
+                elif missing_hours:
+                    outcome = BACKFILL_INCOMPLETE_RANGE
+                else:
+                    outcome = BACKFILL_UP_TO_DATE
                 return
 
             # Phase 3F.5: Persist entire batch BEFORE engine (Rule 8)
@@ -658,6 +711,7 @@ class DeltaWebSocketClient:
                                  exchange, e)
                     self._log_event(EVENT_BACKFILL_ERROR, symbol=exchange,
                                     error=str(e))
+                    outcome = BACKFILL_PERSIST_FAILED
                     return  # Do not process candles if persistence failed
 
             # Pass successfully-persisted candles to engine and mark processed
@@ -696,11 +750,23 @@ class DeltaWebSocketClient:
             else:
                 logger.info("No gaps detected after %s backfill", exchange)
 
+            if gaps or missing_hours:
+                outcome = BACKFILL_INCOMPLETE_RANGE
+            elif year_rejected:
+                outcome = BACKFILL_YEAR_PARTITION_REJECTED
+            else:
+                outcome = BACKFILL_COMPLETE
+
         except Exception as e:
             logger.error("REST backfill error for %s: %s", exchange, e)
             self._log_event(EVENT_BACKFILL_ERROR, symbol=exchange, error=str(e))
-
-        self._log_event(EVENT_BACKFILL_COMPLETED, symbol=exchange, success=True)
+            # Left deliberately as a failure: an exception here means the range
+            # was never established, so it must not be reported as recovered.
+            outcome = BACKFILL_FETCH_FAILED
+        finally:
+            self._log_event(EVENT_BACKFILL_COMPLETED, symbol=exchange,
+                            success=outcome in BACKFILL_SUCCESS_OUTCOMES,
+                            outcome=outcome)
 
     async def run(self) -> None:
         """Main entry point: connect, subscribe, listen, reconnect on failure."""
