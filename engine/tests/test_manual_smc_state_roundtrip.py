@@ -20,6 +20,19 @@ TestCodecDriftGuard (a new dataclass field cannot be silently dropped),
 TestStateIntegrityRejected (the invariants behind safety rules #13/#14 and the
 torn-capture detector).
 
+SCHEMA 4 — THE SHIPPED DETECTOR (see the banner comment further down)
+    LuxAlgo capture/restore ........... TestLuxAlgoScannerStateRoundTrip
+    detector identity survives ........ TestDetectorIdentitySurvivesTheRoundTrip
+    declared name vs real scanner ..... TestTheDeclaredDetectorMustMatchTheRealOne
+    both candle copies are checked ..... TestTheLuxAlgoCandleLogCannotBeTamperedWith
+    the payload is causally bounded .... TestTheLuxAlgoSnapshotIsBounded
+
+Everything ABOVE that banner names `DETECTOR_MANUAL_SPEC` explicitly, because
+the 7-bar `BARS` fixture below was built for the half-candle zone. That is a pin
+to the algorithm those numbers came from, not a claim about the default; the
+shipped default is asserted positively by the four classes named above and by
+`test_manual_smc_first_touch_window.py::TestProductionPolicyDefaults`.
+
 The fixture candle sequence below is not synthetic decoration: it drives the
 REAL lifecycle through OB creation (both directions), pre-displacement touches,
 probe, displacement, fill, TP close and invalidation, so the snapshots under
@@ -34,6 +47,7 @@ import copy
 import dataclasses
 import io
 import json
+import re
 import tokenize
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -44,11 +58,14 @@ import pytest
 
 from quantedge.strategy.manual_smc.geometry import _make_manual_ob
 from quantedge.strategy.manual_smc.lifecycle import (
+    DETECTOR_LUXALGO_INTERNAL,
+    DETECTOR_MANUAL_SPEC,
     ManualActiveTrade,
     ManualLifecycleEvent,
     ManualSMCLifecycle,
     ManualTradeExit,
 )
+from quantedge.strategy.manual_smc.luxalgo_structure import SWINGS_LENGTH
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
     MANUAL_SMC_STRATEGY_VERSION,
@@ -56,7 +73,10 @@ from quantedge.strategy.manual_smc.models import (
     ManualOBState,
     ManualSpecConfig,
 )
-from quantedge.strategy.manual_smc.scanner import ManualSpecBOSScanner
+from quantedge.strategy.manual_smc.scanner import (
+    LuxAlgoInternalOBScanner,
+    ManualSpecBOSScanner,
+)
 from quantedge.strategy.manual_smc.state import (
     MANUAL_SMC_STATE_SCHEMA,
     MANUAL_SMC_STATE_SCHEMA_VERSION,
@@ -80,11 +100,13 @@ from quantedge.strategy.manual_smc.state import (
     decode_datetime,
     decode_decimal,
     decode_ob_state,
+    decode_ob_structure_tags,
     dumps_state,
     encode_dataclass,
     encode_datetime,
     encode_decimal,
     encode_ob_state,
+    encode_ob_structure_tags,
     expected_keys,
     loads_state,
     restore_state,
@@ -193,7 +215,7 @@ def _fresh(bars: int, asset: str = BTC) -> Tuple[ManualSMCLifecycle,
                                                  CandleWatermark,
                                                  List[ManualLifecycleEvent]]:
     """A lifecycle driven through the first `bars` candles."""
-    lifecycle = ManualSMCLifecycle()
+    lifecycle = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
     watermark = CandleWatermark()
     events = _drive(lifecycle, watermark, 0, bars, asset)
     return lifecycle, watermark, events
@@ -312,7 +334,7 @@ class TestEmptyState:
     """A never-run lifecycle round-trips as cleanly as a busy one."""
 
     def test_empty_lifecycle_round_trips(self):
-        lifecycle = ManualSMCLifecycle()
+        lifecycle = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
         payload = capture_state(lifecycle)
         assert payload["live_obs"] == []
         assert payload["active_trade"] is None
@@ -327,14 +349,15 @@ class TestEmptyState:
         assert len(restored.watermark) == 0
 
     def test_empty_state_is_still_schema_checked(self):
-        payload = capture_state(ManualSMCLifecycle())
+        payload = capture_state(ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC))
         assert payload["schema_version"] == MANUAL_SMC_STATE_SCHEMA_VERSION
         with pytest.raises(UnsupportedSchemaVersionError):
             restore_state(_mutate(payload, "schema_version", value=99))
 
     def test_declared_assets_are_captured_before_any_candle(self):
         """`ManualSMCLifecycle(assets=[...])` pre-creates empty scanners."""
-        lifecycle = ManualSMCLifecycle(assets=[BTC, ETH])
+        lifecycle = ManualSMCLifecycle(assets=[BTC, ETH],
+                                       detector=DETECTOR_MANUAL_SPEC)
         payload = capture_state(lifecycle)
         assert [s["asset"] for s in payload["scanners"]] == [BTC, ETH]
         assert all(s["history"] == [] and s["consumed"] == []
@@ -343,7 +366,7 @@ class TestEmptyState:
         assert sorted(restored.lifecycle._scanners) == [BTC, ETH]
 
     def test_an_empty_restore_then_run_matches_a_plain_run(self):
-        restored = restore_state(capture_state(ManualSMCLifecycle()))
+        restored = restore_state(capture_state(ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)))
         events_a = _drive(restored.lifecycle, restored.watermark, 0, len(BARS))
         _, _, events_b = _fresh(len(BARS))
         assert _events_repr(events_a) == _events_repr(events_b)
@@ -487,7 +510,7 @@ class TestScannerState:
 
     def test_the_payload_is_canonically_ordered(self):
         """Scanners sorted by asset, `consumed` sorted — so bytes compare."""
-        a = ManualSMCLifecycle()
+        a = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
         _drive(a, CandleWatermark(), 0, 3, ETH)
         _drive(a, CandleWatermark(), 0, 3, BTC)
         payload = capture_state(a)
@@ -496,7 +519,7 @@ class TestScannerState:
             assert scanner["consumed"] == sorted(scanner["consumed"])
 
     def test_multiple_assets_keep_separate_scanners(self):
-        lifecycle = ManualSMCLifecycle()
+        lifecycle = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
         wm = CandleWatermark()
         _drive(lifecycle, wm, 0, 4, BTC)
         _drive(lifecycle, wm, 0, 3, ETH)
@@ -633,7 +656,7 @@ class TestProcessedCandleWatermark:
         wm = CandleWatermark()
         wm.advance(ETH, 0, T0)
         wm.advance(BTC, 0, T0)
-        payload = capture_state(ManualSMCLifecycle(), wm)
+        payload = capture_state(ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC), wm)
         assert [m["asset"] for m in payload["watermark"]] == sorted([BTC, ETH])
 
     def test_a_duplicate_watermark_entry_is_refused(self):
@@ -653,7 +676,7 @@ class TestProcessedCandleWatermark:
 
     def test_a_non_watermark_object_is_refused_at_capture(self):
         with pytest.raises(MalformedStateError, match="CandleWatermark"):
-            capture_state(ManualSMCLifecycle(), {"BTCUSD": 3})
+            capture_state(ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC), {"BTCUSD": 3})
 
 
 class TestDeterministicContinuation:
@@ -715,12 +738,12 @@ class TestDeterministicContinuation:
         both runs, so what is compared is the restore and nothing else.
         """
         assets = (BTC, ETH)
-        straight = ManualSMCLifecycle()
+        straight = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
         straight_wm = CandleWatermark()
         straight_events = _drive_multi(straight, straight_wm, 0, len(BARS),
                                        assets)
 
-        broken = ManualSMCLifecycle()
+        broken = ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)
         broken_wm = CandleWatermark()
         before = _drive_multi(broken, broken_wm, 0, 3, assets)
         resumed = restore_state_json(capture_state_json(broken, broken_wm))
@@ -859,7 +882,7 @@ class TestMalformedPayloadRejected:
 
 
 #: The exact top-level key set, read off a real capture (not hand-copied).
-TOP_KEYS: Tuple[str, ...] = tuple(capture_state(ManualSMCLifecycle()))
+TOP_KEYS: Tuple[str, ...] = tuple(capture_state(ManualSMCLifecycle(detector=DETECTOR_MANUAL_SPEC)))
 
 
 class TestMissingFieldRejected:
@@ -995,10 +1018,26 @@ class TestUnknownEnumRejected:
 class TestSchemaVersionRejected:
     """Requirement 4/5: an explicit, checked schema and strategy identity."""
 
-    # v1 is in this list on purpose: v2 added the mandatory `activation` block,
-    # and a v1 payload does not record which activation mode produced it. Being
-    # refused rather than upgraded is the fail-closed direction (rule #13).
-    @pytest.mark.parametrize("version", [0, 1, 3, 99, -1, 1000])
+    # v1, v2 AND v3 are in this list on purpose. v2 added the mandatory
+    # `activation` block, and a v1 payload does not record which activation mode
+    # produced it. v3 added the mandatory `invalidations` list, and a v2 payload
+    # does not record which order blocks the operator permanently deleted —
+    # restoring one would have to assume the list is empty, which resurrects
+    # every deleted order block as tradable. v4 added the mandatory `detector`
+    # name, and a v3 payload does not record WHICH STRUCTURE ALGORITHM decided
+    # what an order block was; the two shipped detectors disagree about the zone
+    # (half origin candle vs whole origin candle), so the stop edge and the
+    # derived leverage of a restored block would both be guesses. Being refused
+    # rather than upgraded is the fail-closed direction in all three cases
+    # (rule #13). A v3 snapshot must be recaptured, not migrated.
+    #
+    # v5 adds the mandatory `ob_structure_tags` side map and replaces the
+    # O(bars) LuxAlgo scanner body with the bounded causal one. A v4 payload
+    # carries neither: its blocks have no BOS/CHoCH label to restore, and its
+    # scanner body has no `structure` block, so this build would have to invent
+    # the Pine scalars from a replay it cannot prove equals what was captured.
+    # So v4 joins the refused list rather than being best-effort upgraded.
+    @pytest.mark.parametrize("version", [0, 1, 2, 3, 4, 99, -1, 1000])
     def test_an_unsupported_version_is_refused(self, version):
         payload = _valid_payload()
         with pytest.raises(UnsupportedSchemaVersionError, match="not restorable"):
@@ -1402,22 +1441,26 @@ class TestCodecDriftGuard:
     def test_the_top_level_key_set_is_pinned(self):
         assert TOP_KEYS == (
             "schema", "schema_version", "strategy_name", "strategy_version",
-            "config", "activation", "scanners", "live_obs", "active_trade",
-            "exits", "last_trade_closed_dt", "watermark")
+            "config", "activation", "detector", "scanners", "live_obs",
+            "ob_structure_tags", "active_trade", "exits",
+            "last_trade_closed_dt", "watermark", "invalidations")
 
 
 class TestModuleIndependence:
     """No exchange, DB, execution, runtime, adapter, Java or live wiring."""
 
-    def test_imports_are_stdlib_plus_three_siblings_only(self):
+    def test_imports_are_stdlib_plus_five_siblings_only(self):
         assert _imported_modules() == [
             "__future__",
             "dataclasses",
             "datetime",
             "decimal",
+            "hashlib",
             "json",
             "math",
+            "quantedge.strategy.manual_smc.invalidation",
             "quantedge.strategy.manual_smc.lifecycle",
+            "quantedge.strategy.manual_smc.luxalgo_structure",
             "quantedge.strategy.manual_smc.models",
             "quantedge.strategy.manual_smc.scanner",
             "typing",
@@ -1538,3 +1581,1080 @@ class TestModuleIndependence:
             if module.startswith("quantedge"):
                 assert module.startswith("quantedge.strategy.manual_smc."), (
                     f"{module} is outside the manual_smc package")
+
+
+# ===========================================================================
+# SCHEMA 4 — THE DETECTOR IS PART OF THE STATE
+#
+# Everything above this line drives `DETECTOR_MANUAL_SPEC`, because the 7-bar
+# `BARS` fixture was built for the half-candle zone and for single-candle close
+# displacement. The shipped default is now `DETECTOR_LUXALGO_INTERNAL`, whose
+# scanner is a Pine reconstruction: ~25 mutable attributes, an ATR(200) RMA and
+# nine audit trails.
+#
+# It is NO LONGER persisted by replay. Schema 5 writes the Pine reconstruction
+# out field-by-field through `LuxAlgoInternalStructure.capture_state()` --
+# pruned to `causal_watermark()`, the position proved unreachable by any future
+# read -- and a restore INSTALLS that structure instead of re-deriving it by
+# re-running `scan()`. A pruned candle log rides alongside it for the one field
+# the structure does not retain (`open`) and for the bar-index list the
+# torn-capture check reads; the two halves are cross-checked against each other
+# on restore, and a digest is diffed afterwards.
+#
+# The candles below are generated, not hand-built, because LuxAlgo needs a swing
+# window of 50 and an ATR warm-up before it will admit anything at all. The
+# generator is seeded, so the series is fixed; what is asserted about it is
+# measured from the engine, never predicted.
+# ===========================================================================
+LUX = "ETHUSD"
+LUX_BARS = 320
+LUX_SPLIT = 200
+
+
+def _lux_candles(n: int = LUX_BARS, seed: int = 771, base: int = 0,
+                 t0: datetime = T0) -> List[Tuple[int, datetime, float, float,
+                                                  float, float]]:
+    """A seeded OHLC series long enough for the LuxAlgo warm-up."""
+    import math
+    import random
+    rng = random.Random(seed)
+    price = 3000.0
+    out = []
+    for i in range(n):
+        o = price
+        c = o + math.sin(i / 7.0) * 12.0 + rng.uniform(-9.0, 9.0)
+        h = max(o, c) + rng.uniform(0.0, 6.0)
+        l = min(o, c) - rng.uniform(0.0, 6.0)
+        out.append((base + i, t0 + timedelta(hours=i), o, h, l, c))
+        price = c
+    return out
+
+
+def _lux_lifecycle(**kw) -> ManualSMCLifecycle:
+    return ManualSMCLifecycle(assets=[LUX], detector=DETECTOR_LUXALGO_INTERNAL,
+                              **kw)
+
+
+def _lux_drive(lifecycle: ManualSMCLifecycle, rows, watermark=None):
+    """Feed generated rows, advancing the watermark exactly as a caller must."""
+    watermark = CandleWatermark() if watermark is None else watermark
+    events: List[ManualLifecycleEvent] = []
+    for bar_idx, ts, o, h, l, c in rows:
+        events += lifecycle.process_candle(LUX, bar_idx, ts, o, h, l, c)
+        watermark.advance(LUX, bar_idx, ts)
+    return events, watermark
+
+
+def _lux_snapshot(bars: int = LUX_SPLIT) -> Tuple[Dict[str, Any],
+                                                  ManualSMCLifecycle,
+                                                  CandleWatermark]:
+    lifecycle = _lux_lifecycle()
+    events, watermark = _lux_drive(lifecycle, _lux_candles()[:bars])
+    del events
+    return capture_state(lifecycle, watermark), lifecycle, watermark
+
+
+
+class TestLuxAlgoScannerStateRoundTrip:
+    """
+    The shipped detector's state must survive a restart. Before this, the codec
+    refused a `LuxAlgoInternalOBScanner` outright, so promoting LuxAlgo to the
+    default would have silently cost production its recoverability.
+    """
+
+    def test_the_snapshot_names_the_luxalgo_detector(self):
+        payload, _, _ = _lux_snapshot()
+        assert payload["detector"] == DETECTOR_LUXALGO_INTERNAL
+        assert payload["schema_version"] == MANUAL_SMC_STATE_SCHEMA_VERSION == 5
+
+    def test_the_scanner_block_is_the_bounded_structure_not_the_spec_shape(self):
+        """
+        A LuxAlgo block persists `structure` + `rejections` + `bars` + `digest`;
+        a ManualSpec block persists `history` + `consumed`. The two shapes are
+        disjoint on purpose, so a block cannot be read as the wrong detector's.
+
+        `bars` is now the PRUNED window, not the whole log: 200 bars in, 109
+        retained. The gap is the causal watermark, and the two numbers are both
+        pinned so that a change to the pruning shows up here as a measured
+        difference rather than as a silently smaller payload.
+        """
+        payload, _, _ = _lux_snapshot()
+        block = payload["scanners"][0]
+        assert sorted(block) == ["asset", "bars", "digest", "lookback",
+                                 "min_width", "rejections", "structure"]
+        assert block["asset"] == LUX
+        assert len(block["bars"]) == 109 < LUX_SPLIT
+        assert block["structure"]["asset"] == LUX
+        assert len(block["structure"]["arrays"]["times"]) == len(block["bars"])
+        assert block["rejections"] == {"non_positive_width": 0,
+                                       "below_min_width": 0}
+        spec_block = capture_state(_fresh(len(BARS))[0])["scanners"][0]
+        assert sorted(spec_block) == ["asset", "consumed", "history", "lookback",
+                                      "min_width"]
+        assert set(block) & set(spec_block) == {"asset", "lookback", "min_width"}
+
+    def test_the_digest_records_what_the_install_has_to_reproduce(self):
+        """The measured digest of the seeded 200-bar series.
+
+        `stream_bars` is the whole stream (200); `retained_bars` is what the
+        payload carries (109); `base_bar_idx` is REBASED by the 91 pruned bars
+        while `last_bar_idx` stays absolute. All four are asserted together
+        because their arithmetic is the whole claim: 91 + 109 == 200, and
+        91 + 109 - 1 == 199.
+        """
+        payload, _, _ = _lux_snapshot()
+        digest = payload["scanners"][0]["digest"]
+        assert digest["stream_bars"] == 200
+        assert digest["retained_bars"] == 109
+        assert digest["base_bar_idx"] == 91 and digest["last_bar_idx"] == 199
+        assert digest["base_bar_idx"] + digest["retained_bars"] == 200
+        assert (digest["base_bar_idx"] + digest["retained_bars"] - 1
+                == digest["last_bar_idx"])
+        assert digest["ob_seq"] == 5
+        assert digest["live_obs"] == 3
+        assert digest["internal_trend"] == 1 and digest["swing_trend"] == 0
+        assert digest["rejected_non_positive_width"] == 0
+        assert digest["rejected_below_min_width"] == 0
+        assert len(digest["bars_sha256"]) == 64
+        assert len(digest["structure_sha256"]) == 64
+        assert len(digest["live_ob_sha256"]) == 64
+        # `all_obs` is deliberately gone: `all_order_blocks` is an audit list
+        # that a bounded snapshot does not carry, and `_restore_order_blocks`
+        # rebuilds it from the live store, so the field could only mismatch.
+        # `ob_seq` above is the creation count that survives.
+        assert "all_obs" not in digest
+
+    def test_the_snapshot_is_json_and_restores_a_luxalgo_scanner(self):
+        payload, _, _ = _lux_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        assert restored.lifecycle.detector == DETECTOR_LUXALGO_INTERNAL
+        scanner = restored.lifecycle._scanners[LUX]
+        assert isinstance(scanner, LuxAlgoInternalOBScanner)
+        assert not isinstance(scanner, ManualSpecBOSScanner)
+
+    def test_the_live_ob_pool_survives_with_every_state_intact(self):
+        payload, lifecycle, _ = _lux_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        assert lifecycle.live_obs.keys() == restored.lifecycle.live_obs.keys()
+        assert len(restored.lifecycle.live_obs) == 3
+        for ob_id, before in lifecycle.live_obs.items():
+            after = restored.lifecycle.live_obs[ob_id]
+            for field in dataclasses.fields(ManualOBRecord):
+                assert getattr(before, field.name) == getattr(after, field.name), (
+                    f"{ob_id}.{field.name} did not survive the round trip")
+            assert before == after
+        assert all(ob.state is ManualOBState.AWAITING_DISPLACEMENT
+                   for ob in restored.lifecycle.live_obs.values())
+
+    def test_the_bos_choch_tag_now_survives_the_round_trip(self):
+        """
+        REPLACES `test_the_bos_choch_tag_is_the_one_documented_thing_not
+        _persisted`, which pinned the OPPOSITE behaviour: that a restored
+        LuxAlgo block reads `""`.
+
+        That limitation is fixed, and fixed WITHOUT moving either gate that
+        caused it. `bos_or_choch` is still a `ClassVar`, so
+        `dataclasses.fields()` and `expected_keys()` still hold 29 entries and
+        the oracle provenance gate still passes; the label travels in the
+        top-level `ob_structure_tags` side map instead. Both halves are asserted
+        here, because a fix that persisted the tag BY adding a 30th field would
+        also make this test's first two assertions pass.
+        """
+        payload, lifecycle, _ = _lux_snapshot()
+        before = {ob_id: ob.bos_or_choch
+                  for ob_id, ob in lifecycle.live_obs.items()}
+        tagged = {ob_id: tag for ob_id, tag in before.items() if tag}
+        assert tagged, "the fixture proved nothing: no LuxAlgo block was tagged"
+        assert set(tagged.values()) <= {"BOS", "CHoCH"}
+        # The record schema is UNCHANGED -- the tag is not a field and not a
+        # per-record payload key.
+        assert "bos_or_choch" not in expected_keys(ManualOBRecord)
+        assert all("bos_or_choch" not in block for block in payload["live_obs"])
+        # It rides in the side map, canonically ordered.
+        assert payload["ob_structure_tags"] == sorted(
+            [[ob_id, tag] for ob_id, tag in tagged.items()])
+        restored = restore_state_json(dumps_state(payload))
+        after = {ob_id: ob.bos_or_choch
+                 for ob_id, ob in restored.lifecycle.live_obs.items()}
+        assert after == before
+
+    def test_the_restored_run_continues_identically_to_an_unbroken_one(self):
+        """
+        The acceptance test that matters. An unbroken 320-bar run and a run that
+        was snapshotted at bar 200, serialized, restored and resumed must emit
+        the SAME events for the remaining 120 bars — so the INSTALLED ATR, the
+        parsed high/low arrays, both Pine leg states and the pivot bookkeeping
+        all came back, and came back from the bounded snapshot rather than from
+        a replay of the whole stream.
+        """
+        rows = _lux_candles()
+        whole, _ = _lux_drive(_lux_lifecycle(), rows)
+        head_lc = _lux_lifecycle()
+        head, head_wm = _lux_drive(head_lc, rows[:LUX_SPLIT])
+        restored = restore_state_json(
+            dumps_state(capture_state(head_lc, head_wm)))
+        tail, _ = _lux_drive(restored.lifecycle, rows[LUX_SPLIT:],
+                             restored.watermark)
+        assert _events_repr(whole) == _events_repr(head) + _events_repr(tail)
+        assert len(tail) > 0, "the tail proved nothing: no events after the split"
+
+    def test_a_recapture_of_the_restored_lifecycle_is_byte_identical(self):
+        """Restore is a fixed point: capture(restore(x)) == x."""
+        payload, _, _ = _lux_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        again = capture_state(restored.lifecycle, restored.watermark)
+        assert again == payload
+
+    def test_the_watermark_travels_with_the_luxalgo_log(self):
+        payload, _, _ = _lux_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        mark = restored.watermark.last(LUX)
+        assert mark is not None
+        assert mark.bar_idx == LUX_SPLIT - 1
+        assert restored.watermark.is_processed(LUX, LUX_SPLIT - 1)
+        assert not restored.watermark.is_processed(LUX, LUX_SPLIT)
+        with pytest.raises(WatermarkRegressionError):
+            restored.watermark.advance(LUX, 0, T0)
+
+
+class TestDetectorIdentitySurvivesTheRoundTrip:
+    """
+    Schema 4's whole reason to exist. The two shipped detectors disagree about
+    the ZONE — half origin candle vs whole origin candle — so the distal edge,
+    and therefore the stop and the derived leverage, differ. Nothing else in the
+    payload settles which one produced a block, so the name is recorded and
+    checked on both sides rather than defaulted (rule #13).
+    """
+
+    @pytest.mark.parametrize("detector", [DETECTOR_MANUAL_SPEC,
+                                          DETECTOR_LUXALGO_INTERNAL])
+    def test_each_detector_restores_as_itself(self, detector):
+        lifecycle = ManualSMCLifecycle(assets=[LUX], detector=detector)
+        _, watermark = _lux_drive(lifecycle, _lux_candles()[:120])
+        payload = capture_state(lifecycle, watermark)
+        assert payload["detector"] == detector
+        restored = restore_state_json(dumps_state(payload))
+        assert restored.lifecycle.detector == detector
+        expected = (LuxAlgoInternalOBScanner
+                    if detector == DETECTOR_LUXALGO_INTERNAL
+                    else ManualSpecBOSScanner)
+        assert isinstance(restored.lifecycle._scanners[LUX], expected)
+
+    def test_the_two_detectors_do_not_produce_the_same_snapshot(self):
+        """Otherwise this whole class would be measuring nothing."""
+        payloads = {}
+        for detector in (DETECTOR_MANUAL_SPEC, DETECTOR_LUXALGO_INTERNAL):
+            lifecycle = ManualSMCLifecycle(assets=[LUX], detector=detector)
+            _, watermark = _lux_drive(lifecycle, _lux_candles()[:120])
+            payloads[detector] = capture_state(lifecycle, watermark)
+        spec, lux = payloads.values()
+        assert spec != lux
+        assert spec["detector"] != lux["detector"]
+        assert (len(spec["live_obs"]) != len(lux["live_obs"])
+                or [o["ob_id"] for o in spec["live_obs"]]
+                != [o["ob_id"] for o in lux["live_obs"]])
+
+    def test_a_missing_detector_is_not_defaulted(self):
+        """A v3-shaped payload: the key is absent, so the answer is unknown."""
+        payload, _, _ = _lux_snapshot()
+        with pytest.raises(MissingFieldError, match="detector"):
+            restore_state(_drop(payload, "detector"))
+
+    @pytest.mark.parametrize("name", ["", "LUXALGO", "luxalgo_internal",
+                                      "MANUAL_SPEC", "LUXALGO_INTERNAL_V2",
+                                      "SMC", "LUXALGO_INTERNAL "])
+    def test_an_unknown_or_aliased_detector_name_is_refused(self, name):
+        """No aliases, no case folding, no whitespace tolerance (rule #15)."""
+        payload, _, _ = _lux_snapshot()
+        with pytest.raises(StateIntegrityError, match="not a known detector"):
+            restore_state(_mutate(payload, "detector", value=name))
+
+    @pytest.mark.parametrize("bad", [None, 4, 4.0, True, ["LUXALGO_INTERNAL"],
+                                     {"name": "LUXALGO_INTERNAL"}])
+    def test_a_non_string_detector_is_refused(self, bad):
+        payload, _, _ = _lux_snapshot()
+        with pytest.raises(MalformedStateError):
+            restore_state(_mutate(payload, "detector", value=bad))
+
+
+class TestTheDeclaredDetectorMustMatchTheRealOne:
+    """
+    The declared name and the actual scanner object are cross-checked in BOTH
+    directions, so a payload cannot be relabelled into the other algorithm and a
+    lifecycle cannot capture a scanner it is not running.
+    """
+
+    def test_a_luxalgo_block_relabelled_as_manual_spec_is_refused(self):
+        payload, _, _ = _lux_snapshot()
+        with pytest.raises(StateError):
+            restore_state(_mutate(payload, "detector",
+                                  value=DETECTOR_MANUAL_SPEC))
+
+    def test_a_manual_spec_block_relabelled_as_luxalgo_is_refused(self):
+        lifecycle, watermark, _ = _fresh(len(BARS))
+        payload = capture_state(lifecycle, watermark)
+        assert payload["detector"] == DETECTOR_MANUAL_SPEC
+        with pytest.raises(StateError):
+            restore_state(_mutate(payload, "detector",
+                                  value=DETECTOR_LUXALGO_INTERNAL))
+
+    def test_capture_refuses_a_lifecycle_whose_scanner_is_the_other_kind(self):
+        """
+        The capture-side half. A lifecycle that says LuxAlgo but holds a
+        ManualSpec scanner would otherwise write a payload that restores as a
+        DIFFERENT strategy than the one that produced it.
+        """
+        lifecycle = _lux_lifecycle()
+        _, watermark = _lux_drive(lifecycle, _lux_candles()[:60])
+        lifecycle._scanners[LUX] = ManualSpecBOSScanner(
+            lookback=lifecycle.cfg.lookback,
+            min_width=lifecycle.cfg.min_ob_width)
+        with pytest.raises(StateIntegrityError):
+            capture_state(lifecycle, watermark)
+
+    def test_capture_refuses_the_mirror_image_mismatch(self):
+        lifecycle, watermark, _ = _fresh(len(BARS))
+        lifecycle._scanners[BTC] = LuxAlgoInternalOBScanner(
+            lookback=lifecycle.cfg.lookback,
+            min_width=lifecycle.cfg.min_ob_width)
+        with pytest.raises(StateIntegrityError):
+            capture_state(lifecycle, watermark)
+
+
+class TestTheLuxAlgoCandleLogCannotBeTamperedWith:
+    """
+    A LuxAlgo block carries the retained candle window TWICE — once as `bars`,
+    once inside the `structure` block's own arrays — and the Pine `var` state
+    once. Three independent checks stand over that: the structure validator in
+    `restore_state`, the cross-agreement check between the two candle copies, and
+    the two checksums. Which one fires depends on WHICH copy was edited, and each
+    case below names the one that should.
+    """
+
+    @staticmethod
+    def _tampered(**edit) -> Dict[str, Any]:
+        payload, _, _ = _lux_snapshot()
+        return payload, copy.deepcopy(payload)
+
+    def test_editing_one_price_in_one_candle_is_refused(self):
+        """
+        A GEOMETRICALLY VALID edit — the low is pushed further down, so the
+        candle still satisfies low <= open/close <= high and the structure
+        validator has nothing to object to. The cross-agreement check catches it:
+        `bars[10]` no longer matches the same bar in the structure's own arrays.
+        """
+        _, bad = self._tampered()
+        row = bad["scanners"][0]["bars"][10]
+        row[3] -= 5.0                                    # low, downward
+        assert row[3] < min(row[1], row[2], row[4])
+        with pytest.raises(StateIntegrityError,
+                           match="different candles"):
+            restore_state(bad)
+
+    def test_editing_the_open_is_caught_by_the_checksum_alone(self):
+        """
+        The one field the cross-agreement check CANNOT corroborate. The Pine
+        structure validates the open and discards it, so `bars` is the only copy
+        of it in the payload and `bars_sha256` is the only thing covering it.
+        This test exists to say so out loud rather than leave the gap implied.
+        """
+        _, bad = self._tampered()
+        bad["scanners"][0]["bars"][10][1] += 3.0          # open, still in range
+        with pytest.raises(StateIntegrityError, match="bars_sha256"):
+            restore_state(bad)
+
+    def test_an_edit_that_inverts_a_candle_is_refused_before_the_checksum(self):
+        """The structure validator gets there first, and says why.
+
+        Edited inside the `structure` block, because that is where the geometry
+        is validated: `restore_state` checks each retained bar's parsed high/low
+        against its own high/low. The same edit made in `bars` is caught by the
+        cross-agreement check instead (see above).
+        """
+        _, bad = self._tampered()
+        arrays = bad["scanners"][0]["structure"]["arrays"]
+        arrays["lows"][10] = arrays["highs"][10] + 5.0    # low above the high
+        with pytest.raises(StateIntegrityError,
+                           match="this build can rebuild"):
+            restore_state(bad)
+
+    def test_editing_a_timestamp_is_refused(self):
+        _, bad = self._tampered()
+        bad["scanners"][0]["bars"][10][5] = "2030-01-01T00:00:00+00:00"
+        with pytest.raises(StateError):
+            restore_state(bad)
+
+    def test_truncating_the_log_is_refused(self):
+        _, bad = self._tampered()
+        del bad["scanners"][0]["bars"][-1]
+        with pytest.raises(StateIntegrityError):
+            restore_state(bad)
+
+    def test_appending_a_candle_to_the_log_is_refused(self):
+        _, bad = self._tampered()
+        bad["scanners"][0]["bars"].append(list(bad["scanners"][0]["bars"][-1]))
+        with pytest.raises(StateError):
+            restore_state(bad)
+
+    def test_dropping_the_digest_is_refused(self):
+        _, bad = self._tampered()
+        del bad["scanners"][0]["digest"]
+        with pytest.raises(MissingFieldError, match="digest"):
+            restore_state(bad)
+
+    def test_dropping_the_structure_block_is_refused(self):
+        _, bad = self._tampered()
+        del bad["scanners"][0]["structure"]
+        with pytest.raises(MissingFieldError, match="structure"):
+            restore_state(bad)
+
+    @pytest.mark.parametrize("field", ["stream_bars", "retained_bars",
+                                       "ob_seq", "live_obs",
+                                       "internal_trend", "swing_trend",
+                                       "rejected_non_positive_width",
+                                       "rejected_below_min_width"])
+    def test_editing_any_counted_digest_field_is_refused(self, field):
+        _, bad = self._tampered()
+        bad["scanners"][0]["digest"][field] += 1
+        with pytest.raises(StateIntegrityError, match=field):
+            restore_state(bad)
+
+    @pytest.mark.parametrize("field", ["non_positive_width", "below_min_width"])
+    def test_editing_a_persisted_rejection_counter_is_refused(self, field):
+        """
+        The counters are REAL STATE now — there is no replay to re-derive them —
+        so they are carried in the block body and the digest's copies verify
+        them. Editing one copy is caught by the other, which is the same
+        two-coordinated-edits property the checksums have.
+        """
+        _, bad = self._tampered()
+        bad["scanners"][0]["rejections"][field] += 1
+        with pytest.raises(StateIntegrityError, match="rejected_" + field):
+            restore_state(bad)
+
+    def test_editing_the_pine_state_inside_the_structure_block_is_refused(self):
+        """A trend bias flip changes no candle, so only the structure checksum
+        and the digest's own copy of the bias can see it."""
+        _, bad = self._tampered()
+        bad["scanners"][0]["structure"]["trends"]["internal"] = -1
+        with pytest.raises(StateIntegrityError,
+                           match="structure_sha256|internal_trend"):
+            restore_state(bad)
+
+    def test_editing_the_structures_own_copy_of_a_close_is_refused(self):
+        """The cross-agreement check, in the OTHER direction.
+
+        `restore_state` range-checks a retained bar's high against its low and
+        recomputes the parsed high/low and the volatility flag, but it does NOT
+        constrain `closes[i]` to sit inside `[low, high]` -- Pine never does
+        either. So a close edited inside the `structure` block clears the
+        structure validator, and the cross-agreement check against the `bars`
+        copy is what stops it. Without that check the edit would move
+        `_display_structure`'s crossover series and change which bar breaks.
+        """
+        _, bad = self._tampered()
+        bad["scanners"][0]["structure"]["arrays"]["closes"][10] += 4.0
+        with pytest.raises(StateIntegrityError,
+                           match=r"scanners\[0\]\.bars\[10\]"):
+            restore_state(bad)
+
+    def test_rebasing_the_structure_is_refused(self):
+        """Sliding the whole window's absolute position is caught internally.
+
+        `base_bar_idx` is what makes a pruned window's bar indices absolute. An
+        off-by-one there would silently renumber every retained bar -- including
+        the ones `_scanner_bar_indices` hands the torn-capture check -- so it is
+        refused by the structure's own `last_bar_idx == base + n - 1` identity
+        before the cross-agreement check is even reached.
+        """
+        _, bad = self._tampered()
+        bad["scanners"][0]["structure"]["base_bar_idx"] += 1
+        with pytest.raises(StateIntegrityError, match="last_bar_idx"):
+            restore_state(bad)
+
+
+LUX_TORN_CUT = 120
+
+# The real canonical 1h history the LuxAlgo suites drive. Skipped, never faked,
+# when the CSVs are not checked out -- an absent fixture must not silently turn
+# a measured claim into a passing test.
+_EXTENDED = (Path(__file__).parent.parent / "data" / "research"
+             / "manual_smc_5day_parity" / "canonical_extended"
+             / "delta_exchange_india")
+REAL_BARS = 19762
+needs_real_history = pytest.mark.skipif(
+    not (_EXTENDED / "BTCUSD" / "1h" / "full_history.csv").exists(),
+    reason="extended canonical 1h history (19,762 bars) not present")
+
+
+def _real_history_rows(symbol: str) -> List[Tuple[Any, ...]]:
+    """`(bar_idx, ts, o, h, l, c)` rows, in the lifecycle's argument order."""
+    from quantedge.ai.research.displacement_gated_retest_engine import (
+        _load_canonical_candles,
+    )
+    raw = list(_load_canonical_candles(_EXTENDED, symbol))[:REAL_BARS]
+    assert len(raw) == REAL_BARS, f"{symbol}: got {len(raw)} candles"
+    return [(i, r["timestamp"], r["open"], r["high"], r["low"], r["close"])
+            for i, r in enumerate(raw)]
+
+
+class TestTheLuxAlgoSnapshotIsBounded:
+    """
+    Schema 5's other half. Schema 4 wrote EVERY accepted candle out and replayed
+    them on restore, so a long-lived asset's block grew without bound -- the
+    measured real 19,762-bar single-symbol block was ~1.4 MB. Schema 5 writes
+    the Pine reconstruction field-by-field, pruned to
+    `LuxAlgoInternalStructure.causal_watermark()`.
+
+    The continuation proof -- restore from many cut points, feed the remaining
+    candles, compare bar-by-bar across 13 channels -- lives in
+    `test_manual_smc_luxalgo_snapshot_parity.py`. What is asserted HERE is what
+    the STATE CODEC owes on top of that: the payload really is bounded, the
+    numbers are measured rather than hoped for, the payload is a fixed point,
+    and the two safety checks that read the candle window are still binding on a
+    window that no longer contains the whole stream.
+    """
+
+    def test_the_retained_window_is_bounded_not_the_stream(self):
+        """Two cut points, both measured. The bound is CAUSAL, not constant.
+
+        At 200 bars the newest live pivot is what holds the window open (109
+        bars retained). At 120 bars nothing is holding it, so the `n -
+        SWINGS_LENGTH` floor binds exactly -- `SWINGS_LENGTH` bars, the smallest
+        window the codec will ever write. Both are asserted so that a change to
+        the pruning rule shows up as a measured difference in one or both.
+        """
+        for bars, retained in ((LUX_SPLIT, 109), (LUX_TORN_CUT, SWINGS_LENGTH)):
+            digest = _lux_snapshot(bars)[0]["scanners"][0]["digest"]
+            assert digest["stream_bars"] == bars
+            assert digest["retained_bars"] == retained < bars
+            assert (digest["base_bar_idx"] + digest["retained_bars"]
+                    == digest["stream_bars"])
+        assert SWINGS_LENGTH == 50
+
+    def test_the_newest_bar_is_always_retained(self):
+        """Why pruning cannot weaken the torn-capture check.
+
+        That check refuses a snapshot holding a scanner bar AHEAD of the
+        watermark. Pruning drops OLD bars only, so the retained window is a
+        contiguous suffix ending at the last bar the scanner saw -- meaning any
+        bar ahead of the mark is still there to be found. Assert the suffix
+        property directly, through the public accessor the check reads.
+        """
+        payload, _, _ = _lux_snapshot()
+        digest = payload["scanners"][0]["digest"]
+        restored = restore_state_json(dumps_state(payload))
+        log = restored.lifecycle._scanners[LUX].bars_for(LUX)
+        indices = [row[0] for row in log]
+        assert indices == list(range(digest["base_bar_idx"],
+                                     digest["last_bar_idx"] + 1))
+        assert indices[-1] == digest["last_bar_idx"] == LUX_SPLIT - 1
+
+    def test_a_torn_capture_is_still_refused_through_the_pruned_window(self):
+        """The scanner branch of the torn-capture check, on a pruned window.
+
+        Cut at 120 bars: the window is pruned to 50 (bars 70..119) and the
+        newest live OB was created at bar 110, so a watermark placed at 110 or
+        later leaves NO OB ahead of it and the refusal can only come from the
+        scanner window. Every bar named in the message is inside the retained
+        window, which is the point: pruning shortened the enumeration, not the
+        refusal.
+        """
+        payload, lifecycle, _ = _lux_snapshot(LUX_TORN_CUT)
+        assert max(ob.bos_bar_idx for ob in lifecycle.live_obs.values()) == 110
+        assert payload["scanners"][0]["digest"]["base_bar_idx"] == 70
+        for mark, named in ((118, [119]),
+                            (115, [116, 117, 118, 119])):
+            torn = copy.deepcopy(payload)
+            torn["watermark"][0]["bar_idx"] = mark
+            torn["watermark"][0]["ts"] = (
+                T0 + timedelta(hours=mark)).isoformat()
+            with pytest.raises(StateIntegrityError,
+                               match=r"scanner history contains bar\(s\) "
+                                     + re.escape(repr(named))):
+                restore_state(torn)
+            assert all(idx >= 70 for idx in named)
+
+    def test_a_torn_capture_is_still_refused_through_the_ob_pool(self):
+        """The other branch, unchanged: a live OB ahead of the mark.
+
+        Included next to the one above because the two branches can mask each
+        other -- at the 200-bar cut a block was created on the very last bar, so
+        the pool answers first and the scanner branch is never reached. Asserting
+        both means neither can quietly stop working.
+        """
+        payload, _, _ = _lux_snapshot()
+        torn = copy.deepcopy(payload)
+        torn["watermark"][0]["bar_idx"] = LUX_SPLIT - 2
+        torn["watermark"][0]["ts"] = (
+            T0 + timedelta(hours=LUX_SPLIT - 2)).isoformat()
+        with pytest.raises(StateIntegrityError,
+                           match=r"were created on bar\(s\) after the "
+                                 r"processed watermark 198"):
+            restore_state(torn)
+
+    def test_the_payload_is_a_fixed_point_over_two_full_cycles(self):
+        """Pruning is idempotent AT THE PAYLOAD LEVEL, not just in the codec.
+
+        `test_a_recapture_of_the_restored_lifecycle_is_byte_identical` proves one
+        cycle. A second cycle is the one that could go wrong: the first restore
+        installs an ALREADY-PRUNED structure whose `n` is now 109 instead of 200,
+        so a `causal_watermark()` that recomputed off the shorter window could
+        prune again and shrink the payload on every restart. It does not, and the
+        JSON text is compared as well as the dicts.
+        """
+        payload, _, _ = _lux_snapshot()
+        first = restore_state_json(dumps_state(payload))
+        once = capture_state(first.lifecycle, first.watermark)
+        second = restore_state_json(dumps_state(once))
+        twice = capture_state(second.lifecycle, second.watermark)
+        assert once == payload
+        assert twice == once
+        assert dumps_state(twice) == dumps_state(payload)
+        assert (twice["scanners"][0]["digest"]["retained_bars"]
+                == payload["scanners"][0]["digest"]["retained_bars"] == 109)
+
+    @needs_real_history
+    def test_the_real_history_payload_is_bounded_and_measured(self):
+        """The case the mandate named: 19,762 real 1h bars, one symbol.
+
+        MEASURED, not projected. Schema 4 wrote one row per accepted candle, so
+        this block was ~1.4 MB; schema 5 retains 114 bars and the whole block --
+        structure, pruned candles, rejection counters and digest -- is 40,841
+        bytes of `json.dumps(..., sort_keys=True)`. The byte count is asserted
+        with a small tolerance because it is a serialisation detail, while the
+        retained-bar count, the stream length and the block counts are exact.
+
+        This is a BOUND ON THE PAYLOAD, not on memory: the running scanner still
+        keeps every candle it accepted, because Pine's origin search may reach
+        back to an uncrossed pivot of any age.
+        """
+        rows = _real_history_rows("BTCUSD")
+        lifecycle = ManualSMCLifecycle(assets=["BTCUSD"],
+                                       detector=DETECTOR_LUXALGO_INTERNAL)
+        watermark = CandleWatermark()
+        for bar_idx, ts, o, h, l, c in rows:
+            lifecycle.process_candle("BTCUSD", bar_idx, ts, o, h, l, c)
+            watermark.advance("BTCUSD", bar_idx, ts)
+        payload = capture_state(lifecycle, watermark)
+        block = payload["scanners"][0]
+        digest = block["digest"]
+        assert digest["stream_bars"] == REAL_BARS == 19762
+        assert digest["retained_bars"] == len(block["bars"]) == 114
+        assert digest["base_bar_idx"] == 19648
+        assert digest["last_bar_idx"] == REAL_BARS - 1
+        assert digest["ob_seq"] == 1057
+        # TWO DIFFERENT POOLS, and the gap is not a defect. `digest["live_obs"]`
+        # counts LuxAlgo's own un-mitigated drawing store, capped at 100;
+        # `lifecycle.live_obs` counts the blocks the STRATEGY still holds, which
+        # is smaller because a block leaves on fill, expiry or invalidation.
+        # Asserting both stops one being read as a check on the other.
+        assert digest["live_obs"] == 46
+        assert len(lifecycle.live_obs) == 36
+        measured = len(json.dumps(block, sort_keys=True).encode("utf-8"))
+        assert abs(measured - 40841) < 2048, measured
+        # Under schema 4 the same block carried one row per accepted candle.
+        assert measured < 100_000 < REAL_BARS * 60
+        # And it still round-trips to itself.
+        restored = restore_state_json(dumps_state(payload))
+        assert capture_state(restored.lifecycle, restored.watermark) == payload
+        assert len(restored.lifecycle._scanners["BTCUSD"].bars_for("BTCUSD")
+                   ) == 114
+
+
+# ===========================================================================
+# BOS / CHoCH STRUCTURE LABELS
+#
+# `ManualOBRecord.bos_or_choch` is a `ClassVar` shadowed per instance, so the
+# per-record codec cannot see it. Rather than promote it to a 30th field --
+# which would move the oracle provenance gate in
+# `test_manual_smc_oracle_equivalence.py` AND invalidate every previously
+# written per-record block -- the label rides in a top-level
+# `ob_structure_tags` side map keyed by `ob_id`.
+#
+# The label is REPORTING, not a trading input, so the risk here is not a wrong
+# trade: it is a wrong AUDIT TRAIL. A payload that could silently relabel a
+# block, or invent a label for one that no longer exists, would let a resumed
+# run disagree with its own history about what happened. Every one of these is
+# therefore a refusal, never a repair.
+# ===========================================================================
+LUX_TAGS = ("BOS", "CHoCH")
+
+#: The cut point at which the fixture's live pool holds BOTH labels at once.
+#: Measured, not guessed: at 200 bars (`LUX_SPLIT`) every surviving block is a
+#: BOS, so a round-trip claim made there would say nothing about CHoCH.
+LUX_TAGGED_SPLIT: int = 216
+
+
+def _tagged_snapshot(bars: int = LUX_TAGGED_SPLIT):
+    """A LuxAlgo snapshot whose live pool carries at least one of each label."""
+    payload, lifecycle, watermark = _lux_snapshot(bars)
+    labels = {ob_id: ob.bos_or_choch
+              for ob_id, ob in lifecycle.live_obs.items()}
+    return payload, lifecycle, watermark, labels
+
+
+def _spec_payload() -> Dict[str, Any]:
+    """A ManualSpec snapshot: every record unlabelled, so the map is empty."""
+    return _valid_payload()
+
+
+class TestStructureLabelsSurviveTheRoundTrip:
+    """The Part 1 acceptance tests: capture -> JSON text -> restore."""
+
+    def test_the_fixture_actually_produces_both_labels(self):
+        """Guards the guard. A fixture that only ever emitted BOS would make
+        every CHoCH assertion below vacuously true."""
+        _, lifecycle, _, labels = _tagged_snapshot()
+        del lifecycle
+        assert set(labels.values()) == {"BOS", "CHoCH"}, (
+            f"fixture emitted {sorted(set(labels.values()))}; both labels are "
+            f"needed for the round-trip claim to mean anything")
+
+    def test_every_label_survives_capture_json_and_restore(self):
+        payload, _, _, labels = _tagged_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        after = {ob_id: ob.bos_or_choch
+                 for ob_id, ob in restored.lifecycle.live_obs.items()}
+        assert after == labels
+        assert set(after.values()) == {"BOS", "CHoCH"}
+
+    @pytest.mark.parametrize("tag", LUX_TAGS)
+    def test_each_label_survives_on_its_own(self, tag):
+        """One label at a time, so a bug that maps everything to the first
+        (or the last) entry cannot hide behind a mixed pool."""
+        payload, _, _, labels = _tagged_snapshot()
+        keep = {ob_id for ob_id, t in labels.items() if t == tag}
+        assert keep, f"no live block carried {tag}"
+        payload["ob_structure_tags"] = sorted([ob_id, tag] for ob_id in keep)
+        restored = restore_state_json(dumps_state(payload))
+        after = {ob_id: ob.bos_or_choch
+                 for ob_id, ob in restored.lifecycle.live_obs.items()}
+        assert {ob_id for ob_id, t in after.items() if t} == keep
+        assert set(after[ob_id] for ob_id in keep) == {tag}
+
+    def test_the_restored_label_is_an_instance_attribute_not_the_classvar(self):
+        """`scanner.py` sets it per instance; a restore that assigned the CLASS
+        attribute instead would relabel every record in the process."""
+        payload, _, _, labels = _tagged_snapshot()
+        restored = restore_state_json(dumps_state(payload))
+        for ob_id, tag in labels.items():
+            ob = restored.lifecycle.live_obs[ob_id]
+            assert ("bos_or_choch" in ob.__dict__) is bool(tag)
+        assert ManualOBRecord.bos_or_choch == ""
+
+    def test_the_record_schema_did_not_move_to_achieve_this(self):
+        """The whole point of the side map. If this fails, the fix took the
+        forbidden route and the oracle provenance gate is next to break."""
+        payload, _, _, _ = _tagged_snapshot()
+        assert len(expected_keys(ManualOBRecord)) == 29
+        assert "bos_or_choch" not in expected_keys(ManualOBRecord)
+        assert all("bos_or_choch" not in block
+                   for block in payload["live_obs"])
+
+    def test_an_unlabelled_block_is_absent_from_the_map_not_empty_string(self):
+        payload, _, _, labels = _tagged_snapshot()
+        mapped = {ob_id for ob_id, _ in payload["ob_structure_tags"]}
+        assert mapped == {ob_id for ob_id, t in labels.items() if t}
+        assert all(tag in LUX_TAGS for _, tag in payload["ob_structure_tags"])
+
+    def test_the_map_is_canonically_ordered_so_two_captures_are_identical(self):
+        first, lifecycle, watermark, _ = _tagged_snapshot()
+        second = capture_state(lifecycle, watermark)
+        ids = [ob_id for ob_id, _ in first["ob_structure_tags"]]
+        assert ids == sorted(ids)
+        assert first["ob_structure_tags"] == second["ob_structure_tags"]
+        assert dumps_state(first) == dumps_state(second)
+
+    def test_the_open_positions_order_block_is_labelled_after_restore(self):
+        """`active_trade.ob` is the IDENTICAL object as its pool entry, so the
+        label must be visible through the trade too, not just through the pool.
+
+        The fixture fills exactly once, so the cut point is FOUND by walking
+        every bar rather than sampled -- a stride would miss it and the test
+        would silently degrade into a skip.
+        """
+        lifecycle = _lux_lifecycle()
+        watermark = CandleWatermark()
+        for bar_idx, ts, o, h, l, c in _lux_candles():
+            lifecycle.process_candle(LUX, bar_idx, ts, o, h, l, c)
+            watermark.advance(LUX, bar_idx, ts)
+            if lifecycle.active_trade is None:
+                continue
+            payload = capture_state(lifecycle, watermark)
+            expected = lifecycle.active_trade.ob.bos_or_choch
+            assert expected in LUX_TAGS
+            restored = restore_state_json(dumps_state(payload))
+            trade = restored.lifecycle.active_trade
+            assert trade is not None
+            assert trade.ob is restored.lifecycle.live_obs[trade.ob.ob_id]
+            assert trade.ob.bos_or_choch == expected
+            return
+        pytest.fail("the fixture never held an open position: the claim that a "
+                    "live position's label survives was never exercised")
+
+
+class TestUnknownStructureLabelsAreRefused:
+    """No coercion, no closest match, no silent blank."""
+
+    @pytest.mark.parametrize("tag", [
+        "bos",          # wrong case
+        "BOSS",         # superstring
+        "CHOCH",        # LuxAlgo spells it CHoCH; this is a DIFFERENT string
+        "choch",
+        "ChoCh",
+        "CH0CH",        # digit zero
+        "BOS ",         # trailing space
+        " BOS",
+        "BOS/CHoCH",
+        "MSS",          # a real SMC term this build does not implement
+        "UNKNOWN",
+        "None",
+        "-",
+    ])
+    def test_a_label_this_build_cannot_name_is_refused(self, tag):
+        payload, _, _, labels = _tagged_snapshot()
+        ob_id = next(iter(labels))
+        payload["ob_structure_tags"] = [[ob_id, tag]]
+        with pytest.raises(MalformedStateError, match="not one of"):
+            restore_state(payload)
+
+    def test_an_empty_label_is_refused_because_absence_means_unlabelled(self):
+        """`""` is not a third legal value: an unlabelled block is simply not in
+        the map. Accepting it here would create two spellings of one state and
+        let a payload look labelled while carrying nothing."""
+        payload, _, _, labels = _tagged_snapshot()
+        payload["ob_structure_tags"] = [[next(iter(labels)), ""]]
+        with pytest.raises(MalformedStateError, match="not one of"):
+            restore_state(payload)
+
+    def test_the_accepted_set_is_exactly_the_luxalgo_constants(self):
+        """Pinned against the indicator module, not re-spelled, so the codec and
+        the detector can never drift apart."""
+        from quantedge.strategy.manual_smc import luxalgo_structure as LS
+        from quantedge.strategy.manual_smc import state as ST
+        assert ST._OB_STRUCTURE_TAGS == frozenset({LS.TAG_BOS, LS.TAG_CHOCH})
+        assert sorted(ST._OB_STRUCTURE_TAGS) == ["BOS", "CHoCH"]
+        assert "" not in ST._OB_STRUCTURE_TAGS
+    def test_capture_refuses_a_label_it_could_not_restore(self):
+        """The refusal is symmetric. A record carrying an unnameable label must
+        not be written to disk either, or the snapshot would be dead on arrival
+        with no clue where the bad value came from."""
+        _, lifecycle, _, labels = _tagged_snapshot()
+        ob = lifecycle.live_obs[next(iter(labels))]
+        ob.bos_or_choch = "SUPERBOS"
+        with pytest.raises(StateIntegrityError, match="cannot be restored"):
+            encode_ob_structure_tags(lifecycle.live_obs,
+                                     DETECTOR_LUXALGO_INTERNAL)
+
+    def test_capture_refuses_a_non_string_label(self):
+        _, lifecycle, _, labels = _tagged_snapshot()
+        lifecycle.live_obs[next(iter(labels))].bos_or_choch = 1
+        with pytest.raises(MalformedStateError):
+            encode_ob_structure_tags(lifecycle.live_obs,
+                                     DETECTOR_LUXALGO_INTERNAL)
+
+
+class TestMalformedStructureLabelMapIsRefused:
+    """Shape errors, caught before any label is even read."""
+
+    @pytest.mark.parametrize("blob", [
+        None, {}, "BOS", 0, 1.0, True,
+        {"ob-1": "BOS"},                       # a mapping, not a pair list
+    ])
+    def test_the_map_must_be_a_list(self, blob):
+        payload, _, _, _ = _tagged_snapshot()
+        payload["ob_structure_tags"] = blob
+        with pytest.raises(MalformedStateError):
+            restore_state(payload)
+
+    @pytest.mark.parametrize("entry", [
+        "OB-1",                                # a bare string
+        ["only-one"],                          # too short
+        ["a", "BOS", "extra"],                 # too long
+        [],
+        None,
+        42,
+        {"ob_id": "a", "tag": "BOS"},          # a mapping entry
+    ])
+    def test_each_entry_must_be_a_two_element_pair(self, entry):
+        payload, _, _, _ = _tagged_snapshot()
+        payload["ob_structure_tags"] = [entry]
+        with pytest.raises(MalformedStateError, match="2-element"):
+            restore_state(payload)
+    @pytest.mark.parametrize("ob_id", [None, 7, 1.5, True, ["x"]])
+    def test_the_ob_id_must_be_a_string(self, ob_id):
+        payload, _, _, _ = _tagged_snapshot()
+        payload["ob_structure_tags"] = [[ob_id, "BOS"]]
+        with pytest.raises(MalformedStateError):
+            restore_state(payload)
+
+    @pytest.mark.parametrize("tag", [None, 7, 1.5, True, ["BOS"]])
+    def test_the_tag_must_be_a_string(self, tag):
+        payload, _, _, labels = _tagged_snapshot()
+        payload["ob_structure_tags"] = [[next(iter(labels)), tag]]
+        with pytest.raises(MalformedStateError):
+            restore_state(payload)
+
+    def test_a_missing_map_is_refused_not_defaulted_to_empty(self):
+        """The key is MANDATORY. Defaulting it to `[]` would silently drop every
+        label of an otherwise-valid payload -- the exact regression the schema
+        bump exists to prevent."""
+        payload, _, _, _ = _tagged_snapshot()
+        del payload["ob_structure_tags"]
+        with pytest.raises(MissingFieldError, match="ob_structure_tags"):
+            restore_state(payload)
+
+    def test_a_duplicate_ob_id_is_refused(self):
+        """Which label wins would otherwise depend on payload order."""
+        payload, _, _, labels = _tagged_snapshot()
+        ob_id = next(iter(labels))
+        payload["ob_structure_tags"] = [[ob_id, "BOS"], [ob_id, "CHoCH"]]
+        with pytest.raises(StateIntegrityError, match="duplicate ob_id"):
+            restore_state(payload)
+
+    def test_the_same_pair_twice_is_still_refused(self):
+        """Even a harmless-looking exact repeat: a canonical map holds one entry
+        per block, so a repeat means the writer was not the shipped codec."""
+        payload, _, _, labels = _tagged_snapshot()
+        ob_id, tag = next((k, v) for k, v in labels.items() if v)
+        payload["ob_structure_tags"] = [[ob_id, tag], [ob_id, tag]]
+        with pytest.raises(StateIntegrityError, match="duplicate ob_id"):
+            restore_state(payload)
+    def test_a_label_for_a_block_that_is_not_in_the_pool_is_refused(self):
+        """An orphan label means the map and the pool were written by different
+        runs; neither can then be trusted about what was live."""
+        payload, _, _, _ = _tagged_snapshot()
+        payload["ob_structure_tags"] = [["OB-DOES-NOT-EXIST", "BOS"]]
+        with pytest.raises(StateIntegrityError, match="not in the live pool"):
+            restore_state(payload)
+
+    def test_relabelling_a_block_that_dropped_out_of_the_pool_is_refused(self):
+        payload, _, _, labels = _tagged_snapshot()
+        ob_id = next(ob for ob, t in labels.items() if t)
+        payload["live_obs"] = [b for b in payload["live_obs"]
+                               if b["ob_id"] != ob_id]
+        with pytest.raises(StateError):
+            restore_state(payload)
+
+
+class TestManualSpecStaysBackwardCompatible:
+    """The oracle-extracted detector has no trend bias and cannot classify a
+    break, so its snapshots must carry an EMPTY map -- and must refuse a
+    non-empty one rather than quietly adopting a classification the detector is
+    incapable of producing."""
+
+    def test_a_manual_spec_snapshot_carries_an_empty_map(self):
+        payload = _spec_payload()
+        assert payload["detector"] == DETECTOR_MANUAL_SPEC
+        assert payload["ob_structure_tags"] == []
+
+    def test_a_manual_spec_round_trip_leaves_every_record_unlabelled(self):
+        payload = _spec_payload()
+        restored = restore_state_json(dumps_state(payload))
+        assert restored.lifecycle.live_obs
+        assert all(ob.bos_or_choch == ""
+                   for ob in restored.lifecycle.live_obs.values())
+        assert all("bos_or_choch" not in ob.__dict__
+                   for ob in restored.lifecycle.live_obs.values())
+
+    @pytest.mark.parametrize("tag", LUX_TAGS)
+    def test_a_labelled_manual_spec_payload_is_refused(self, tag):
+        payload = _spec_payload()
+        ob_id = payload["live_obs"][0]["ob_id"]
+        payload["ob_structure_tags"] = [[ob_id, tag]]
+        with pytest.raises(StateIntegrityError, match="cannot classify"):
+            restore_state(payload)
+    def test_capture_refuses_a_labelled_record_under_manual_spec(self):
+        """The mirror image: a ManualSpec lifecycle whose pool somehow holds a
+        labelled record is a lifecycle whose detector and contents disagree."""
+        ob = _make_manual_ob(
+            asset=BTC, bos_bar_idx=1, bos_dt=T0, origin_bar_idx=0,
+            origin_dt=T0, direction="LONG", ob_top=101.0, ob_bottom=100.0,
+            cfg=ManualSpecConfig())
+        pool = {ob.ob_id: ob}
+        assert encode_ob_structure_tags(pool, DETECTOR_MANUAL_SPEC) == []
+        ob.bos_or_choch = "BOS"
+        with pytest.raises(StateIntegrityError, match="has no trend"):
+            encode_ob_structure_tags(pool, DETECTOR_MANUAL_SPEC)
+
+    def test_the_manual_spec_record_arithmetic_is_untouched(self):
+        """The label work must not have moved a single number: every persisted
+        field of a restored ManualSpec pool against the live one."""
+        lifecycle, watermark, _ = _fresh(FILL_BAR + 1)
+        payload = capture_state(lifecycle, watermark)
+        restored = restore_state_json(dumps_state(payload))
+        assert restored.lifecycle.live_obs.keys() == lifecycle.live_obs.keys()
+        assert lifecycle.live_obs
+        for ob_id, before in lifecycle.live_obs.items():
+            after = restored.lifecycle.live_obs[ob_id]
+            assert before == after
+            for f in dataclasses.fields(ManualOBRecord):
+                assert getattr(before, f.name) == getattr(after, f.name), (
+                    f"{ob_id}.{f.name} moved")
+class TestStructureLabelCodecInIsolation:
+    """The two helpers, exercised directly. `restore_state` reaches them only
+    after a dozen other validations, so a direct test is what proves a refusal
+    belongs to THIS codec rather than to something upstream."""
+
+    @staticmethod
+    def _pool(*tags: str) -> Dict[str, ManualOBRecord]:
+        pool: Dict[str, ManualOBRecord] = {}
+        for i, tag in enumerate(tags):
+            ob = _make_manual_ob(
+                asset=BTC, bos_bar_idx=i + 1, bos_dt=T0 + timedelta(hours=i),
+                origin_bar_idx=i, origin_dt=T0 + timedelta(hours=i),
+                direction="LONG", ob_top=101.0 + i, ob_bottom=100.0 + i,
+                cfg=ManualSpecConfig())
+            if tag:
+                ob.bos_or_choch = tag
+            pool[ob.ob_id] = ob
+        return pool
+
+    def test_encode_then_decode_is_the_identity_on_a_mixed_pool(self):
+        pool = self._pool("BOS", "", "CHoCH", "BOS", "")
+        before = {k: v.bos_or_choch for k, v in pool.items()}
+        blob = encode_ob_structure_tags(pool, DETECTOR_LUXALGO_INTERNAL)
+        assert len(blob) == 3
+        target = self._pool("", "", "", "", "")
+        assert list(target) == list(pool)     # same ob_ids, no labels
+        decode_ob_structure_tags(blob, target, DETECTOR_LUXALGO_INTERNAL)
+        assert {k: v.bos_or_choch for k, v in target.items()} == before
+
+    def test_an_empty_pool_encodes_to_an_empty_map(self):
+        assert encode_ob_structure_tags({}, DETECTOR_LUXALGO_INTERNAL) == []
+        assert encode_ob_structure_tags({}, DETECTOR_MANUAL_SPEC) == []
+
+    def test_an_empty_map_decodes_without_touching_the_pool(self):
+        pool = self._pool("", "")
+        decode_ob_structure_tags([], pool, DETECTOR_LUXALGO_INTERNAL)
+        assert all(ob.bos_or_choch == "" for ob in pool.values())
+        assert all("bos_or_choch" not in ob.__dict__ for ob in pool.values())
+    def test_decode_applies_nothing_when_it_refuses(self):
+        """All-or-nothing. A partially applied map would leave a pool that is
+        neither the captured one nor a clean failure."""
+        pool = self._pool("", "", "")
+        ids = list(pool)
+        blob = [[ids[0], "BOS"], [ids[1], "CHoCH"], ["ORPHAN", "BOS"]]
+        with pytest.raises(StateIntegrityError):
+            decode_ob_structure_tags(blob, pool, DETECTOR_LUXALGO_INTERNAL)
+        assert all(ob.bos_or_choch == "" for ob in pool.values())
+        assert all("bos_or_choch" not in ob.__dict__ for ob in pool.values())
+
+    def test_the_error_message_names_the_offending_index(self):
+        pool = self._pool("")
+        ob_id = next(iter(pool))
+        with pytest.raises(MalformedStateError,
+                           match=r"ob_structure_tags\[1\]"):
+            decode_ob_structure_tags([[ob_id, "BOS"], [ob_id, "NOPE"]], pool,
+                                     DETECTOR_LUXALGO_INTERNAL)
+
+    def test_a_tuple_pair_is_accepted_because_only_contents_are_pinned(self):
+        """Tolerant about the CONTAINER, strict about the CONTENTS: a caller
+        holding tuples in memory is not a corrupt payload, and JSON round-trips
+        them to lists anyway."""
+        pool = self._pool("")
+        ob_id = next(iter(pool))
+        decode_ob_structure_tags([(ob_id, "CHoCH")], pool,
+                                 DETECTOR_LUXALGO_INTERNAL)
+        assert pool[ob_id].bos_or_choch == "CHoCH"

@@ -48,7 +48,10 @@ from quantedge.strategy.manual_smc.backtest import (
     build_timeline,
     candles_from_ohlc,
 )
-from quantedge.strategy.manual_smc.lifecycle import ACTIVATION_MODE_ORACLE_C
+from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_MANUAL_SPEC,
+)
 from quantedge.strategy.manual_smc.executable import (
     APPLIES_TO_STRATEGY_GEOMETRY,
     ORDER_QUANTITY_IS_COMPUTED,
@@ -116,12 +119,21 @@ LONG_ROWS = [
 # The Step 8 fixtures are Mode-C scripts carrying the oracle's 0.60% take
 # profit, and every named number below (99.897, 105.127, the R deltas) is that
 # TP quantized. `ManualSMCBacktest` now defaults to the production policy, so the
-# two oracle keywords are named here to keep the measured trades identical to the
+# oracle keywords are named here to keep the measured trades identical to the
 # ones Step 8 proved the semantics of — this file measures a quantization gap,
 # not an activation rule.
+#
+# `detector` is named for the same reason: these six-candle scripts are
+# half-candle `DETECTOR_MANUAL_SPEC` geometry (ob_top = origin.close), while the
+# shipped default is now `DETECTOR_LUXALGO_INTERNAL`, which needs ATR(200) plus a
+# 50-bar swing window before it admits any block and would leave this file with
+# no trade to measure. The quantization gap is detector-agnostic; which detector
+# production runs is asserted in `test_manual_smc_backtest.py` and
+# `test_manual_smc_first_touch_window.py`.
 ORACLE_KW = {
     "activation_mode": ACTIVATION_MODE_ORACLE_C,
     "config": ManualSpecConfig(),
+    "detector": DETECTOR_MANUAL_SPEC,
 }
 
 
@@ -766,9 +778,10 @@ class TestPurity:
 #: this class rather than each carrying a copy that has to be edited by every
 #: future step.
 PACKAGE_MODULES = (
-    "__init__.py", "adapter.py", "backtest.py", "executable.py", "geometry.py",
-    "lifecycle.py", "models.py", "portfolio.py", "quantization.py",
-    "scanner.py", "sizing.py", "state.py", "strategy.py",
+    "__init__.py", "adapter.py", "backtest.py", "executable.py",
+    "geometry.py", "invalidation.py", "lifecycle.py", "luxalgo_structure.py",
+    "models.py", "portfolio.py", "quantization.py", "scanner.py", "sizing.py",
+    "state.py", "strategy.py",
 )
 
 

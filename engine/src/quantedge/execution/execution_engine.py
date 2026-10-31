@@ -1,4 +1,48 @@
 """
+QUARANTINED -- NOT THE CANONICAL EXECUTION PATH. DO NOT WIRE THIS INTO PRODUCTION.
+
+Canonical execution implementation: `MarketScannerOrchestrator` ->
+`TradeLifecycleManager` (`quantedge.execution.market_orchestrator` /
+`quantedge.execution.trade_lifecycle`).
+
+Why that one and not this one. Both submit real orders through
+`DeltaIndiaClient` after `OrderValidationGateway` approval, so on the narrow
+question of "can it place an order" they look interchangeable. They are not
+interchangeable on lifecycle semantics, and the canonical path is the one the
+production-facing safety work has been built on:
+
+  * Protective bracket. `TradeLifecycleManager._ensure_bracket_protection`
+    places (or adopts) a reduce-only SL/TP pair sized to the ACTUAL fill, and
+    resizes it as partial fills grow. `LiveOrderExecutionService` submits the
+    entry alone: a filled position would sit with no stop.
+  * Single-trade account lock. The canonical path acquires
+    `SingleTradeLockManager` before submitting and has an audited
+    release/retain rule for every failure mode. This service has only
+    in-process `_in_flight_setups` / `_in_flight_client_order_ids` sets, which
+    do not survive a restart and do not bound concurrent positions.
+  * Reconciliation-alert entry block. The canonical path refuses a new entry
+    while `_reconciliation_alerts` is non-empty. This service has no such gate.
+  * Durable lifecycle record. `TradeLifecycleRecord` carries the audited state
+    machine, fill accounting, cost provenance and the immutable config snapshot
+    that the persistence and startup-reconciliation layers operate on.
+  * Deterministic order identity. The canonical path names every order with
+    `generate_deterministic_client_order_id(account_id, setup_id, role)`. This
+    service still falls back to the random `generate_client_order_id()`, so a
+    restart cannot recognise an order it had already sent.
+
+Status of this module: intact, importable by its full dotted path, and covered
+by `tests/test_phase5_4_order_execution.py` and
+`tests/test_phase5_4_hardening.py`, which exercise its own hardening contracts.
+Nothing in `quantedge/` constructs or calls it -- it has no production caller.
+It is deliberately NOT re-exported from `quantedge.execution` so that
+`from quantedge.execution import LiveOrderExecutionService` -- the shape a
+future composition would most plausibly reach for -- does not resolve.
+
+Do not extend this module. If a capability here is wanted, add it to the
+canonical path.
+
+── Original module docstring ─────────────────────────────────────────────────
+
 Real Order Submission & Idempotent Execution Engine for QuantEdge AI (Hardened).
 
 Bridges qualified trade setups (Phase 4.1/4.2) and the OrderValidationGateway (Phase 5.3)
@@ -643,18 +687,10 @@ class LiveOrderExecutionService:
                         completed_at=datetime.now(timezone.utc),
                     )
 
-        # Risk-Reward check
-        if decision.risk_reward is not None:
-            if decision.risk_reward < context.risk_config.minimum_risk_reward:
-                return OrderExecutionResult(
-                    success=False,
-                    execution_state=ExecutionState.REJECTED,
-                    setup_id=decision.setup_id,
-                    symbol=decision.symbol,
-                    rejection_code=RejectionReasonCode.INVALID_RISK_REWARD.value,
-                    error_message=f"Risk/Reward ratio {decision.risk_reward} is below minimum {context.risk_config.minimum_risk_reward}.",
-                    completed_at=datetime.now(timezone.utc),
-                )
+        # NO RISK-REWARD CHECK. `decision.risk_reward` is carried for reporting
+        # and is deliberately not compared against anything: a minimum
+        # reward:risk is not part of the authorised strategies, so a threshold
+        # here would refuse setups the strategy legitimately produced.
 
         trade_dir = TradeDirection.LONG if decision.direction == StrategyDirection.LONG else TradeDirection.SHORT
 

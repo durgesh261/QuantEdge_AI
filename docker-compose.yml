@@ -61,14 +61,57 @@ services:
       context: .
       dockerfile: docker/Dockerfile.engine
     container_name: quantifiedge-engine
+    # Phase 1: a permanently dead public market-data feed makes the engine exit
+    # non-zero (see quantedge/__main__.py). Without a restart policy that exit
+    # is a permanent stop, so the fatal-exit contract needs this to be useful.
+    # `unless-stopped` keeps a deliberate `docker compose stop` deliberate.
+    restart: unless-stopped
     environment:
       ENVIRONMENT: development
       LOG_LEVEL: DEBUG
       DATABASE_URL: postgresql://${SPRING_DATASOURCE_USERNAME:-quantifiedge}:${SPRING_DATASOURCE_PASSWORD:-quantifiedge_dev}@postgres:5432/quantedge
+      # Phase 1 process-level gate for the PUBLIC market-data feed. Default
+      # false = the engine stays completely inert. Setting it true binds the
+      # closed-candle structure clock only; it arms no execution path and reads
+      # no credential. Per-account algo_enabled / kill_switch_active are
+      # unaffected and remain the only authority over trading.
+      LIVE_FEED_ENABLED: ${LIVE_FEED_ENABLED:-false}
+      # Phase 2 durable structure state. LuxAlgo internal structure is
+      # path-dependent from bar 0 and ATR(200) is an infinite-memory recursion,
+      # so a restart that cannot resume its EXACT snapshot has to invent a
+      # warmup instead. The path below is the mount point of the dedicated
+      # `engine_state` volume declared at the bottom of this file, so the
+      # snapshot survives `docker compose up --force-recreate` and image
+      # rebuilds. It is NOT inside /app: the code tree stays read-only-ish and
+      # only this one directory is writable and persistent. No credential is
+      # ever written here - the snapshot holds structure/OB state only.
+      ENGINE_STATE_DIR: ${ENGINE_STATE_DIR:-/var/lib/quantedge/state}
+      # First-boot genesis origin, deliberately EMPTY by default.
+      #
+      # With no snapshot and no genesis origin the engine stays up, refuses to
+      # subscribe, and reports DOWN on /health with the reason. That is the
+      # fail-closed choice: the alternative would be cold-starting a
+      # path-dependent detector from the first live candle and calling it
+      # continuous. Arming genesis is therefore an explicit operator act -
+      # point this at the canonical history mounted read-only below, e.g.
+      # ENGINE_GENESIS_HISTORY_DIR=/app/data/canonical/delta_exchange_india
+      # Only `<SYMBOL>/1h/full_history.csv` is accepted as an origin; the
+      # `2026.csv` fallback is refused, because a 2026-01-01 start is a
+      # truncated history wearing a complete one's clothes.
+      ENGINE_GENESIS_HISTORY_DIR: ${ENGINE_GENESIS_HISTORY_DIR:-}
       # Python engine receives market data and executes per-user live orders
       DELTA_BASE_URL: https://api.india.delta.exchange
       BACKEND_BASE_URL: http://backend:8080
       BACKEND_API_KEY: ${PYTHON_ENGINE_API_KEY:?PYTHON_ENGINE_API_KEY must be set}
+    volumes:
+      # The ONLY writable persistent location. Named volume, not a bind mount,
+      # so it is owned by uid/gid 1000 (`appuser:appgroup`) seeded from the
+      # image directory created in docker/Dockerfile.engine.
+      - engine_state:/var/lib/quantedge/state
+      # Read-only genesis input. Mounted but unused until
+      # ENGINE_GENESIS_HISTORY_DIR is set; `:ro` keeps the checked-in canonical
+      # history immutable from inside the container.
+      - ./data/canonical:/app/data/canonical:ro
     ports:
       - "8000:8000"
     depends_on:
@@ -112,6 +155,9 @@ services:
 
 volumes:
   postgres_data:
+  # Phase 2: durable Manual SMC structure snapshot. Declared as a named volume
+  # so `docker compose down` (without -v) and any container recreation keep it.
+  engine_state:
 
 networks:
   default:

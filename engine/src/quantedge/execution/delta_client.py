@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from decimal import Decimal, InvalidOperation
-from typing import Optional, Dict, Any, List, Union, Tuple
+from typing import Callable, Optional, Dict, Any, List, Union, Tuple
 from urllib.parse import quote, urlencode
 
 import httpx
@@ -76,6 +76,22 @@ class DeltaConnectionError(DeltaClientError):
 
 class DeltaResponseError(DeltaClientError):
     """Malformed or unparseable exchange response."""
+    pass
+
+
+class DeltaListingIncompleteError(DeltaResponseError):
+    """A listing could not be PROVEN to be the account's complete inventory.
+
+    Raised instead of returning rows whose completeness is unestablished. Every
+    consumer of `get_positions` / `get_open_orders` treats the returned list as
+    the whole account: the synchronizer closes local positions missing from it,
+    reconciliation reports what is missing as an orphan and clears blocking
+    alerts when nothing is unresolved, and the pre-trade gate authorises a new
+    order when it sees no exposure. A truncated page reaching any of those is
+    indistinguishable from a flat account, so an unprovable listing is refused
+    rather than reported. A subclass of `DeltaResponseError` so every existing
+    fail-closed handler already catches it.
+    """
     pass
 
 
@@ -148,6 +164,123 @@ def _validated_product_ids(product_ids: List[int], endpoint: str) -> List[int]:
     return ids
 
 
+# ── Listing completeness (P1-2) ───────────────────────────────────────────────
+#
+# `get_positions` and `get_open_orders` answer the question "what does this
+# account hold, in full?". Nothing in this repository establishes Delta's
+# pagination semantics for either endpoint: no cursor is sent today, no `meta`
+# field is read today, and no captured envelope or contract document in the tree
+# describes one. Under safety rules #13/#15/#16 that leaves exactly one
+# defensible design:
+#
+#   * A response whose envelope shows NO forward cursor is the complete listing,
+#     which is what the code already assumed -- so an account whose whole book
+#     fits in one page behaves byte-identically to before this change.
+#   * A response that offers a forward page in the ONE self-describing dialect
+#     (`meta.after` -> request `after=`) is followed to exhaustion, so a position
+#     or order that lives on page 2 is really discovered.
+#   * ANY other indication that more rows exist -- an unrecognised pagination
+#     key, a non-mapping `meta`, a cursor that does not advance, a repeated row,
+#     a page budget exhausted, or (on an unfiltered query) a `total_count`
+#     larger than what was actually collected -- raises
+#     `DeltaListingIncompleteError`. It is never treated as a complete listing.
+#
+# The `meta.after` -> `after=` pairing is an INFERENCE from the symmetry of the
+# field names, not a verified contract, and it is the only inference here. It is
+# also the only one whose failure mode is safe: if Delta does not accept `after`,
+# the follow-up page either errors (propagating) or returns the same rows again
+# (caught as a non-advancing cursor). Nothing in this module can conclude
+# "complete" from a guess.
+
+#: Page budget for one listing. Reaching it is a refusal, never a truncation.
+MAX_LISTING_PAGES = 50
+
+#: The one forward-cursor field this module knows how to follow, and the query
+#: parameter it is sent back as.
+_LISTING_CURSOR_META_KEY = "after"
+_LISTING_CURSOR_PARAM = "after"
+
+#: Envelope keys that would mean "there is more", in dialects this module does
+#: NOT know how to follow. A truthy value in any of them fails closed.
+_UNSUPPORTED_PAGINATION_KEYS = (
+    "next", "next_cursor", "next_page", "cursor", "page", "page_token",
+    "offset", "has_more", "has_next", "more", "last_evaluated_key",
+)
+
+
+def _forward_listing_cursor(envelope: Dict[str, Any], *, what: str) -> Optional[str]:
+    """The cursor for the next page, or `None` when this page is the last one.
+
+    Raises `DeltaListingIncompleteError` when the envelope says more rows exist
+    but does not say so in the one dialect this module can follow safely.
+    """
+    if not isinstance(envelope, dict):
+        raise DeltaListingIncompleteError(
+            f"{what}: response envelope is {type(envelope).__name__}, not a "
+            f"mapping, so listing completeness cannot be established"
+        )
+
+    meta = envelope.get("meta")
+    if meta is None:
+        return None
+    if not isinstance(meta, dict):
+        raise DeltaListingIncompleteError(
+            f"{what}: response carried a non-mapping `meta` "
+            f"({type(meta).__name__}); refusing to treat this page as the "
+            f"complete account inventory"
+        )
+
+    unsupported = sorted(k for k in _UNSUPPORTED_PAGINATION_KEYS if meta.get(k))
+    if unsupported:
+        raise DeltaListingIncompleteError(
+            f"{what}: response `meta` uses pagination field(s) {unsupported} "
+            f"whose semantics are not established by this repository; refusing "
+            f"to treat the rows received as the complete account inventory"
+        )
+
+    raw = meta.get(_LISTING_CURSOR_META_KEY)
+    # Delta returns the cursor fields as null on a terminal page.
+    if raw is None or raw is False or raw == "":
+        return None
+    if not isinstance(raw, str):
+        raise DeltaListingIncompleteError(
+            f"{what}: response `meta.{_LISTING_CURSOR_META_KEY}` is "
+            f"{type(raw).__name__} ({raw!r}), not the documented opaque string "
+            f"cursor; refusing to guess how to request the next page"
+        )
+    return raw
+
+
+def _assert_listing_count_consistent(
+    envelope: Dict[str, Any], collected: int, *, what: str, unfiltered: bool
+) -> None:
+    """Fail closed when an unfiltered listing returned fewer rows than it claims.
+
+    `total_count` is only consulted for a query that carried NO `product_ids`
+    filter. For an unfiltered account-wide listing, "rows the exchange says
+    exist" and "rows received" must agree under any reading of the field. For a
+    FILTERED query the scope of `total_count` (filtered vs account-wide) is not
+    established by this repository, so it is deliberately not used -- inventing
+    a reading of it there could block reconciliation permanently on a value that
+    was never about the filtered set.
+    """
+    if not unfiltered or not isinstance(envelope, dict):
+        return
+    meta = envelope.get("meta")
+    if not isinstance(meta, dict):
+        return
+    total = meta.get("total_count")
+    if isinstance(total, bool) or not isinstance(total, int):
+        return
+    if total > collected:
+        raise DeltaListingIncompleteError(
+            f"{what}: the exchange reports total_count={total} but only "
+            f"{collected} row(s) were received and no further page was offered; "
+            f"refusing to treat a partial listing as the complete account "
+            f"inventory"
+        )
+
+
 def generate_signature(
     api_secret: str,
     method: str,
@@ -195,13 +328,81 @@ def generate_client_order_id(prefix: str = "QE") -> str:
     return cid[:32]
 
 
+#: Maximum length of a `client_order_id` this engine will submit.
+#:
+#: Both generators in this module have always self-imposed 32 characters, and no
+#: larger exchange-documented maximum is recorded anywhere in this repository, so
+#: 32 is treated as the binding constraint rather than relaxed upward (rule #16:
+#: an unverified exchange limit is not guessed).
+CLIENT_ORDER_ID_MAX_LENGTH = 32
+
+#: Hex characters of the identity digest kept in a deterministic client order id.
+#:
+#: 20 hex characters is 80 bits. The population being separated is the set of
+#: (account, setup, role) triples one deployment will ever submit -- thousands,
+#: not billions -- so the birthday bound sits many orders of magnitude below
+#: every other failure mode this package models. It also fits: "QE-" + 20 + "-"
+#: + "ENTRY" is 29 of the 32 characters available.
+DETERMINISTIC_CLIENT_ORDER_ID_DIGEST_CHARS = 20
+
+
+def _canonical_order_identity(account_id: str, setup_id: str, role: str) -> str:
+    """Return the unambiguous identity string naming exactly one order.
+
+    Length-prefixed rather than delimiter-joined. `("ab", "c")` and `("a", "bc")`
+    must not produce the same string, and no separator character can be assumed
+    absent from an account id or a setup id -- setup ids already contain both
+    `_` and `-`. `2:ab|1:c` and `1:a|2:bc` differ whatever the fields contain,
+    so the encoding is injective by construction rather than by convention.
+    """
+    return "|".join(f"{len(part)}:{part}" for part in (account_id, setup_id, role))
+
+
 def generate_deterministic_client_order_id(account_id: str, setup_id: str, role: str = "ENTRY") -> str:
-    """Generate a deterministic, idempotent client order ID tied to a trade setup and order role (max 32 chars)."""
-    clean_acct = account_id.replace("-", "")[:8]
-    clean_setup = setup_id.replace("-", "")[:12]
-    clean_role = role.upper()[:5]
-    cid = f"QE-{clean_acct}-{clean_setup}-{clean_role}"
-    return cid[:32]
+    """Generate a deterministic, idempotent client order ID for (account, setup, role).
+
+    This is the ONE canonical generator for every order the trade lifecycle
+    submits. Determinism is the point: a restarted process must be able to
+    recompute the name of an order it already sent, so
+    `get_order_by_client_id(record.entry_client_order_id)` resolves the same
+    order after a restart as before it.
+
+    The identity is the COMPLETE triple. It used to be a truncated prefix of it
+    --- the first 8 non-dash characters of the account id and the first 12 of the
+    setup id --- which made the name of a Manual SMC order
+    `QE-{acct8}-XRPUSD_1h_MA-ENTRY` for every setup on one symbol and timeframe,
+    LONG and SHORT alike, because `direction` sits far beyond character 12. Two
+    different setups therefore submitted under one name, and
+    `_resolve_entry_order` could bind another setup's exchange order into this
+    record. That is now impossible: the full account id, the full setup id and
+    the full role are hashed, so two ids are equal only if all three inputs are.
+
+    The readable role suffix is decoration, not identity. It is kept because an
+    operator reading an order book should be able to see which leg an order is,
+    and it is safe to truncate to fit `CLIENT_ORDER_ID_MAX_LENGTH` precisely
+    because the digest ahead of it already separates the full identities --- a
+    cut suffix cannot make two different identities agree.
+
+    Normalization matches the previous behaviour exactly where it mattered: the
+    role is upper-cased (so a caller cannot mint a second name for one leg by
+    spelling it "sl") and surrounding whitespace is stripped. Account and setup
+    ids are NOT case-folded and NOT stripped of dashes --- folding would discard
+    identity, which is the defect being fixed.
+
+    Character set is a strict subset of what the old scheme emitted: `QE`, upper
+    hex, `-`, and the caller's role token. Nothing wider is introduced, so no
+    exchange constraint the old ids satisfied can be newly violated.
+    """
+    account = str(account_id)
+    setup = str(setup_id)
+    normalized_role = str(role).strip().upper()
+
+    digest = hashlib.sha256(
+        _canonical_order_identity(account, setup, normalized_role).encode("utf-8")
+    ).hexdigest()[:DETERMINISTIC_CLIENT_ORDER_ID_DIGEST_CHARS].upper()
+
+    cid = f"QE-{digest}-{normalized_role}"
+    return cid[:CLIENT_ORDER_ID_MAX_LENGTH]
 
 
 # ── Main Client ───────────────────────────────────────────────────────────────
@@ -569,6 +770,86 @@ class DeltaIndiaClient:
         )
         return result
 
+    # ── Complete-inventory listings (P1-2) ────────────────────────────────────
+
+    async def _fetch_complete_listing(
+        self,
+        path: str,
+        *,
+        params: Dict[str, Any],
+        what: str,
+        row_identity: Callable[[Any], Any],
+        unfiltered: bool,
+    ) -> List[Any]:
+        """Return EVERY row of a listing, or refuse to return any of them.
+
+        Follows `meta.after` to exhaustion and fails closed on anything that
+        indicates more rows exist without saying so followably. See the
+        "Listing completeness" note above `MAX_LISTING_PAGES` for why this is the
+        only safe shape available from this repository's evidence.
+
+        Raises:
+            DeltaResponseError: `result` is not the documented list.
+            DeltaListingIncompleteError: completeness could not be established.
+        """
+        rows: List[Any] = []
+        seen_rows: set = set()
+        seen_cursors: set = set()
+        page_params = dict(params)
+
+        for page in range(1, MAX_LISTING_PAGES + 1):
+            data = await self.request("GET", path, params=page_params, authenticated=True)
+            results = data.get("result", [])
+            if not isinstance(results, list):
+                raise DeltaResponseError(
+                    f"Expected list for {what}, got: {type(results)}"
+                )
+
+            for item in results:
+                key = row_identity(item)
+                if key is not None:
+                    if key in seen_rows:
+                        # The same row on two pages means the cursor did not
+                        # advance. Continuing would loop; de-duplicating would
+                        # silently accept a listing whose paging is broken.
+                        raise DeltaListingIncompleteError(
+                            f"{what}: page {page} repeated row {key!r}, so the "
+                            f"exchange's paging did not advance; refusing to "
+                            f"treat the rows received as complete"
+                        )
+                    seen_rows.add(key)
+                rows.append(item)
+
+            cursor = _forward_listing_cursor(data, what=what)
+            if cursor is None:
+                _assert_listing_count_consistent(
+                    data, len(rows), what=what, unfiltered=unfiltered
+                )
+                if page > 1:
+                    logger.info(
+                        "LISTING_PAGINATED path=%s pages=%s rows=%s", path, page, len(rows)
+                    )
+                return rows
+
+            if cursor in seen_cursors:
+                raise DeltaListingIncompleteError(
+                    f"{what}: the exchange re-issued cursor {cursor!r} after "
+                    f"{page} page(s); refusing to loop or to treat the rows "
+                    f"received as complete"
+                )
+            seen_cursors.add(cursor)
+            # Rebuilt from the ORIGINAL params each time so the filter and
+            # states stay exactly as the caller specified and only the cursor
+            # moves. Ordering is whatever the exchange returned, preserved.
+            page_params = dict(params)
+            page_params[_LISTING_CURSOR_PARAM] = cursor
+
+        raise DeltaListingIncompleteError(
+            f"{what}: still offering further pages after {MAX_LISTING_PAGES} "
+            f"page(s) ({len(rows)} rows); refusing to keep paging or to treat "
+            f"what was received as the complete account inventory"
+        )
+
     # ── Position Endpoints ────────────────────────────────────────────────────
 
     async def get_positions(self, product_ids: Optional[List[int]] = None) -> List[DeltaPosition]:
@@ -599,9 +880,16 @@ class DeltaIndiaClient:
         looks flat, and the pre-trade gate AUTHORIZES a new order when it sees
         no exposure.
 
+        P1-2: for exactly those four reasons the listing must be the COMPLETE
+        inventory. Pages are followed to exhaustion and any listing whose
+        completeness cannot be established is refused rather than returned --
+        see `_fetch_complete_listing`. A single-page account is unaffected.
+
         Raises:
             DeltaResponseError: the product filter is malformed, or the
                 exchange's answer is not the documented list.
+            DeltaListingIncompleteError: the listing could not be proven
+                complete.
             DeltaClientError: the endpoint answered non-2xx, 404 included.
         """
         params: Dict[str, Any] = {}
@@ -610,13 +898,18 @@ class DeltaIndiaClient:
             if ids:
                 params["product_ids"] = ",".join(str(pid) for pid in ids)
 
-        data = await self.request(
-            "GET", "/v2/positions/margined", params=params, authenticated=True
+        results = await self._fetch_complete_listing(
+            "/v2/positions/margined",
+            params=params,
+            what="positions",
+            # `product_id` is the position identity: one product cannot hold two
+            # distinct margined positions, so the same product id twice is a
+            # repeated row rather than two positions.
+            row_identity=lambda item: (
+                item.get("product_id") if isinstance(item, dict) else None
+            ),
+            unfiltered="product_ids" not in params,
         )
-
-        results = data.get("result", [])
-        if not isinstance(results, list):
-            raise DeltaResponseError(f"Expected list for positions, got: {type(results)}")
 
         # Only return open positions (size != 0). `DeltaPosition.from_dict`
         # refuses an entry that carries no size at all, so nothing reaches this
@@ -665,6 +958,11 @@ class DeltaIndiaClient:
         Raises:
             DeltaResponseError: the product filter is malformed, or the
                 exchange's answer is not the documented list.
+            DeltaListingIncompleteError: the listing could not be proven
+                complete (P1-2). `reconcile_account` computes
+                `exchange_is_flat = not exchange_positions and not
+                exchange_orders`, so a truncated page here carries the same
+                false-flatness blast radius as a malformed envelope.
         """
         ids: List[int] = list(product_ids or [])
         if product_id is not None:
@@ -678,10 +976,15 @@ class DeltaIndiaClient:
         if ids:
             params["product_ids"] = ",".join(str(pid) for pid in ids)
 
-        data = await self.request("GET", "/v2/orders", params=params, authenticated=True)
-        results = data.get("result", [])
-        if not isinstance(results, list):
-            raise DeltaResponseError(f"Expected list for orders, got: {type(results)}")
+        results = await self._fetch_complete_listing(
+            "/v2/orders",
+            params=params,
+            what="orders",
+            row_identity=lambda item: (
+                item.get("id") if isinstance(item, dict) else None
+            ),
+            unfiltered="product_ids" not in params,
+        )
         return [DeltaOrderResponse.from_dict(item) for item in results]
 
     async def get_order(self, order_id: int) -> DeltaOrderResponse:

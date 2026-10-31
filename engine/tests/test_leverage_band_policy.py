@@ -766,9 +766,13 @@ def test_the_other_risk_limits_are_untouched():
     risk = RiskConfiguration()
     assert risk.risk_per_trade_pct == Decimal("35.0")
     assert risk.target_reward_pct == Decimal("60.0")
-    assert risk.minimum_risk_reward == Decimal("1.5")
     assert risk.max_concurrent_trades == 1
     assert risk.max_daily_loss_pct is None
+    #: `minimum_risk_reward` was removed from this config along with the rule it
+    #: fed: a reward:risk ratio is not part of the authorised strategy and must
+    #: not be able to refuse a trade. Pinned as an ABSENCE so the field cannot
+    #: return quietly.
+    assert not hasattr(risk, "minimum_risk_reward")
 
 
 # ═════════════════════════════════════════════════════════════════════════════

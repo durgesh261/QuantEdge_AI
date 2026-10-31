@@ -70,6 +70,8 @@ from quantedge.strategy.manual_smc.backtest import (
 )
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_LUXALGO_INTERNAL,
+    DETECTOR_MANUAL_SPEC,
     ManualLifecycleEventType as ET,
 )
 from quantedge.strategy.manual_smc.models import (
@@ -149,7 +151,7 @@ LONG_ENTRY, LONG_SL, LONG_TP = 104.5, 100.0, 105.127
 
 
 # ---------------------------------------------------------------------------
-# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE — deliberately.
+# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE AND DETECTOR — deliberately.  # noqa: E501
 # ---------------------------------------------------------------------------
 # Every fixture here, including the published golden BTC window, is a Mode-C
 # script: probe candle, pullback candle, then the fill on `displacement_bar + 1`
@@ -163,9 +165,21 @@ LONG_ENTRY, LONG_SL, LONG_TP = 104.5, 100.0, 105.127
 # uses, so ORACLE_KW below changes the ACTIVATION MODE and not the TP). The
 # production backtest is covered by
 # `test_manual_smc_first_touch_window.py` and by the 2024-2026 preload run.
+#
+# The DETECTOR is pinned for the same reason. Every zone above is computed as
+# `ob_top = origin.close` / `ob_bottom = origin.low` (and the LONG mirror) — the
+# `DETECTOR_MANUAL_SPEC` half-candle zone, which is what the published research
+# baseline was produced with. The shipped default is now
+# `DETECTOR_LUXALGO_INTERNAL`, whose zone is the whole origin candle and which
+# requires ATR(200) plus a 50-bar swing window before admitting anything, so
+# these short scripted windows would yield no order block at all. The pin fixes
+# the fixtures to the algorithm they were drawn for and asserts nothing about the
+# production default — `test_the_shipped_backtest_default_is_the_luxalgo_detector`
+# below asserts that positively, on the same class.
 ORACLE_KW = {
     "activation_mode": ACTIVATION_MODE_ORACLE_C,
     "config": ManualSpecConfig(),
+    "detector": DETECTOR_MANUAL_SPEC,
 }
 
 
@@ -1354,10 +1368,19 @@ STEP_8_MODULES = (
     "models.py", "portfolio.py", "quantization.py", "scanner.py", "sizing.py",
     "state.py", "strategy.py",
 )
-#: Phase 2's quantization half added the executable-baseline reporting layer.
-#: The whole-package inventory is pinned once, in
+#: Phase 2's quantization half added the executable-baseline reporting layer,
+#: Task N added the operator OB invalidation ledger, and the LuxAlgo parity work
+#: added `luxalgo_structure.py` — an opt-in indicator reconstruction that owns no
+#: strategy rule and is reached only through `scanner.py`. `admission.py` was
+#: added and then REMOVED with the reward:risk rule it transcribed — that rule is
+#: not part of the authorised Manual SMC strategy, so the module that carried it
+#: has no place in this package. The whole-package inventory is pinned once, in
 #: `test_manual_smc_executable.py::TestPackageInventory`.
 PHASE_2_MODULES = ("executable.py",)
+TASK_N_MODULES = ("invalidation.py",)
+LUXALGO_PARITY_MODULES = ("luxalgo_structure.py",)
+POST_STEP_8_MODULES = tuple(sorted(
+    PHASE_2_MODULES + TASK_N_MODULES + LUXALGO_PARITY_MODULES))
 
 
 class TestStep8ScopeMarker:
@@ -1368,13 +1391,14 @@ class TestStep8ScopeMarker:
         NON-STRATEGY layer above the driver rather than a new rule owner.
 
         The Step 8 form asserted equality with `STEP_8_MODULES`. Phase 2 added
-        `executable.py`, so the assertion is converted to the requirement it
-        encoded — no module may appear here that Step 8 or a later approved step
-        did not put there — instead of being deleted.
+        `executable.py` and Task N added `invalidation.py`, so the assertion is
+        converted to the requirement it encoded — no module may appear here that
+        Step 8 or a later approved step did not put there — instead of being
+        deleted.
         """
         present = tuple(sorted(p.name for p in PACKAGE.glob("*.py")))
         assert set(STEP_8_MODULES) <= set(present)
-        assert set(present) - set(STEP_8_MODULES) == set(PHASE_2_MODULES)
+        assert set(present) - set(STEP_8_MODULES) == set(POST_STEP_8_MODULES)
 
     def test_the_package_docstring_documents_the_backtest_module(self):
         import quantedge.strategy.manual_smc as pkg
@@ -1400,12 +1424,43 @@ class TestStep8ScopeMarker:
         `run_manual_smc_backtest` reads the real dataset and is exercised by
         `TestGoldenBTCTradeThroughTheRealBacktestPath` through the driver it
         wraps. This only pins its signature so a caller cannot be surprised.
+
+        The list is EXHAUSTIVE, which is what makes it useful here: a
+        reward:risk threshold cannot be reintroduced as a parameter of this
+        entry point without failing this test.
+
+        `detector` is the last parameter and defaults to the SHIPPED detector,
+        so the reported baseline of a bare call cannot drift onto a different
+        structure algorithm without failing here.
         """
         import inspect
-        params = list(inspect.signature(run_manual_smc_backtest).parameters)
+        signature = inspect.signature(run_manual_smc_backtest)
+        params = list(signature.parameters)
         assert params == ["data_base_dir", "config", "symbols", "start_date",
                           "end_date", "tick_specs", "registry", "account_id",
-                          "activation_mode", "entry_window_candles"]
+                          "activation_mode", "entry_window_candles",
+                          "detector"]
         assert all(p.default is not inspect.Parameter.empty
-                   for p in inspect.signature(
-                       run_manual_smc_backtest).parameters.values())
+                   for p in signature.parameters.values())
+        assert (signature.parameters["detector"].default
+                == DETECTOR_LUXALGO_INTERNAL)
+        in_memory = inspect.signature(bt.run_manual_smc_backtest_from_candles)
+        assert (in_memory.parameters["detector"].default
+                == DETECTOR_LUXALGO_INTERNAL)
+        assert "reward" not in params and "risk" not in params
+
+    def test_the_shipped_backtest_default_is_the_luxalgo_detector(self):
+        """
+        The positive half of the ORACLE_KW pin at the top of this file.
+
+        Every fixture above names `DETECTOR_MANUAL_SPEC` because its zone
+        arithmetic is half-candle. That pin must not be able to hide a change of
+        production default, so the bare construction is asserted here, on the
+        very class those fixtures drive.
+        """
+        assert (ManualSMCBacktest(symbols=("BTCUSD",)).strategy.lifecycle
+                .detector == DETECTOR_LUXALGO_INTERNAL)
+        assert (ManualSMCBacktest(symbols=("BTCUSD",), **ORACLE_KW).strategy
+                .lifecycle.detector == DETECTOR_MANUAL_SPEC)
+        with pytest.raises(ValueError):
+            ManualSMCBacktest(symbols=("BTCUSD",), detector="LUXALGO")

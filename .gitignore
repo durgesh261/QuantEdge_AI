@@ -80,6 +80,7 @@ replay_pid*
 # Temporary files
 *.tmp
 *.temp
+*.stackdump
 .cache/
 tmp/
 temp/

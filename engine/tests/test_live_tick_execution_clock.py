@@ -720,8 +720,15 @@ class TestOrderReachesTheExchangeMidHour:
 
         Same order block, same equity, same authorised geometry: the request
         built from the 03:23:17 update is identical, field for field, to the one
-        built when bar 3 closes -- except for the deliberately unique
-        `client_order_id`.
+        built when bar 3 closes -- `client_order_id` included.
+
+        That last field used to be the one deliberate difference, because the
+        submission path minted it from wall-clock time plus a random suffix.
+        It is now derived from `(account_id, setup_id, role)` alone, so the two
+        clocks agree on the identity as well as the contents: the same setup
+        can only ever name one entry order, whichever clock submits it. This is
+        the property a restart depends on -- see the deterministic-identity
+        tests in `test_execution_identity_and_startup_gate.py`.
         """
         tick_stack, tick_runtime = self.build()
         asyncio.run(self.drive(tick_runtime, tick_frames()[:2]))
@@ -736,7 +743,11 @@ class TestOrderReachesTheExchangeMidHour:
             getattr(control, f) for f in fields], (
             "the execution clock must not alter sizing, leverage, price, "
             "bracket or any other order field")
-        assert live.client_order_id != control.client_order_id
+        assert live.client_order_id == control.client_order_id, (
+            "the execution clock must not alter the order identity either: "
+            "one setup, one deterministic entry id")
+        assert live.client_order_id.endswith("-ENTRY"), (
+            "the identity must still be role-scoped")
 
     def test_only_one_order_is_sent_however_many_updates_arrive(self):
         stack, runtime = self.build()

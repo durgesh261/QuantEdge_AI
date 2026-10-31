@@ -7,9 +7,25 @@ Three sibling test modules (`test_manual_smc_strategy.py`,
 the oracle keywords `ACTIVATION_MODE_ORACLE_C` + `ManualSpecConfig()` so they keep
 measuring the Mode-C trades whose semantics Step 8 proved, and each of them names
 THIS file as the place where the production default is covered instead. So this
-module deliberately constructs its subjects with NO policy keywords at all: every
-`ManualSMCStrategy()` and `ManualSMCBacktest()` below runs on the shipped defaults,
-and a regression in those defaults must fail here.
+module deliberately constructs its subjects with NO ACTIVATION policy keywords at
+all: every `ManualSMCStrategy()` and `ManualSMCBacktest()` below inherits the
+shipped activation mode, the shipped entry window and the shipped config, and a
+regression in any of those defaults must fail here.
+
+WHY THE DETECTOR IS THE ONE KEYWORD THAT IS NAMED
+-------------------------------------------------
+The shipped STRUCTURE DETECTOR is now `DETECTOR_LUXALGO_INTERNAL`, whose order
+block is the FULL origin candle. Every fixture below is a hand-built two-bar
+construction whose expected zone, entry, stop and take profit were computed from
+the HALF-candle geometry (`[low, close]` for a SHORT, `[close, high]` for a LONG)
+that `DETECTOR_MANUAL_SPEC` produces -- the arithmetic is written out beside each
+fixture. Those numbers are the measurement; they are not free to move. So the
+drivers here NAME `detector=DETECTOR_MANUAL_SPEC`, which keeps each fixture
+attached to the algorithm it was built for and leaves the activation policy
+defaults -- the actual subject of this module -- still inherited and still
+guarded. That the SHIPPED detector is LuxAlgo is asserted separately and
+positively, by `TestProductionPolicyDefaults` below and by
+`test_manual_smc_luxalgo_parity.py::TestDefaultDetectorRegression`.
 
 What is proved, and where the requirement comes from:
 
@@ -72,6 +88,8 @@ from quantedge.strategy.manual_smc.backtest import ManualSMCBacktest
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_FIRST_TOUCH,
     ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_LUXALGO_INTERNAL,
+    DETECTOR_MANUAL_SPEC,
     ENTRY_WINDOW_CANDLES,
     ManualLifecycleEventType,
     ManualSMCLifecycle,
@@ -155,27 +173,30 @@ E_TOUCH: Row = (77950.0, 78000.0, 77900.0, 77950.0)
 # --- a realistic BTC OB whose Manual SMC leverage is deliberately NOT 100x ---
 # top 78312.0, bottom 77896.0, width 416.0, entry 78000.0, SL 78312.0.
 # The stop sits 0.400% away, so applied_leverage = 35 / 0.400 = 87.5 -> 87, and
-# the authorized 0.60% take profit still clears the frozen 1.5 R:R gate, but only
-# just: the quantized bracket is risk 312.0 / reward 468.0, i.e. R:R = EXACTLY
-# 1.5. The gateway rejects `rr < minimum`, so equality passes — this fixture now
-# sits ON the boundary rather than 0.125 above it, and a future widening of this
-# OB (or any tightening of the gate) would flip it to INVALID_RISK_REWARD. Stated
-# here rather than hidden because the margin, not just the verdict, is evidence.
+# the authorized 0.60% take profit gives a quantized bracket of risk 312.0 /
+# reward 468.0, i.e. R:R = EXACTLY 1.5. That number is recorded because it is a
+# real property of the geometry, NOT because anything tests it: there is no
+# reward:risk admission rule on any path, so widening this OB would change the
+# reported ratio and nothing else. Stated here rather than hidden because the
+# measurement, not just the verdict, is evidence.
 M_ORIGIN: Row = (77950.0, 78400.0, 77896.0, 78312.0)
 M_BOS: Row = (78300.0, 78310.0, 77800.0, 77850.0)
 M_INERT: Row = (77800.0, 77800.0, 77800.0, 77800.0)
 M_TOUCH: Row = (77850.0, 77896.0, 77800.0, 77850.0)
 
 # ---------------------------------------------------------------------------
-# Drivers. NOTE the absence of policy keywords: the defaults are the subject.
+# Drivers. NOTE the absence of ACTIVATION policy keywords: those defaults are the
+# subject. The detector IS named, because the fixtures above are half-candle
+# geometry -- see the module docstring.
 # ---------------------------------------------------------------------------
 def _strategy(
     assets: Sequence[str] = ("BTCUSD",),
     ticks: Optional[Dict[str, Decimal]] = None,
 ) -> ManualSMCStrategy:
-    """A production Manual SMC strategy on shipped defaults."""
+    """A production Manual SMC strategy on shipped activation defaults."""
     specs = None if ticks is None else {a: FakeSpec(t) for a, t in ticks.items()}
-    return ManualSMCStrategy(assets=list(assets), tick_specs=specs)
+    return ManualSMCStrategy(assets=list(assets), tick_specs=specs,
+                             detector=DETECTOR_MANUAL_SPEC)
 
 
 def _drive(
@@ -1037,7 +1058,8 @@ class TestProductionPolicyDefaults:
         assert _strategy().cfg.fixed_tp_market_pct == 0.60
 
     def test_the_backtest_driver_defaults_to_the_same_policy(self):
-        driver = ManualSMCBacktest(symbols=("BTCUSD",))
+        driver = ManualSMCBacktest(symbols=("BTCUSD",),
+                                   detector=DETECTOR_MANUAL_SPEC)
         assert driver.strategy.lifecycle.activation_mode == ACTIVATION_MODE_FIRST_TOUCH
         assert driver.strategy.lifecycle.entry_window_candles == 3
         assert driver.cfg.fixed_tp_market_pct == 0.60
@@ -1047,6 +1069,31 @@ class TestProductionPolicyDefaults:
         assert research.activation_mode == ACTIVATION_MODE_ORACLE_C
         assert research.cfg == ManualSpecConfig()
         assert research.cfg.fixed_tp_market_pct == 0.60
+
+    def test_the_shipped_detector_is_luxalgo_at_every_construction_level(self):
+        """
+        The counterpart to the module docstring: the drivers above NAME
+        `DETECTOR_MANUAL_SPEC` because their fixtures are half-candle geometry,
+        so the shipped detector has to be asserted somewhere positively or the
+        pin would hide a default regression. Nothing in this test names a
+        detector, and all three levels must answer LuxAlgo.
+        """
+        assert ManualSMCLifecycle().detector == DETECTOR_LUXALGO_INTERNAL
+        assert (ManualSMCStrategy(assets=["BTCUSD"]).lifecycle.detector
+                == DETECTOR_LUXALGO_INTERNAL)
+        assert (ManualSMCBacktest(symbols=("BTCUSD",)).strategy.lifecycle.detector
+                == DETECTOR_LUXALGO_INTERNAL)
+
+    def test_the_named_manual_spec_pin_really_does_change_the_detector(self):
+        """
+        And the pin itself is honest: naming ManualSpec must actually select
+        ManualSpec, or every fixture above would be silently measuring LuxAlgo
+        geometry while claiming otherwise.
+        """
+        assert _strategy().lifecycle.detector == DETECTOR_MANUAL_SPEC
+        driver = ManualSMCBacktest(symbols=("BTCUSD",),
+                                   detector=DETECTOR_MANUAL_SPEC)
+        assert driver.strategy.lifecycle.detector == DETECTOR_MANUAL_SPEC
 
     def test_the_two_configs_now_agree_in_every_field(self):
         """
@@ -1473,51 +1520,75 @@ class TestTheLeverageIntentAndTheRestingLimitReachTheOrder:
         assert stack.client.place_order.await_count == 1
 
 
-class TestFrozenRiskRewardGate:
+class TestNoRewardRiskCeilingOnObWidth:
     """
-    An OBSERVATION, pinned so it cannot change unnoticed, not a rule Manual SMC
-    chose.
+    THE REVERSAL, pinned end to end through the REAL Path A stack.
 
-    Path A's validation gateway requires R:R >= 1.5. A flat 0.60% take profit
-    against a stop at the far OB edge gives R:R = 0.0060 x entry / (0.75 x width),
-    so any OB wider than about 0.533% of price is un-executable through Path A.
-    (At the withdrawn 0.65% the same arithmetic allowed up to ~0.578%, so the
-    authorized 0.60% TP TIGHTENS this ceiling — a consequence that is recorded
-    here, not hidden.) The reference fixture (6.0 wide at ~100) is such an OB and
-    is rejected before any order is built; the realistic fixture (200 wide at
-    ~78,000) is not.
+    Path A's validation gateway used to require R:R >= 1.5, which — with a flat
+    0.60% take profit against a stop at the far OB edge, giving
+    R:R = 0.0060 x entry / (0.75 x width) — made any OB wider than about 0.533%
+    of price un-executable. That rule is not part of the authorised Manual SMC
+    strategy and has been removed, so the ceiling is gone with it: the wide
+    reference fixture (6.0 wide at ~100, R:R ~ 0.134) now reaches the wire on
+    exactly the same terms as the narrow realistic one (200 wide at ~78,000).
 
-    Neither side of this can be fixed here: the take profit is specified as a flat
-    percentage and must not be derived from R:R, and the gateway is frozen. The
-    rejection is fail-closed — no order, and the trade lock is released.
+    The arithmetic itself is unchanged and is still pinned below, because the
+    ratio remains a real, reportable property of the geometry — it simply no
+    longer decides anything.
     """
 
-    def test_a_wide_ob_is_rejected_before_any_order_is_built(self):
+    def _wide_decision(self):
         strategy, evals = _run(
             [S_ORIGIN, S_BOS, S_INERT, S_TOUCH], ticks={"BTCUSD": BTC_TICK})
-        decision = ManualSMCAdapter(
+        return ManualSMCAdapter(
             config=strategy.cfg, timeframe="1h").adapt(evals[3]).ready_decisions[0]
+
+    def test_a_wide_ob_now_reaches_the_wire(self):
+        """
+        The test that used to assert `INVALID_RISK_REWARD`, inverted. The SAME
+        fixture, the SAME stack: the order is built and submitted.
+        """
+        decision = self._wide_decision()
+        assert decision.risk_reward < Decimal("1.5"), \
+            "the fixture must still be the sub-1.5 one for this to mean anything"
         stack = _ExecutionStack()
         record = stack.scan(decision).executed_record
-        assert record.state is TradeLifecycleState.ENTRY_REJECTED
-        assert record.rejection_code == "INVALID_RISK_REWARD"
-        assert stack.sent == []
+        assert record.rejection_code is None, record.rejection_reason
+        assert record.state is TradeLifecycleState.ENTRY_SUBMITTED
+        assert len(stack.sent) == 1
 
-    def test_the_rejection_releases_the_trade_lock(self):
-        strategy, evals = _run(
-            [S_ORIGIN, S_BOS, S_INERT, S_TOUCH], ticks={"BTCUSD": BTC_TICK})
-        decision = ManualSMCAdapter(
-            config=strategy.cfg, timeframe="1h").adapt(evals[3]).ready_decisions[0]
+    def test_the_wide_ob_holds_the_trade_lock_because_it_traded(self):
+        """
+        The mirror of the old "the rejection releases the lock": there is no
+        rejection to release it. The slot is held by a live submitted trade,
+        which is the one-trade-at-a-time rule doing its job.
+        """
         stack = _ExecutionStack()
-        stack.scan(decision)
-        assert stack.lock.is_locked("u", "acc") == (False, None, None)
+        stack.scan(self._wide_decision())
+        locked, holder, _ = stack.lock.is_locked("u", "acc")
+        assert locked is True
+        #: The holder is the setup that took the slot, which is the wide OB.
+        assert "MANUAL_BTCUSD_SHORT" in holder
 
-    def test_the_narrow_realistic_ob_clears_the_same_gate(self):
+    def test_nothing_in_the_stack_emits_the_retired_code(self):
+        """`INVALID_RISK_REWARD` is retired vocabulary; no path produces it."""
+        for decision in (self._wide_decision(), _first_touch_decision()):
+            stack = _ExecutionStack()
+            record = stack.scan(decision).executed_record
+            assert record.rejection_code != "INVALID_RISK_REWARD"
+
+    def test_the_narrow_realistic_ob_is_treated_identically(self):
         stack = _ExecutionStack()
         record = stack.scan(_first_touch_decision()).executed_record
         assert record.state is TradeLifecycleState.ENTRY_SUBMITTED
 
-    def test_the_boundary_is_the_ob_width_relative_to_price(self):
+    def test_the_two_widths_straddle_the_removed_boundary(self):
+        """
+        The arithmetic that used to define an executability ceiling. Both
+        fixtures are now executable; the measurement is kept because the ratio
+        is still reported, and because a silently reintroduced 1.5 rule would
+        show up as one of these two ceasing to trade.
+        """
         wide, _ = _run([S_ORIGIN, S_BOS])
         narrow, _ = _run([E_ORIGIN, E_BOS])
         a = wide.lifecycle.live_obs[SHORT_OB_ID]
@@ -1564,14 +1635,16 @@ class TestHistoricalPreloadOfUntouchedOBs:
     """
 
     def test_a_cold_started_driver_begins_with_no_order_blocks(self):
-        driver = ManualSMCBacktest(symbols=("BTCUSD",))
+        driver = ManualSMCBacktest(symbols=("BTCUSD",),
+                                   detector=DETECTOR_MANUAL_SPEC)
         assert driver.strategy.lifecycle.live_obs == {}
         assert driver.trades == ()
 
     def test_a_cold_start_at_the_split_bar_never_sees_the_order_block(self):
         """The OB was created before the window opened, so it does not exist."""
         cold = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         measured = _candles(PRELOAD_ROWS, 0)[PRELOAD_SPLIT_BAR:]
         _driver_run(cold, measured)
         assert cold.strategy.lifecycle.live_obs == {}
@@ -1579,7 +1652,8 @@ class TestHistoricalPreloadOfUntouchedOBs:
 
     def test_the_preload_leaves_an_untouched_order_block_in_the_pool(self):
         warm = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         preload = _candles(PRELOAD_ROWS, 0)[:PRELOAD_SPLIT_BAR]
         _driver_run(warm, preload)
         assert list(warm.strategy.lifecycle.live_obs) == [SHORT_OB_ID]
@@ -1589,7 +1663,8 @@ class TestHistoricalPreloadOfUntouchedOBs:
 
     def test_the_preloaded_pool_produces_the_trade_the_cold_start_missed(self):
         warm = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         rows = _candles(PRELOAD_ROWS, 0)
         _driver_run(warm, rows[:PRELOAD_SPLIT_BAR])
         assert warm.trades == ()
@@ -1604,7 +1679,8 @@ class TestHistoricalPreloadOfUntouchedOBs:
     def test_the_inherited_order_block_predates_the_measured_window(self):
         """`formation_dt < window start <= fill_dt` is the inheritance test."""
         warm = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         rows = _candles(PRELOAD_ROWS, 0)
         _driver_run(warm, rows[:PRELOAD_SPLIT_BAR])
         _driver_run(warm, rows[PRELOAD_SPLIT_BAR:])
@@ -1619,11 +1695,13 @@ class TestHistoricalPreloadOfUntouchedOBs:
         """The preload is a warm-up, not a second strategy."""
         rows = _candles(PRELOAD_ROWS, 0)
         split = ManualSMCBacktest(symbols=("BTCUSD",),
-                                  tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                  tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                  detector=DETECTOR_MANUAL_SPEC)
         _driver_run(split, rows[:PRELOAD_SPLIT_BAR])
         _driver_run(split, rows[PRELOAD_SPLIT_BAR:])
         whole = ManualSMCBacktest(symbols=("BTCUSD",),
-                                  tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                  tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                  detector=DETECTOR_MANUAL_SPEC)
         _driver_run(whole, rows)
         assert len(split.trades) == len(whole.trades) == 1
         a, b = split.trades[0], whole.trades[0]
@@ -1641,7 +1719,8 @@ class TestHistoricalPreloadOfUntouchedOBs:
         the dataclass default.
         """
         warm = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         _driver_run(warm, _candles(PRELOAD_ROWS, 0))
         assert warm.trades[0].displacement_mode == ACTIVATION_MODE_FIRST_TOUCH
 
@@ -1655,7 +1734,8 @@ class TestHistoricalPreloadOfUntouchedOBs:
         """
         rows = _candles(list(PRELOAD_ROWS) + [S_ORIGIN, S_BOS], 0)
         warm = ManualSMCBacktest(symbols=("BTCUSD",),
-                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+                                 tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+                                 detector=DETECTOR_MANUAL_SPEC)
         _driver_run(warm, rows[:PRELOAD_SPLIT_BAR])
         assert list(warm.strategy.lifecycle.live_obs) == [SHORT_OB_ID]
         _driver_run(warm, rows[PRELOAD_SPLIT_BAR:])
@@ -1697,7 +1777,8 @@ class TestAnUnfilledSetupIsNeverRecordedAsALoss:
 
     def _ledger(self, rows):
         driver = ManualSMCBacktest(
-            symbols=("BTCUSD",), tick_specs={"BTCUSD": FakeSpec(BTC_TICK)})
+            symbols=("BTCUSD",), tick_specs={"BTCUSD": FakeSpec(BTC_TICK)},
+            detector=DETECTOR_MANUAL_SPEC)
         return driver, _driver_run(driver, _candles(rows))
 
     def test_the_window_really_does_expire_unfilled_on_this_fixture(self):

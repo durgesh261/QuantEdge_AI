@@ -33,9 +33,40 @@ COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/src ./src
 
+# The pinned, provenance-verified Delta India instrument snapshot.
+#
+# `quantedge/instruments/registry.py::_find_snapshot()` walks the parents of its
+# own file looking for `data/reference/delta_exchange_india/product_specs_snapshot.json`
+# and raises `SnapshotUnavailableError` when it is absent. Because
+# `quantedge/execution/validation.py` loads the registry at IMPORT time, a
+# missing snapshot makes `python -m quantedge` fail before it starts.
+#
+# `/app` is a parent of `/app/src/quantedge/instruments/registry.py`, so landing
+# the file at `/app/data/reference/delta_exchange_india/` satisfies the existing
+# parent-walk contract without changing `registry.py`. Copied from the build
+# context at BUILD time - never mounted, never fetched - so the image carries
+# the same checked-in snapshot the test suite is measured against.
+COPY data/reference/delta_exchange_india/product_specs_snapshot.json ./data/reference/delta_exchange_india/
+
 # Create non-root user
 RUN groupadd -g 1000 appgroup && \
     useradd -u 1000 -g appgroup -s /bin/sh appuser
+
+# Phase 2: the durable structure-state mount point.
+#
+# `docker-compose.yml` mounts the named `engine_state` volume here. Docker seeds
+# a fresh named volume from the image's contents at that path AND copies its
+# ownership, so the directory must exist and already belong to the runtime user
+# BEFORE `USER appuser` - otherwise the volume is root-owned and
+# `resolve_state_file()`'s write probe fails, which correctly leaves the engine
+# inert but for an avoidable reason.
+#
+# It lives OUTSIDE /app on purpose: only this one directory is writable and
+# persistent, so a snapshot can never be confused with, or overwrite, shipped
+# code or the pinned instrument snapshot. Nothing here is a credential.
+RUN mkdir -p /var/lib/quantedge/state && \
+    chown -R appuser:appgroup /var/lib/quantedge && \
+    chmod 700 /var/lib/quantedge/state
 
 RUN chown -R appuser:appgroup /app
 

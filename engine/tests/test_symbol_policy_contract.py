@@ -244,6 +244,7 @@ def _decision(symbol: str, geometry_of: str) -> StrategyDecision:
         take_profit=tp,
         risk_reward=Decimal("2.0"),
         quantity=Decimal("1"),
+        calculated_leverage=100,
     )
 
 

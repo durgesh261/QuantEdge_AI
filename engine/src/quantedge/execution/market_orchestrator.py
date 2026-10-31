@@ -162,14 +162,55 @@ class MarketScannerOrchestrator:
             return res
 
         # 4. Calculate 100% Capital Allocation
-        entry_price = qualified_decision.entry or Decimal("100000.00")
+        #
+        # Both sizing inputs are authoritative strategy outputs and neither has
+        # a safe substitute. `entry` used to fall back to Decimal("100000.00")
+        # -- a fabricated BTC-shaped price that would have sized a REAL position
+        # on any symbol, at any price -- and `calculated_leverage` used to fall
+        # back to 10x. A missing value is now a refused scan; no replacement
+        # value is chosen here.
+        #
+        # The refusal is made before the allocator rather than left to it. The
+        # allocator's own fail-closed guards compare `entry_price <= 0` and
+        # `leverage < MIN_LEVERAGE`, and those comparisons against `None` raise
+        # TypeError, which the `except CapitalAllocationError` below does not
+        # catch: an unhandled exception is not a rejection.
+        entry_price = qualified_decision.entry
+        if entry_price is None:
+            res = MarketScanResult(
+                scanned_symbols=list(self.supported_symbols),
+                qualifying_symbol=qualified_decision.symbol,
+                decision=qualified_decision,
+                rejection_reason=(
+                    "Qualifying setup carried no entry price; refusing to size a "
+                    "position on a substituted price"
+                ),
+                scan_timestamp=now,
+            )
+            self._scan_history.append(res)
+            return res
+
+        effective_lev = qualified_decision.calculated_leverage
+        if effective_lev is None:
+            res = MarketScanResult(
+                scanned_symbols=list(self.supported_symbols),
+                qualifying_symbol=qualified_decision.symbol,
+                decision=qualified_decision,
+                rejection_reason=(
+                    "Qualifying setup carried no calculated leverage; refusing to "
+                    "size a position on a substituted leverage"
+                ),
+                scan_timestamp=now,
+            )
+            self._scan_history.append(res)
+            return res
+
         try:
             from quantedge.execution.validation import DEFAULT_DELTA_INDIA_PRODUCTS
             spec = DEFAULT_DELTA_INDIA_PRODUCTS.get(qualified_decision.symbol)
             lot_step = spec.size_step if spec else Decimal("1")
             min_qty = spec.min_size if spec else Decimal("1")
 
-            effective_lev = qualified_decision.calculated_leverage or 10
             sizing = self.capital_allocator.calculate_100_percent_allocation(
                 symbol=qualified_decision.symbol,
                 entry_price=entry_price,

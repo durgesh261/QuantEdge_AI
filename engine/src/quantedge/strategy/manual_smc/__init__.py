@@ -221,6 +221,37 @@ Phase 2 scope (quantization half): `executable.py`, covered by
   * Like `adapter.py` and `backtest.py` it is DELIBERATELY NOT re-exported
     below; consumers import `quantedge.strategy.manual_smc.executable`.
 
+Task N scope: `invalidation.py`, covered by
+`engine/tests/test_manual_smc_ob_invalidation.py`.
+
+  * The OPERATOR's permanent "never trade this order block again" decision, as
+    an additive, append-only ledger keyed by a rescan-invariant fingerprint
+    `MANUAL_SMC_OB|v1|{asset}|{direction}|{origin_dt}|{bos_dt}` — market
+    characteristics only, so it survives a backfill that renumbers every bar and
+    therefore every `ob_id`. A naive timestamp is REFUSED, not assumed UTC.
+  * It is NOT a state flag. `state.py` refuses to persist an `INVALIDATED`
+    order block (that state means a torn mid-candle capture), and the lifecycle
+    drops dead order blocks out of the live pool entirely, so a rescan in a
+    fresh process re-creates the identical block as a brand new tradable setup.
+    A separate record keyed on characteristics is the only thing a rescan cannot
+    erase.
+  * `ManualSMCLifecycle` consults the ledger at FOUR points — the per-candle OB
+    sweep, `candidate_obs()`, the single line that creates a trade, and new-OB
+    admission (which is what defeats a rescan) — and an empty ledger
+    short-circuits every one of them, so an unmodified lifecycle behaves
+    bit-identically.
+  * APPEND-ONLY: there is no `remove()` and no `un_invalidate()`. `reset()`
+    deliberately does NOT clear it. `add()` is idempotent and keeps the FIRST
+    record, so one order block can never hold two conflicting decisions.
+  * A TRADE_ACTIVE order block is recorded but its open position is NOT
+    abandoned — dropping it would strand a live position without a stop. The
+    outcome reports `live_trade_untouched=True` rather than pretending
+    otherwise.
+  * Nothing here calls an exchange. Cancelling a resting order behind an
+    invalidated setup reuses the runtime's existing `expire_resting_entry` path,
+    because an eviction emits the same `INVALIDATED` event an automatic expiry
+    does.
+
 THE PRODUCTION ACTIVATION POLICY — FIRST TOUCH, THEN A THREE-CANDLE WINDOW
 --------------------------------------------------------------------------
 `ManualSMCLifecycle` supports TWO activation modes and they are not
@@ -244,10 +275,44 @@ it changes no geometry, no leverage and no exit rule.
     never re-arm. Only the first touch arms; later touches do not extend or
     restart the window.
   * `ACTIVATION_MODE_ORACLE_C` ("C_PROBE_PULLBACK") is the RESEARCH policy and
-    the bare `ManualSMCLifecycle()` default, preserved verbatim so oracle
-    equivalence stays provable: a close-based probe beyond the proximal, then a
-    pullback close back through it, arming from `displacement_bar + 1` with NO
-    window expiry. It is never the production default.
+    the bare `ManualSMCLifecycle()` ACTIVATION default, preserved verbatim so
+    oracle equivalence stays provable: a close-based probe beyond the proximal,
+    then a pullback close back through it, arming from `displacement_bar + 1`
+    with NO window expiry. It is never the production default.
+
+A bare `ManualSMCLifecycle()` is therefore NOT a whole-oracle reproduction any
+more: its ACTIVATION default is still the oracle's, but its DETECTOR default is
+the production LuxAlgo one (next section). Oracle reproduction now requires
+naming `detector=DETECTOR_MANUAL_SPEC` as well.
+
+THE PRODUCTION STRUCTURE DETECTOR — LUXALGO INTERNAL STRUCTURE
+--------------------------------------------------------------
+`DETECTOR_LUXALGO_INTERNAL` ("LUXALGO_INTERNAL") is the production default of
+`ManualSMCLifecycle`, `ManualSMCStrategy` and `ManualSMCBacktest`, and it is
+named EXPLICITLY at the live boundary in
+`quantedge/runtime/manual_smc_runtime.py`. It is the LuxAlgo "Smart Money
+Concepts" internal-structure reconstruction (`luxalgo_structure.py` behind
+`scanner.LuxAlgoInternalOBScanner`) — the indicator the operator's own
+TradingView chart runs.
+
+`DETECTOR_MANUAL_SPEC` ("MANUAL_SPEC_BOS") — the verbatim oracle extraction
+`scanner.ManualSpecBOSScanner` — was demoted by an explicit authorized decision
+as NOT representative of that chart. It is untouched, fully supported and still
+selectable, but only BY NAME; nothing reaches it implicitly, and the
+oracle-equivalence and Phase-1 lifecycle gates now select it by name.
+`DETECTORS` admits exactly those two strings and an unrecognised value RAISES in
+both the constructor and the per-asset scanner factory — no alias, no
+normalisation, no fallback (safety rules #13, #15).
+
+The promotion changed WHICH zones exist and WHERE their edges are, never how a
+zone is traded. The disclosed consequences: a LuxAlgo zone is the FULL origin
+candle rather than a half candle, so the opposite-edge stop is roughly twice as
+far and the existing `min(100, 35 / sl_dist_pct)` rule therefore derives roughly
+half the leverage (measured medians 45–76x, never below the authorized 1x
+floor); and roughly a fifth as many blocks are produced. The 25% entry depth,
+the fixed 0.60% TP, the opposite-edge SL, the first-touch three-candle window,
+the single trade slot, operator invalidation, the 1x–100x leverage band and the
+absence of any R:R gate are all unchanged.
 
 Neither mode trades on the OB-creation candle. The per-candle order — resolve
 the active trade, update every live OB, admit new OBs LAST — is what makes
@@ -255,8 +320,10 @@ admission strictly break+1, so a BOS candle whose own range covers the entry
 emits `OB_CREATED` and nothing else. The window convention, the permanence of
 an expiry and the indefinite survival of an untouched OB are pinned by
 `engine/tests/test_manual_smc_first_touch_window.py`, which constructs every
-subject with NO policy keywords so the shipped production defaults are the
-subject under test.
+subject with NO ACTIVATION keywords so the shipped production activation
+defaults are the subject under test. That file DOES name its detector, because
+its synthetic candles are hand-built ManualSpec geometry; the detector default
+is pinned separately by `test_manual_smc_luxalgo_parity.py`.
 
 This package has NO production wiring and NO execution wiring. Importing it
 cannot place, cancel or authorise an order.
@@ -274,10 +341,34 @@ from quantedge.strategy.manual_smc.geometry import (
     manual_sl_hit,
     manual_tp_hit,
 )
+from quantedge.strategy.manual_smc.invalidation import (
+    DEFAULT_REASON,
+    DEFAULT_REQUESTED_BY,
+    FINGERPRINT_PREFIX,
+    FINGERPRINT_SEP,
+    FINGERPRINT_VERSION,
+    VALID_DIRECTIONS,
+    InvalidObIdentityError,
+    InvalidationError,
+    LedgerIntegrityError,
+    ManualOBInvalidation,
+    ManualOBInvalidationLedger,
+    NaiveTimestampError,
+    build_record,
+    fingerprint_for_ob,
+    fingerprint_parts,
+    make_fingerprint,
+    normalise_dt,
+    record_for_ob,
+    verify_fingerprint,
+)
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_FIRST_TOUCH,
     ACTIVATION_MODE_ORACLE_C,
     ACTIVATION_MODES,
+    DETECTOR_LUXALGO_INTERNAL,
+    DETECTOR_MANUAL_SPEC,
+    DETECTORS,
     DISPLACEMENT_MODE,
     ENTRY_WINDOW_CANDLES,
     OUTCOME_SL,
@@ -287,9 +378,11 @@ from quantedge.strategy.manual_smc.lifecycle import (
     REASON_SL_HIT,
     REASON_TIMEOUT,
     REASON_TP_HIT,
+    LifecycleClockError,
     ManualActiveTrade,
     ManualLifecycleEvent,
     ManualLifecycleEventType,
+    ManualOBInvalidationOutcome,
     ManualSMCLifecycle,
     ManualTradeExit,
 )
@@ -339,6 +432,7 @@ from quantedge.strategy.manual_smc.quantization import (
     validate_tick_size,
 )
 from quantedge.strategy.manual_smc.scanner import (
+    LuxAlgoInternalOBScanner,
     ManualSMCBOSScanner,
     ManualSpecBOSScanner,
 )
@@ -426,12 +520,15 @@ from quantedge.strategy.manual_smc.strategy import (
     ManualSMCFill,
     ManualSMCSetup,
     ManualSMCStrategy,
+    MarketUpdateError,
     OutOfOrderCandleError,
     PortfolioLockDesyncError,
+    StaleMarketUpdateError,
     StrategyError,
     StrategyStateError,
     TornStateError,
     validate_candle,
+    validate_market_update,
 )
 
 __all__ = [
@@ -443,11 +540,16 @@ __all__ = [
     "ManualSMCConfig",
     "ManualSpecBOSScanner",
     "ManualSMCBOSScanner",
+    "LuxAlgoInternalOBScanner",
     "DISPLACEMENT_MODE",
     "ACTIVATION_MODE_FIRST_TOUCH",
     "ACTIVATION_MODE_ORACLE_C",
     "ACTIVATION_MODES",
     "ENTRY_WINDOW_CANDLES",
+    "DETECTOR_MANUAL_SPEC",
+    "DETECTOR_LUXALGO_INTERNAL",
+    "DETECTORS",
+    "LifecycleClockError",
     "OUTCOME_TP",
     "OUTCOME_SL",
     "OUTCOME_TIMEOUT",
@@ -460,6 +562,26 @@ __all__ = [
     "ManualActiveTrade",
     "ManualTradeExit",
     "ManualSMCLifecycle",
+    "FINGERPRINT_VERSION",
+    "FINGERPRINT_PREFIX",
+    "FINGERPRINT_SEP",
+    "VALID_DIRECTIONS",
+    "DEFAULT_REQUESTED_BY",
+    "DEFAULT_REASON",
+    "InvalidationError",
+    "InvalidObIdentityError",
+    "NaiveTimestampError",
+    "LedgerIntegrityError",
+    "normalise_dt",
+    "fingerprint_parts",
+    "make_fingerprint",
+    "fingerprint_for_ob",
+    "ManualOBInvalidation",
+    "build_record",
+    "record_for_ob",
+    "ManualOBInvalidationLedger",
+    "verify_fingerprint",
+    "ManualOBInvalidationOutcome",
     "OUTCOME_RECONCILED_CLOSED",
     "TERMINAL_OUTCOMES",
     "LockRejectionCode",
@@ -577,10 +699,13 @@ __all__ = [
     "DuplicateCandleError",
     "OutOfOrderCandleError",
     "GlobalOrderError",
+    "MarketUpdateError",
+    "StaleMarketUpdateError",
     "PortfolioLockDesyncError",
     "TornStateError",
     "StrategyStateError",
     "validate_candle",
+    "validate_market_update",
     "ManualSMCSetup",
     "ManualSMCFill",
     "ManualSMCClose",

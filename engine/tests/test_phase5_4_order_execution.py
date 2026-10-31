@@ -81,7 +81,6 @@ def execution_context():
         target_reward_pct=Decimal("60.0"),
         max_leverage=100,
         max_concurrent_trades=1,
-        minimum_risk_reward=Decimal("1.5"),
     )
     return ValidationContext(
         account=account,

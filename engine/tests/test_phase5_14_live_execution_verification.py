@@ -229,6 +229,7 @@ async def test_live_small_balance_constraint_reporting(live_lifecycle_mgr, live_
         # at 35x, so the constraint verified here exists for the position size
         # the strategy actually intends, not for one contract.
         quantity=Decimal("100"),
+        calculated_leverage=100,
     )
 
     rec = await live_lifecycle_mgr.execute_trade_setup(decision, "acct-live-231", "usr-live")
@@ -257,6 +258,7 @@ async def test_live_execution_sufficient_capital(live_lifecycle_mgr, live_small_
         take_profit=Decimal("2484.71"),
         risk_reward=Decimal("1.76"),
         quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     rec = await live_lifecycle_mgr.execute_trade_setup(decision, "acct-live-231", "usr-live")
@@ -305,6 +307,7 @@ async def test_live_protection_failure_state(live_lifecycle_mgr, live_small_bala
         take_profit=Decimal("2484.71"),
         risk_reward=Decimal("1.76"),
         quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     rec = await live_lifecycle_mgr.execute_trade_setup(decision, "acct-live-231", "usr-live")
@@ -365,6 +368,7 @@ async def test_live_100pct_capital_compounding(live_lifecycle_mgr, live_small_ba
         take_profit=Decimal("2484.71"),
         risk_reward=Decimal("1.76"),
         quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     await live_lifecycle_mgr.execute_trade_setup(decision, "acct-live-231", "usr-live")

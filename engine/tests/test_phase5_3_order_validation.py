@@ -5,7 +5,8 @@ Verifies:
 - 17+ deterministic, fail-closed validation checks
 - Valid LONG and SHORT order setups approved with correct DeltaOrderRequest
 - Mandatory TP/SL geometry validation (Long: TP > Entry > SL; Short: SL > Entry > TP)
-- Positive risk distance and minimum Risk/Reward ratio enforcement
+- Positive risk distance enforcement. There is NO minimum Risk/Reward rule: the
+  ratio is computed and reported as a diagnostic and can never refuse an order.
 - Account active, algo_enabled, and emergency kill switch controls
 - Connection health and API credential presence
 - Instrument symbol, direction, order type, quantity min/step, and price tick size rules
@@ -19,6 +20,8 @@ Verifies:
 
 from datetime import datetime, timezone
 from decimal import Decimal
+import dataclasses
+import inspect
 import pytest
 
 from quantedge.execution.models import (
@@ -70,7 +73,6 @@ def standard_context():
         target_reward_pct=Decimal("60.0"),
         max_leverage=100,
         max_concurrent_trades=1,
-        minimum_risk_reward=Decimal("1.5"),
     )
     return ValidationContext(
         account=account,
@@ -472,17 +474,110 @@ def test_zero_risk_distance_rejected(standard_context, valid_long_request):
     assert result.rejection_code == RejectionReasonCode.INVALID_TP_SL_GEOMETRY
 
 
-def test_invalid_risk_reward_rejected(standard_context, valid_long_request):
-    """Verify RR < 1.5 is rejected."""
-    # Risk = 1000 (95000 - 94000), Reward = 1200 (96200 - 95000), RR = 1.2 < 1.5
+def test_sub_one_point_five_risk_reward_is_approved(standard_context,
+                                                    valid_long_request):
+    """
+    THE REVERSAL. This bracket rates 1.2 and is APPROVED.
+
+    A reward:risk ratio is not part of the authorised strategy, so it cannot
+    refuse an order. The geometry here is otherwise identical to the approved
+    fixture: SL below entry, TP above it, both distances strictly positive.
+    """
+    # Risk = 1000 (95000 - 94000), Reward = 1200 (96200 - 95000), RR = 1.2
     valid_long_request.entry_price = Decimal("95000.0")
     valid_long_request.stop_loss = Decimal("94000.0")
     valid_long_request.take_profit = Decimal("96200.0")
     gateway = OrderValidationGateway()
     result = gateway.validate(valid_long_request, standard_context)
 
-    assert result.is_valid is False
-    assert result.rejection_code == RejectionReasonCode.INVALID_RISK_REWARD
+    assert result.is_valid is True, result.rejection_reason
+    assert result.rejection_code is None
+    #: The ratio is still reported — it is a diagnostic, not a gate.
+    assert result.calculated_risk_reward == Decimal("1.2")
+
+
+def test_a_ratio_far_below_one_is_still_approved(standard_context,
+                                                valid_long_request):
+    """
+    Not merely "just under 1.5": a reward a tenth of the risk is admitted too,
+    so no softened threshold survives anywhere below the old one.
+    """
+    valid_long_request.entry_price = Decimal("95000.0")
+    valid_long_request.stop_loss = Decimal("94000.0")
+    valid_long_request.take_profit = Decimal("95100.0")   # RR = 0.1
+    gateway = OrderValidationGateway()
+    result = gateway.validate(valid_long_request, standard_context)
+
+    assert result.is_valid is True, result.rejection_reason
+    assert result.calculated_risk_reward == Decimal("0.1")
+
+
+def test_a_high_ratio_is_approved_on_the_same_terms(standard_context,
+                                                   valid_long_request):
+    """The other side of the removed rule is not privileged either."""
+    valid_long_request.entry_price = Decimal("95000.0")
+    valid_long_request.stop_loss = Decimal("94000.0")
+    valid_long_request.take_profit = Decimal("99000.0")   # RR = 4.0
+    gateway = OrderValidationGateway()
+    result = gateway.validate(valid_long_request, standard_context)
+
+    assert result.is_valid is True, result.rejection_reason
+    assert result.calculated_risk_reward == Decimal("4.0")
+
+
+def test_no_risk_reward_setting_exists_on_the_risk_config(standard_context):
+    """
+    The threshold has no home to be restored into: `RiskConfiguration` carries
+    no minimum-risk-reward field at all.
+    """
+    assert not hasattr(standard_context.risk_config, "minimum_risk_reward")
+    assert "minimum_risk_reward" not in {
+        f.name for f in dataclasses.fields(standard_context.risk_config)}
+
+
+def test_nothing_in_the_gateway_emits_the_retired_rejection_code(
+        standard_context, valid_long_request):
+    """
+    `INVALID_RISK_REWARD` is retained as retired VOCABULARY so that rejection
+    records persisted before the removal still deserialize. No code path may
+    produce it: swept over ratios from 0.01 to 100.
+    """
+    gateway = OrderValidationGateway()
+    for reward in ("94990.0", "95010.0", "95100.0", "96200.0", "99000.0",
+                   "195000.0"):
+        valid_long_request.entry_price = Decimal("95000.0")
+        valid_long_request.stop_loss = Decimal("94000.0")
+        valid_long_request.take_profit = Decimal(reward)
+        result = gateway.validate(valid_long_request, standard_context)
+        assert result.rejection_code != RejectionReasonCode.INVALID_RISK_REWARD
+    #: And the source itself no longer names a check for it.
+    source = inspect.getsource(OrderValidationGateway.validate)
+    assert "CHECK_MINIMUM_RR" not in source
+    assert "INVALID_RISK_REWARD" not in source
+
+
+def test_the_unrelated_geometry_gates_are_untouched(standard_context,
+                                                    valid_long_request):
+    """
+    Task scope: the R:R rule went, the geometry rules stayed. A LONG whose TP
+    sits below entry is still refused, and so is a zero risk distance — those
+    are not ratio judgements, they are contradictions.
+    """
+    gateway = OrderValidationGateway()
+
+    valid_long_request.entry_price = Decimal("95000.0")
+    valid_long_request.stop_loss = Decimal("94000.0")
+    valid_long_request.take_profit = Decimal("94500.0")
+    inverted = gateway.validate(valid_long_request, standard_context)
+    assert inverted.is_valid is False
+    assert inverted.rejection_code == RejectionReasonCode.INVALID_TP_SL_GEOMETRY
+
+    valid_long_request.stop_loss = Decimal("95000.0")
+    valid_long_request.take_profit = Decimal("97000.0")
+    zero_risk = gateway.validate(valid_long_request, standard_context)
+    assert zero_risk.is_valid is False
+    assert zero_risk.rejection_code == \
+        RejectionReasonCode.INVALID_TP_SL_GEOMETRY
 
 
 # ── 7. Idempotency & Duplicate Protection ─────────────────────────────────────

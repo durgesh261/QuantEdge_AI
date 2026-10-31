@@ -239,6 +239,30 @@ def _src(obj) -> str:
     return textwrap.dedent(inspect.getsource(obj))
 
 
+def _canonical_entry_src() -> str:
+    """The source of the WHOLE canonical entry path, in execution order.
+
+    P1-4 RE-PIN. Path A used to be one function, `execute_trade_setup`, and the
+    structural tests below read its source directly. The reconciliation/entry
+    concurrency fix split it in two: `execute_trade_setup` is now the admission
+    wrapper (it takes the manager lock, consults the entry-admission contract and
+    counts the submission in flight) and `_execute_admitted_trade_setup` is the
+    half that validates and submits. The split moved the ADDRESS of every
+    property asserted here; it moved no property.
+
+    Reading both halves -- concatenated in the order they actually run -- is what
+    keeps those assertions honest across the split. Reading only the wrapper
+    would make them vacuous, and reading only the submitter would let a check be
+    evaded by hoisting it into the wrapper. Ordering assertions stay meaningful
+    because the concatenation order is the call order.
+    """
+    from quantedge.execution.trade_lifecycle import TradeLifecycleManager
+    return "\n".join((
+        _src(TradeLifecycleManager.execute_trade_setup),
+        _src(TradeLifecycleManager._execute_admitted_trade_setup),
+    ))
+
+
 def _attrs_of(tree: ast.AST, base: str) -> set[str]:
     return {n.attr for n in ast.walk(tree)
             if isinstance(n, ast.Attribute)
@@ -251,6 +275,12 @@ def _attrs_of(tree: ast.AST, base: str) -> set[str]:
 
 #: Every rejection the gateway itself can produce. Pinned so that a check
 #: cannot be deleted from the market-scan path without this file failing.
+#:
+#: `INVALID_RISK_REWARD` is deliberately ABSENT. The reward:risk admission rule
+#: was removed because it is not part of the authorised Manual SMC strategy; the
+#: enum member survives only as retired vocabulary so that rejection records
+#: persisted before the removal still deserialize. Its absence here is asserted
+#: explicitly below, so it cannot be reinstated without this file failing either.
 GATEWAY_REJECTIONS = {
     "ACCOUNT_DISABLED", "ALGO_DISABLED", "KILL_SWITCH_ACTIVE",
     "EXCHANGE_DISCONNECTED", "INVALID_CREDENTIALS", "UNSUPPORTED_SYMBOL",
@@ -260,7 +290,7 @@ GATEWAY_REJECTIONS = {
     "INVALID_TICK_SIZE", "CONCURRENT_TRADE_LIMIT_EXCEEDED",
     "EXCESSIVE_LEVERAGE", "MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT",
     "INVALID_TP_SL_GEOMETRY", "ZERO_OR_NEGATIVE_RISK_DISTANCE",
-    "INVALID_RISK_REWARD", "EXCESSIVE_RISK", "INSUFFICIENT_BALANCE",
+    "EXCESSIVE_RISK", "INSUFFICIENT_BALANCE",
     "DUPLICATE_CLIENT_ORDER_ID", "DUPLICATE_SETUP_ID",
 }
 
@@ -272,6 +302,21 @@ def test_gateway_rejection_inventory_is_pinned():
     assert used == GATEWAY_REJECTIONS
     for name in used:
         assert hasattr(RejectionReasonCode, name)
+
+
+def test_the_gateway_cannot_refuse_on_a_reward_risk_ratio():
+    """
+    The removal, pinned from the gateway's own source. The two neighbouring
+    geometry gates are asserted PRESENT in the same breath, because the scope of
+    the removal was the ratio rule and nothing else.
+    """
+    used = _attrs_of(ast.parse(_src(OrderValidationGateway.validate)),
+                     "RejectionReasonCode")
+    assert "INVALID_RISK_REWARD" not in used
+    assert "INVALID_TP_SL_GEOMETRY" in used
+    assert "ZERO_OR_NEGATIVE_RISK_DISTANCE" in used
+    #: Retired vocabulary: the member still exists so historical records load.
+    assert hasattr(RejectionReasonCode, "INVALID_RISK_REWARD")
 
 
 def test_the_multi_user_path_never_consults_the_gateway():
@@ -694,14 +739,12 @@ def test_the_gateway_refuses_the_same_geometries(direction, prices):
     assert result.rejection_code in (
         RejectionReasonCode.INVALID_TP_SL_GEOMETRY,
         RejectionReasonCode.ZERO_OR_NEGATIVE_RISK_DISTANCE,
-        RejectionReasonCode.INVALID_RISK_REWARD,
     )
 
 
 def test_the_lifecycle_path_refuses_the_same_geometries_structurally():
-    """`execute_trade_setup` rejects before it ever reaches the gateway."""
-    from quantedge.execution.trade_lifecycle import TradeLifecycleManager
-    src = _src(TradeLifecycleManager.execute_trade_setup)
+    """The canonical entry path rejects before it ever reaches the gateway."""
+    src = _canonical_entry_src()
     assert "INVALID_TP_SL_GEOMETRY" in src
     assert src.index("INVALID_TP_SL_GEOMETRY") < src.index(
         "validation_gateway.validate")
@@ -1192,12 +1235,11 @@ def test_leverage_classification_is_pinned_per_path():
     from quantedge.execution.market_orchestrator import (
         MarketScannerOrchestrator,
     )
-    from quantedge.execution.trade_lifecycle import TradeLifecycleManager
 
     scan = _src(MarketScannerOrchestrator.scan_and_execute)
     assert "calculated_leverage" in scan          # strategy output
 
-    lifecycle = _src(TradeLifecycleManager.execute_trade_setup)
+    lifecycle = _canonical_entry_src()
     assert "calculated_leverage" in lifecycle     # strategy output
 
     mu = _src(mu_mod.UserExecutionSession.execute_trade)
@@ -1247,7 +1289,6 @@ MATRIX: dict[str, tuple[int, str]] = {
     "INVALID_TP_SL_GEOMETRY": (3, "closed: directional ordering enforced"),
     "ZERO_OR_NEGATIVE_RISK_DISTANCE": (
         3, "closed: the ordering is strict, so both distances are positive"),
-    "INVALID_RISK_REWARD": (1, "the 1.5 minimum is path A policy"),
     "EXCESSIVE_RISK": (
         1, "the per-trade risk cap is path A policy; path B allocates whole"),
     "INSUFFICIENT_BALANCE": (
@@ -1324,8 +1365,7 @@ def test_path_b_has_no_daily_loss_guard():
     """Class 4, pinned: path A's guard reads state path B does not keep."""
     mu = _src(mu_mod).lower()
     assert "daily" not in mu
-    from quantedge.execution.trade_lifecycle import TradeLifecycleManager
-    assert "daily_loss_limit" in _src(TradeLifecycleManager.execute_trade_setup)
+    assert "daily_loss_limit" in _canonical_entry_src()
 
 
 @pytest.mark.asyncio

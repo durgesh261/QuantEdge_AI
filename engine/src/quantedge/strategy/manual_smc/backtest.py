@@ -13,7 +13,8 @@ invalidation rule, no TP/SL hit test, no BOS detection, no OB geometry, no
 global-lock semantics and no PnL formula. Every one of those lives exactly
 once, in the module that already owns it:
 
-    BOS + origin selection ........ scanner.ManualSpecBOSScanner
+    BOS + origin selection ........ scanner.LuxAlgoInternalOBScanner (default)
+                                    scanner.ManualSpecBOSScanner (by name)
     OB geometry / hit predicates .. geometry (verbatim oracle extraction)
     probe -> displacement -> fill .. lifecycle.ManualSMCLifecycle
     single global trade slot ....... portfolio.PortfolioLock + lifecycle
@@ -104,11 +105,13 @@ from typing import (
 
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_FIRST_TOUCH,
+    DETECTOR_LUXALGO_INTERNAL,
     DISPLACEMENT_MODE,
     ENTRY_WINDOW_CANDLES,
     OUTCOME_SL,
     OUTCOME_TIMEOUT,
     OUTCOME_TP,
+    ManualLifecycleEventType,
 )
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
@@ -483,11 +486,20 @@ class BacktestTrade:
 @dataclass(frozen=True)
 class EntryBlock:
     """
-    A setup that touched its entry while the ONE global slot was taken.
+    A setup that touched its entry and was refused, with the reason.
 
-    This is the observable proof that the lock is portfolio-wide. It is a
-    diagnostic record and never an instruction: nothing cancels, amends or
-    places an order because of it.
+    ONE reason reaches this record, named by `rejection_code`:
+
+      * `ACTIVE_TRADE_OPEN` — the ONE global slot was taken. The `holder_*`
+        fields name the trade that held it, and this is the observable proof
+        that the lock is portfolio-wide.
+
+    A reward:risk ratio can NEVER put a setup here: the authorised specification
+    contains no risk/reward admission rule, so `INVALID_RISK_REWARD` is not a
+    code this backtest can emit.
+
+    It is a diagnostic record and never an instruction: nothing cancels, amends
+    or places an order because of it.
     """
     asset: str
     ob_id: str
@@ -516,6 +528,7 @@ class EntryBlock:
         """
         return (self.holder_acquired_at is not None
                 and self.ts > self.holder_acquired_at)
+
 
 @dataclass(frozen=True)
 class Aggregate:
@@ -601,6 +614,11 @@ class BacktestResult:
     #: Section 11: quantization is reported, never mixed into the behaviour.
     fills_with_quantized_bracket: int
     quantization_refusals: Tuple[str, ...]
+    #: How many order blocks the scanner admitted over the run — the population
+    #: every other count is a subset of ("total setups considered"). Counted from
+    #: the lifecycle's own `OB_CREATED` events, so it cannot drift from what the
+    #: strategy actually created. Reporting only: nothing reads it back.
+    order_blocks_created: int = 0
 
     def as_oracle_dict(self) -> Dict[str, Any]:
         """
@@ -656,6 +674,7 @@ class ManualSMCBacktest:
         strategy: Optional[ManualSMCStrategy] = None,
         activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
         entry_window_candles: int = ENTRY_WINDOW_CANDLES,
+        detector: str = DETECTOR_LUXALGO_INTERNAL,
     ) -> None:
         """
         The DEFAULTS ARE THE PRODUCTION POLICY, not the oracle's.
@@ -669,9 +688,22 @@ class ManualSMCBacktest:
         carry the same TP today, so the ORACLE_C switch is what actually changes
         the baseline.
 
-        `activation_mode` / `entry_window_candles` are ignored when `strategy` is
-        supplied — a caller-supplied strategy already owns its own lifecycle and
-        is authoritative about its own policy, exactly as it is about its config.
+        `activation_mode` / `entry_window_candles` / `detector` are ignored when
+        `strategy` is supplied — a caller-supplied strategy already owns its own
+        lifecycle and is authoritative about its own policy, exactly as it is
+        about its config.
+
+        `detector` defaults to `DETECTOR_LUXALGO_INTERNAL`, the authorised
+        production detector, so a backtest run without naming a detector measures
+        what the live strategy would now do. Pass
+        `detector=DETECTOR_MANUAL_SPEC` to measure the verbatim oracle extraction
+        instead; that detector is still fully supported, it is simply no longer
+        what production runs.
+
+        NO REWARD:RISK ADMISSION EXISTS HERE. This backtest refuses an entry for
+        exactly the reasons the authorised strategy refuses one — chiefly the ONE
+        open trade at a time — and for no other. A reward:risk ratio is computed
+        per trade for the ledger and is INFORMATION ONLY.
         """
         _assert_not_live()
         self.cfg: ManualSpecConfig = (
@@ -688,6 +720,7 @@ class ManualSMCBacktest:
                 registry=registry,
                 activation_mode=activation_mode,
                 entry_window_candles=entry_window_candles,
+                detector=detector,
             ))
         #: A caller-supplied strategy is authoritative about its own config.
         self.cfg = self.strategy.cfg
@@ -701,6 +734,7 @@ class ManualSMCBacktest:
         self._blocks: List[EntryBlock] = []
         self._open_fills: Dict[str, _FillContext] = {}
         self._invalidations: int = 0
+        self._obs_created: int = 0
         self._quantized_fills: int = 0
         self._q_refusals: List[str] = []
         self._candles: int = 0
@@ -765,6 +799,12 @@ class ManualSMCBacktest:
             self._first_ts = ev.ts
         self._last_ts = ev.ts
         self._invalidations += len(ev.invalidated)
+        #: The setup population, counted from the lifecycle's own event stream
+        #: rather than inferred from trades and blocks — an OB that was created
+        #: and never touched appears in neither of those.
+        self._obs_created += sum(
+            1 for e in ev.events
+            if e.event_type is ManualLifecycleEventType.OB_CREATED)
 
         for blocked in ev.blocked:
             rejection = blocked.lock_rejection
@@ -776,8 +816,12 @@ class ManualSMCBacktest:
                 bar_idx=blocked.bar_idx,
                 ts=blocked.ts,
                 detail=blocked.detail,
-                rejection_code=(rejection.code.value
-                                if rejection is not None else None),
+                # The strategy's own code, ALWAYS, rather than one derived from
+                # `lock_rejection`. There is exactly one refusal reason on this
+                # path — the single slot was occupied — and the code is copied
+                # verbatim so a future reason would show up as itself instead of
+                # being silently relabelled a slot conflict.
+                rejection_code=blocked.rejection_code,
                 holder_asset=holder.asset if holder is not None else None,
                 holder_ob_id=holder.ob_id if holder is not None else None,
                 holder_acquired_at=(holder.acquired_at
@@ -921,6 +965,7 @@ class ManualSMCBacktest:
             open_trade_at_end=self.strategy.lifecycle.active_trade is not None,
             fills_with_quantized_bracket=self._quantized_fills,
             quantization_refusals=tuple(self._q_refusals),
+            order_blocks_created=self._obs_created,
         )
 
 
@@ -938,6 +983,7 @@ def run_manual_smc_backtest(
     account_id: str = "BACKTEST",
     activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
     entry_window_candles: int = ENTRY_WINDOW_CANDLES,
+    detector: str = DETECTOR_LUXALGO_INTERNAL,
 ) -> BacktestResult:
     """
     Load the canonical dataset and run it through `ManualSMCStrategy`.
@@ -951,10 +997,17 @@ def run_manual_smc_backtest(
     `tick_specs` is optional and affects REPORTING only: omitting it leaves
     every setup non-executable and changes no strategy geometry (section 11).
 
-    `activation_mode` / `entry_window_candles` default to the PRODUCTION policy
-    (see `ManualSMCBacktest.__init__`); the two trailing parameters are how the
-    oracle baseline is reproduced, and they are appended rather than inserted so
-    no existing positional call changes meaning.
+    `activation_mode` / `entry_window_candles` / `detector` default to the
+    PRODUCTION policy (see `ManualSMCBacktest.__init__`); the three trailing
+    parameters are how the oracle baseline is reproduced, and they are appended
+    rather than inserted so no existing positional call changes meaning. The
+    default detector is NAMED here rather than inherited so that a reader of this
+    entry point sees which structure algorithm a backtest reproduces, and so a
+    change to a library default cannot silently move the reported baseline onto a
+    different detector (safety rule #13). An unknown value is refused by the
+    lifecycle; nothing here guesses.
+
+    There is NO reward:risk parameter, because there is no reward:risk rule.
     """
     _assert_not_live()
     syms = tuple(symbols) if symbols is not None else DEFAULT_SYMBOLS
@@ -964,7 +1017,8 @@ def run_manual_smc_backtest(
         config=config, symbols=syms, tick_specs=tick_specs,
         registry=registry, account_id=account_id,
         activation_mode=activation_mode,
-        entry_window_candles=entry_window_candles)
+        entry_window_candles=entry_window_candles,
+        detector=detector)
     return driver.run(timeline, dataset)
 
 
@@ -980,13 +1034,15 @@ def run_manual_smc_backtest_from_candles(
     starting_capital: Optional[float] = None,
     activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
     entry_window_candles: int = ENTRY_WINDOW_CANDLES,
+    detector: str = DETECTOR_LUXALGO_INTERNAL,
 ) -> BacktestResult:
     """
     In-memory variant: same driver, same strategy, no filesystem.
 
     This is the path the acceptance tests use, so a test can never accidentally
     exercise a different lifecycle than the CSV-fed production backtest does.
-    Defaults are the production policy, same as `run_manual_smc_backtest`.
+    Defaults are the production policy, same as `run_manual_smc_backtest`, and
+    `detector` is named for the same reason it is there.
     """
     _assert_not_live()
     syms = (tuple(symbols) if symbols is not None
@@ -997,7 +1053,8 @@ def run_manual_smc_backtest_from_candles(
         registry=registry, account_id=account_id,
         starting_capital=starting_capital,
         activation_mode=activation_mode,
-        entry_window_candles=entry_window_candles)
+        entry_window_candles=entry_window_candles,
+        detector=detector)
     return driver.run(timeline, candles_by_symbol)
 
 

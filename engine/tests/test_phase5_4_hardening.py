@@ -99,7 +99,6 @@ def fresh_context():
         target_reward_pct=Decimal("60.0"),
         max_leverage=100,
         max_concurrent_trades=1,
-        minimum_risk_reward=Decimal("1.5"),
     )
     return ValidationContext(
         account=account,
@@ -479,7 +478,14 @@ async def test_13_invalid_tp_sl_geometry_rejects_execution(fresh_context, mock_c
 
 @pytest.mark.asyncio
 async def test_14_and_15_authoritative_strategy_decision_validation(fresh_context, mock_client):
-    """Req 14 & 15: Strategy decision must be TRADE_SETUP_READY with valid geometry and R:R."""
+    """
+    Req 14 & 15: Strategy decision must be TRADE_SETUP_READY with valid geometry.
+
+    R:R is deliberately NOT part of this requirement: the authorised strategy
+    contains no reward:risk admission rule, so the ratio is reported and never
+    enforced. The low-ratio decision below is therefore ADMITTED, and its
+    counterpart with broken geometry is still refused.
+    """
     service = LiveOrderExecutionService()
 
     # Decision not in ready state
@@ -503,7 +509,7 @@ async def test_14_and_15_authoritative_strategy_decision_validation(fresh_contex
     assert res1.success is False
     assert res1.rejection_code == RejectionReasonCode.DECISION_NOT_READY.value
 
-    # Decision with low R:R (< 1.5)
+    # Decision with a low R:R (0.5). Geometry is sound, so it is ADMITTED.
     low_rr_decision = StrategyDecision(
         timestamp=datetime.now(timezone.utc),
         symbol="BTCUSD",
@@ -513,7 +519,7 @@ async def test_14_and_15_authoritative_strategy_decision_validation(fresh_contex
         setup_id="SETUP-14-LOW-RR",
         entry=Decimal("95000.0"),
         stop_loss=Decimal("94000.0"),
-        take_profit=Decimal("95500.0"),  # RR = 0.5 < 1.5
+        take_profit=Decimal("95500.0"),  # RR = 0.5 — reported, not enforced
         risk_distance=Decimal("1000.0"),
         reward_distance=Decimal("500.0"),
         risk_reward=Decimal("0.5"),
@@ -524,8 +530,34 @@ async def test_14_and_15_authoritative_strategy_decision_validation(fresh_contex
         client=mock_client,
         account_id="acc_live_01",
     )
-    assert res2.success is False
-    assert res2.rejection_code == RejectionReasonCode.INVALID_RISK_REWARD.value
+    assert res2.rejection_code != RejectionReasonCode.INVALID_RISK_REWARD.value
+    assert res2.success is True, res2.rejection_reason
+
+    # Decision whose geometry contradicts its direction is still refused: the
+    # gate that went was the ratio, not the geometry.
+    broken_geometry_decision = StrategyDecision(
+        timestamp=datetime.now(timezone.utc),
+        symbol="BTCUSD",
+        timeframe="1h",
+        direction=StrategyDirection.LONG,
+        setup_state=SetupState.TRADE_SETUP_READY,
+        setup_id="SETUP-14-BROKEN-GEOMETRY",
+        entry=Decimal("95000.0"),
+        stop_loss=Decimal("96000.0"),   # SL above entry on a LONG
+        take_profit=Decimal("97000.0"),
+        risk_distance=Decimal("1000.0"),
+        reward_distance=Decimal("2000.0"),
+        risk_reward=Decimal("2.0"),     # a healthy ratio cannot rescue it
+    )
+    res3 = await service.execute_from_strategy_decision(
+        decision=broken_geometry_decision,
+        context=fresh_context,
+        client=mock_client,
+        account_id="acc_live_01",
+    )
+    assert res3.success is False
+    assert res3.rejection_code == \
+        RejectionReasonCode.INVALID_TP_SL_GEOMETRY.value
 
 
 @pytest.mark.asyncio

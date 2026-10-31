@@ -29,6 +29,18 @@ Data sources, in order of preference:
 
 Every synthetic sequence is checked against the module's own documented rules,
 never against a reimplementation of the algorithm.
+
+WHY EVERY LIFECYCLE HERE NAMES `DETECTOR_MANUAL_SPEC`
+-----------------------------------------------------
+The production default detector is now `DETECTOR_LUXALGO_INTERNAL`, whose zone
+is the FULL origin candle. Every fixture in this file — the hand-built OHLC
+sequences and the published golden BTC window alike — was constructed to
+exercise the ORACLE-EXTRACTED half-candle geometry (`[low, close]` for a SHORT,
+`[close, high]` for a LONG) and the single-candle close displacement that goes
+with it. So each lifecycle NAMES that detector rather than inheriting a default.
+This pins the fixtures to the algorithm they were built for; it does not assert
+anything about which detector production runs. That is pinned separately, by
+`test_manual_smc_luxalgo_parity.py::TestDefaultDetectorRegression`.
 """
 
 import sys
@@ -51,6 +63,7 @@ from quantedge.strategy.manual_smc.lifecycle import (  # noqa: E402
     ManualLifecycleEventType as ET,
 )
 from quantedge.strategy.manual_smc.lifecycle import (  # noqa: E402
+    DETECTOR_MANUAL_SPEC,
     ManualSMCLifecycle,
 )
 from quantedge.strategy.manual_smc.models import (  # noqa: E402
@@ -124,7 +137,7 @@ def _flat(bar_idx: int, price: float):
 
 def _run_reference(assets=("BTCUSD",)):
     """Replay the published golden window through the lifecycle."""
-    lc = ManualSMCLifecycle(assets=list(assets))
+    lc = ManualSMCLifecycle(assets=list(assets), detector=DETECTOR_MANUAL_SPEC)
     events = []
     for (bar_idx, o, h, l, c) in BTC_CANDLES_REFERENCE:
         for asset in assets:
@@ -150,7 +163,7 @@ class TestGate01ObCreation:
         ]
 
     def test_new_ob_starts_awaiting_displacement_with_no_live_limit(self):
-        lc = ManualSMCLifecycle(assets=["BTCUSD"])
+        lc = ManualSMCLifecycle(assets=["BTCUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = []
         for (bar_idx, o, h, l, c) in BTC_CANDLES_REFERENCE[:5]:
             events += [(bar_idx, e) for e in lc.process_candle(
@@ -166,7 +179,7 @@ class TestGate01ObCreation:
 
     def test_created_ob_is_admitted_after_the_bos_bar_is_processed(self):
         """Break+1: the BOS candle can never be its own displacement candle."""
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP[:2])
         assert [e.event_type for (_b, e) in events] == [ET.OB_CREATED]
         assert events[0][0] == 1                      # BOS bar
@@ -194,7 +207,7 @@ class TestGate02EntryFill:
         ]
 
     def test_displacement_sets_limit_active_from_next_bar_only(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP)
         disp = _of(events, ET.DISPLACEMENT_CONFIRMED)
         assert len(disp) == 1 and disp[0][0] == 3
@@ -205,7 +218,7 @@ class TestGate02EntryFill:
         assert lc.active_trade is None                # nothing filled yet
 
     def test_pre_displacement_touches_are_counted_but_never_fill(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP)
         touches = _of(events, ET.PRE_DISPLACEMENT_TOUCH)
         assert [b for (b, _e) in touches] == [2]      # bar 2 high 101.0 >= 100.5
@@ -214,7 +227,7 @@ class TestGate02EntryFill:
         assert lc.live_obs[SHORT_OB_ID].first_touch_dt == _ts(2)
 
     def test_first_touch_after_displacement_fills_at_the_limit_price(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL])
         fills = _of(events, ET.ENTRY_FILLED)
         assert len(fills) == 1 and fills[0][0] == 4
@@ -267,7 +280,7 @@ BBB_OB_ID = "MANUAL_BBBUSD_SHORT_2_3"
 
 def _run_two_assets(last_bar: int = 10):
     """Interleave the two assets in global chronological order, AAA then BBB."""
-    lc = ManualSMCLifecycle(assets=["AAAUSD", "BBBUSD"])
+    lc = ManualSMCLifecycle(assets=["AAAUSD", "BBBUSD"], detector=DETECTOR_MANUAL_SPEC)
     events = []
     for bar_idx in range(last_bar + 1):
         for asset, series in (("AAAUSD", _AAA), ("BBBUSD", _BBB)):
@@ -365,7 +378,7 @@ class TestGate05DistalInvalidation:
 
     def test_resting_ob_is_cancelled_by_a_distal_wick(self):
         breach = (4, 100.0, 105.5, 99.0, 100.0)      # high 105.5 >= distal 105.0
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [breach])
         inval = _of(events, ET.INVALIDATED)
         assert [(b, e.ob_id) for (b, e) in inval] == [(4, SHORT_OB_ID)]
@@ -380,7 +393,7 @@ class TestGate05DistalInvalidation:
 
     def test_invalidation_boundary_is_inclusive(self):
         touch_exactly = (4, 100.0, SHORT_SL, 99.0, 100.0)
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [touch_exactly])
         assert _of(events, ET.INVALIDATED)
 
@@ -402,7 +415,7 @@ class TestGate06StopLossExit:
     SL_CANDLE = (5, 100.0, 106.0, 100.0, 105.5)   # high >= SL, low > TP
 
     def _run(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL, self.SL_CANDLE])
         return lc, events
 
@@ -431,7 +444,7 @@ class TestGate06StopLossExit:
 
     def test_dual_touch_resolves_to_sl_and_is_flagged_ambiguous(self):
         dual = (5, 100.0, 106.0, 99.0, 100.0)      # high >= SL AND low <= TP
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL, dual])
         x = lc.exits[0]
         assert x.outcome == OUTCOME_SL
@@ -448,7 +461,7 @@ class TestGate07TakeProfitExit:
     TP_CANDLE = (5, 100.0, 100.5, 99.5, 99.8)     # low <= TP, high < SL
 
     def test_tp_exit_fields(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL, self.TP_CANDLE])
         assert [(b, e.ob_id) for (b, e) in _of(events, ET.TRADE_CLOSED)] == [
             (5, SHORT_OB_ID)]
@@ -489,7 +502,7 @@ class TestGate08LongMirrorsShort:
     """Gate 8 — the LONG path mirrors SHORT with inverted geometry."""
 
     def test_long_geometry_at_creation(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         _drive(lc, "AAAUSD", LONG_SETUP[:2])
         ob = lc.live_obs[LONG_OB_ID]
         assert ob.direction == "LONG"
@@ -500,7 +513,7 @@ class TestGate08LongMirrorsShort:
         assert ob.sl_price == LONG_SL
 
     def test_long_probe_pullback_then_fill(self):
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", LONG_SETUP + [LONG_FILL])
         seq = [(b, e.event_type) for (b, e) in events]
         assert seq == [
@@ -522,7 +535,7 @@ class TestGate08LongMirrorsShort:
             ((5, 105.0, 105.5, 104.8, 105.3), OUTCOME_TP, REASON_TP_HIT, LONG_TP),
             ((5, 105.0, 105.1, 99.5, 100.0), OUTCOME_SL, REASON_SL_HIT, LONG_SL),
         ):
-            lc = ManualSMCLifecycle(assets=["AAAUSD"])
+            lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
             _drive(lc, "AAAUSD", LONG_SETUP + [LONG_FILL, candle])
             x = lc.exits[0]
             assert (x.outcome, x.reason_for_exit) == (outcome, reason)
@@ -533,7 +546,7 @@ class TestGate08LongMirrorsShort:
 
     def test_long_distal_invalidation_uses_the_low_not_the_high(self):
         breach = (4, 105.0, 106.0, 99.9, 105.0)    # low 99.9 <= distal 100.0
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", LONG_SETUP + [breach])
         assert [(b, e.ob_id) for (b, e) in _of(events, ET.INVALIDATED)] == [
             (4, LONG_OB_ID)]
@@ -544,7 +557,7 @@ class TestGate09DeterministicOrder:
     """Gate 9 — multiple concurrent candidates keep a deterministic order."""
 
     def test_candidate_pool_order_is_creation_order(self):
-        lc = ManualSMCLifecycle(assets=["BTCUSD"])
+        lc = ManualSMCLifecycle(assets=["BTCUSD"], detector=DETECTOR_MANUAL_SPEC)
         created = []
         for (bar_idx, o, h, l, c) in BTC_CANDLES_REFERENCE:
             for ev in lc.process_candle("BTCUSD", bar_idx, _make_ts(bar_idx),
@@ -569,7 +582,7 @@ class TestGate09DeterministicOrder:
         origin first), so the history is seeded directly to assert the ordering
         the extraction preserves.
         """
-        lc = ManualSMCLifecycle(assets=["ZZZUSD"])
+        lc = ManualSMCLifecycle(assets=["ZZZUSD"], detector=DETECTOR_MANUAL_SPEC)
         scanner = lc._scanner_for("ZZZUSD")
         scanner._history.append((0, 104.5, 104.5, 100.0, 104.0, _ts(0)))
         scanner._history.append((1, 105.2, 108.0, 105.0, 107.0, _ts(1)))
@@ -593,7 +606,7 @@ class TestGate10NoTimeBasedExpiry:
         # Inert candles below the OB: no entry touch, no distal breach, and
         # (open == close) no new origin, so nothing else can interfere.
         idle = [_flat(4 + i, 98.0) for i in range(self.REST_BARS)]
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + idle)
         ob = lc.live_obs[SHORT_OB_ID]
         assert self.REST_BARS > lc.cfg.max_holding_bars
@@ -607,7 +620,7 @@ class TestGate10NoTimeBasedExpiry:
     def test_resting_ob_still_fills_after_a_long_wait(self):
         idle = [_flat(4 + i, 98.0) for i in range(self.REST_BARS)]
         late_touch = (4 + self.REST_BARS, 99.0, 101.0, 99.5, 100.0)
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + idle + [late_touch])
         fills = _of(events, ET.ENTRY_FILLED)
         assert [(b, e.ob_id) for (b, e) in fills] == [
@@ -615,7 +628,7 @@ class TestGate10NoTimeBasedExpiry:
 
     def test_holding_horizon_applies_only_after_the_fill(self):
         idle = [_flat(5 + i, 100.0) for i in range(80)]   # no TP/SL touch
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL] + idle)
         closed = _of(events, ET.TRADE_CLOSED)
         assert len(closed) == 1
@@ -647,7 +660,7 @@ class TestGate11NoRespawn:
         # Bar 5 closes below bar 4's low, which would satisfy the SHORT BOS
         # rule for a *new* origin, and also re-crosses origin 0's boundary.
         reclose = (5, 100.0, 100.2, 97.0, 98.0)
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [SHORT_FILL, reclose])
         created = [e.ob_id for (_b, e) in _of(events, ET.OB_CREATED)]
         assert created == [SHORT_OB_ID, "MANUAL_AAAUSD_SHORT_4_5"]
@@ -659,7 +672,7 @@ class TestGate11NoRespawn:
     def test_invalidated_origin_is_not_recreated(self):
         breach = (4, 100.0, 105.5, 99.0, 100.0)
         reclose = (5, 100.0, 100.2, 97.0, 98.0)
-        lc = ManualSMCLifecycle(assets=["AAAUSD"])
+        lc = ManualSMCLifecycle(assets=["AAAUSD"], detector=DETECTOR_MANUAL_SPEC)
         events = _drive(lc, "AAAUSD", SHORT_SETUP + [breach, reclose])
         created = [e.ob_id for (_b, e) in _of(events, ET.OB_CREATED)]
         assert SHORT_OB_ID in created and created.count(SHORT_OB_ID) == 1
@@ -697,7 +710,7 @@ def _oracle_and_lifecycle():
         data_base_dir=CANONICAL, symbols=["BTCUSD"],
         start_date=WIN_START, end_date=WIN_END)["trades_df"]
 
-    lc = ManualSMCLifecycle(assets=["BTCUSD"])
+    lc = ManualSMCLifecycle(assets=["BTCUSD"], detector=DETECTOR_MANUAL_SPEC)
     blocked, max_active = [], 0
     for i, row in enumerate(_load_canonical_candles(CANONICAL, "BTCUSD")):
         ts = row["timestamp"]
@@ -815,7 +828,7 @@ class TestConcurrentCandidatesWithSingleActiveTrade:
 
     def _four_asset_replay(self):
         assets = ["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD"]
-        lc = ManualSMCLifecycle(assets=assets)
+        lc = ManualSMCLifecycle(assets=assets, detector=DETECTOR_MANUAL_SPEC)
         peak_candidates, peak_active = 0, 0
         for (bar_idx, o, h, l, c) in BTC_CANDLES_REFERENCE:
             for asset in assets:

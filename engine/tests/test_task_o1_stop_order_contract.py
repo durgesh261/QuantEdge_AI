@@ -259,6 +259,8 @@ LONG_SETUP = StrategyDecision(
     reward_distance=Decimal("3000.00"),
     risk_reward=Decimal("3.0"),
     confidence=85.0,
+    quantity=Decimal("1.0"),
+    calculated_leverage=100,
 )
 
 

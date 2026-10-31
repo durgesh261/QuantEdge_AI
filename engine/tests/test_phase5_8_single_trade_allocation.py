@@ -181,6 +181,8 @@ async def test_02_simultaneous_multi_pair_signals_rejected(lifecycle_mgr):
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     dec_eth = StrategyDecision(
         timestamp=datetime.now(timezone.utc),
@@ -193,6 +195,8 @@ async def test_02_simultaneous_multi_pair_signals_rejected(lifecycle_mgr):
         stop_loss=Decimal("2750.00"),
         take_profit=Decimal("2950.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     # Execute BTC trade
@@ -273,6 +277,7 @@ async def test_05_profitable_trade_compounding_balance_update(lifecycle_mgr, sta
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
         quantity=Decimal("0.001"),
+        calculated_leverage=100,
     )
 
     rec = await lifecycle_mgr.execute_trade_setup(dec, "acc_main", "user_main")
@@ -309,6 +314,7 @@ async def test_06_losing_trade_compounding_balance_update(lifecycle_mgr, state_s
         take_profit=Decimal("2950.00"),
         risk_reward=Decimal("3.0"),
         quantity=Decimal("0.01"),
+        calculated_leverage=100,
     )
 
     rec2 = await lifecycle_mgr.execute_trade_setup(dec2, "acc_main", "user_main")
@@ -339,6 +345,8 @@ async def test_07_actual_fees_and_funding_reduce_net_pnl(lifecycle_mgr):
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     await lifecycle_mgr.execute_trade_setup(dec, "acc_main", "user_main")
@@ -372,6 +380,8 @@ async def test_08_reconciled_exchange_balance_authoritative(lifecycle_mgr, state
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     await lifecycle_mgr.execute_trade_setup(dec, "acc_main", "user_main")
 
@@ -406,6 +416,11 @@ async def test_09_no_new_scan_until_position_fully_closed(lifecycle_mgr, lock_ma
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        # 10x is what the orchestrator's removed `calculated_leverage or 10`
+        # default supplied here; the scanner re-sizes from it, so raising it
+        # would size a position this account's risk limit refuses.
+        calculated_leverage=10,
     )
     res1 = await orchestrator.scan_and_execute(
         account_id="acc_main",
@@ -427,6 +442,8 @@ async def test_09_no_new_scan_until_position_fully_closed(lifecycle_mgr, lock_ma
         stop_loss=Decimal("2750.00"),
         take_profit=Decimal("2950.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=10,
     )
     res2 = await orchestrator.scan_and_execute(
         account_id="acc_main",
@@ -457,6 +474,10 @@ async def test_10_full_market_rescan_triggered_after_closure(lifecycle_mgr, lock
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        # See test_09: the scanner sizes from this leverage, and 10x is the
+        # value its removed silent default supplied.
+        calculated_leverage=10,
     )
     await orchestrator.scan_and_execute(
         account_id="acc_main",
@@ -487,6 +508,8 @@ async def test_10_full_market_rescan_triggered_after_closure(lifecycle_mgr, lock
         stop_loss=Decimal("2750.00"),
         take_profit=Decimal("2950.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=10,
     )
     res_eth = await orchestrator.scan_and_execute(
         account_id="acc_main",
@@ -495,6 +518,9 @@ async def test_10_full_market_rescan_triggered_after_closure(lifecycle_mgr, lock
     )
     assert res_eth.executed_record is not None
     assert res_eth.executed_record.setup_id == "SETUP_RESCAN_ETH"
+    # The rescan must actually place the order, not merely produce a record:
+    # a rejected record also carries the setup_id it was rejected for.
+    assert res_eth.executed_record.state == TradeLifecycleState.ENTRY_SUBMITTED
 
 
 def test_11_stale_balance_rejection(allocator):

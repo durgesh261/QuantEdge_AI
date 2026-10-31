@@ -547,6 +547,110 @@ def fetch_closed_candles(start_ts: int, end_ts: int,
     return deduped
 
 
+class HistoryRangeError(RuntimeError):
+    """A requested closed-candle range could not be fetched in full.
+
+    Raised INSTEAD of returning a short list. `fetch_closed_candles` predates
+    this and deliberately keeps its own behaviour (it breaks out of the paging
+    loop on a transport error and filters to the canonical 2026 partition); the
+    restart/bootstrap path cannot use that, because a short result there is
+    indistinguishable from "the exchange has no candles for those hours" and
+    would be replayed into LuxAlgo as if the history were complete.
+    """
+
+
+def fetch_closed_candle_range(
+    start_ts: int,
+    end_ts: int,
+    symbol: str,
+    *,
+    now_ts: Optional[int] = None,
+    sleep_between_windows: float = 0.25,
+) -> List[Dict[str, Any]]:
+    """Fetch every CLOSED 1h candle whose open time is in [start_ts, end_ts].
+
+    Written for the restart/bootstrap path, and different from
+    `fetch_closed_candles` in exactly the ways that path requires:
+
+    * NO calendar-year filter, so a gap that crosses 31 Dec -> 1 Jan is returned
+      whole instead of losing its December (or January) half.
+    * NO silent truncation: a transport failure raises `HistoryRangeError`. The
+      caller can then refuse to replay rather than treating a partial fetch as
+      the complete history.
+    * Malformed rows are rejected, not skipped, for the same reason.
+
+    Both bounds are INCLUSIVE and are candle OPEN times aligned to the hour.
+    Anything still forming is excluded: the newest candle that can be returned
+    opens at `floor(now, 1h) - 3600`. The result is sorted chronologically and
+    deduplicated by open time. Contiguity and completeness are NOT asserted here
+    - a genuine exchange hole and a lost window look identical at this layer, so
+    the decision belongs to the caller that knows which bars it needs.
+
+    Returns raw Delta candle dicts (with the "time" key), the same shape
+    `_fetch_window` and `fetch_closed_candles` return.
+    """
+    if start_ts % 3600 or end_ts % 3600:
+        raise HistoryRangeError(
+            f"{symbol}: closed 1h candle bounds must be hour-aligned; got "
+            f"start_ts={start_ts} end_ts={end_ts}")
+    if now_ts is None:
+        now_ts = int(datetime.now(timezone.utc).timestamp())
+    newest_closed = (now_ts - (now_ts % 3600)) - 3600
+    effective_end = min(end_ts, newest_closed)
+    if effective_end < start_ts:
+        return []
+
+    collected: Dict[int, Dict[str, Any]] = {}
+    cursor_end = effective_end
+    # One window per MAX_PER_REQ hours, plus slack for windows the exchange
+    # returns empty. Bounded so a non-advancing cursor can never spin forever.
+    budget = (effective_end - start_ts) // (MAX_PER_REQ * 3600) + 8
+    while cursor_end >= start_ts:
+        if budget <= 0:
+            raise HistoryRangeError(
+                f"{symbol}: exhausted the paging budget before reaching "
+                f"{datetime.fromtimestamp(start_ts, tz=timezone.utc).isoformat()}; "
+                f"refusing to return a partial range")
+        budget -= 1
+        cursor_start = max(start_ts, cursor_end - (MAX_PER_REQ - 1) * 3600)
+        try:
+            window = _fetch_window(cursor_start, cursor_end, symbol)
+        except Exception as exc:                                   # noqa: BLE001
+            raise HistoryRangeError(
+                f"{symbol}: closed-candle window "
+                f"[{cursor_start}, {cursor_end}] failed: "
+                f"{type(exc).__name__}: {exc}") from exc
+        if not window:
+            cursor_end = cursor_start - 3600
+            continue
+        oldest_in_window = None
+        for raw in window:
+            if not isinstance(raw, dict) or "time" not in raw:
+                raise HistoryRangeError(
+                    f"{symbol}: malformed candle in window "
+                    f"[{cursor_start}, {cursor_end}]: {raw!r}")
+            try:
+                c_time = int(raw["time"])
+            except (TypeError, ValueError) as exc:
+                raise HistoryRangeError(
+                    f"{symbol}: non-integer candle time {raw.get('time')!r}"
+                ) from exc
+            if oldest_in_window is None or c_time < oldest_in_window:
+                oldest_in_window = c_time
+            if c_time % 3600:
+                raise HistoryRangeError(
+                    f"{symbol}: candle open time {c_time} is not hour-aligned")
+            if c_time < start_ts or c_time > effective_end:
+                continue
+            collected[c_time] = raw
+        assert oldest_in_window is not None                # window was non-empty
+        cursor_end = min(cursor_start, oldest_in_window) - 3600
+        if sleep_between_windows:
+            time.sleep(sleep_between_windows)
+
+    return [collected[t] for t in sorted(collected)]
+
+
 # ── Main Ingestion Service ──────────────────────────────────────────────────────
 
 

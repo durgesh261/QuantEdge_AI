@@ -41,6 +41,12 @@ public class OrderValidationGateway {
         MISSING_TAKE_PROFIT,
         INVALID_TP_SL_GEOMETRY,
         ZERO_OR_NEGATIVE_RISK_DISTANCE,
+        /**
+         * RETIRED VOCABULARY -- NO CODE PATH EMITS THIS. The minimum-reward:risk
+         * admission rule it named has been removed: reward:risk is reported,
+         * never enforced. Retained only so rejection records persisted before
+         * the removal still deserialize.
+         */
         INVALID_RISK_REWARD,
         DUPLICATE_CLIENT_ORDER_ID,
         DUPLICATE_SETUP_ID,
@@ -153,7 +159,6 @@ public class OrderValidationGateway {
         private final int maxConcurrentTrades;
         private final int maxLeverage;
         private final BigDecimal riskPerTradePct;
-        private final BigDecimal minRiskReward;
         private final Set<String> activeClientOrderIds;
         private final Set<String> activeSetupIds;
         private final Map<String, ProductSpecification> productSpecs;
@@ -170,7 +175,6 @@ public class OrderValidationGateway {
                 int maxConcurrentTrades,
                 int maxLeverage,
                 BigDecimal riskPerTradePct,
-                BigDecimal minRiskReward,
                 Set<String> activeClientOrderIds,
                 Set<String> activeSetupIds,
                 Map<String, ProductSpecification> productSpecs
@@ -200,7 +204,6 @@ public class OrderValidationGateway {
             }
             this.maxLeverage = maxLeverage;
             this.riskPerTradePct = riskPerTradePct != null ? riskPerTradePct : new BigDecimal("35.0");
-            this.minRiskReward = minRiskReward != null ? minRiskReward : new BigDecimal("1.5");
             this.activeClientOrderIds = activeClientOrderIds != null ? activeClientOrderIds : Collections.emptySet();
             this.activeSetupIds = activeSetupIds != null ? activeSetupIds : Collections.emptySet();
             this.productSpecs = productSpecs != null ? productSpecs : DEFAULT_PRODUCTS;
@@ -217,7 +220,6 @@ public class OrderValidationGateway {
         public int getMaxConcurrentTrades() { return maxConcurrentTrades; }
         public int getMaxLeverage() { return maxLeverage; }
         public BigDecimal getRiskPerTradePct() { return riskPerTradePct; }
-        public BigDecimal getMinRiskReward() { return minRiskReward; }
         public Set<String> getActiveClientOrderIds() { return activeClientOrderIds; }
         public Set<String> getActiveSetupIds() { return activeSetupIds; }
         public Map<String, ProductSpecification> getProductSpecs() { return productSpecs; }
@@ -380,10 +382,12 @@ public class OrderValidationGateway {
                 return reject(RejectionReasonCode.ZERO_OR_NEGATIVE_RISK_DISTANCE, "Risk and reward distances must be strictly positive", "CHECK_RISK_DISTANCE", now);
             }
 
+            // Reward:risk is COMPUTED AND REPORTED, never enforced. There is no
+            // minimum-R:R rejection: the authorised strategies decide admission
+            // on their own structural rules, and a gateway threshold here would
+            // veto setups the strategy legitimately produced. Published on the
+            // approved ValidationResult for ledgers and diagnostics only.
             riskReward = rewardDist.divide(riskDist, 4, RoundingMode.HALF_UP);
-            if (riskReward.compareTo(context.getMinRiskReward()) < 0) {
-                return reject(RejectionReasonCode.INVALID_RISK_REWARD, "Risk/Reward ratio " + riskReward + " is below minimum required " + context.getMinRiskReward(), "CHECK_MIN_RR", now);
-            }
 
             // 16. Excessive Account Risk & Available Margin Check
             riskAmount = request.getQuantity().multiply(riskDist);

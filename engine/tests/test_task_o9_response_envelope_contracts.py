@@ -495,7 +495,19 @@ def test_f23_the_o9_guard_lives_inline_in_request():
 
 
 def test_f24_no_new_exception_type_was_introduced():
-    """§O9 reuses DeltaResponseError; the exception taxonomy is unchanged."""
+    """§O9 reuses DeltaResponseError; the exception taxonomy is unchanged.
+
+    P1-2 RE-PIN. One type has been added since: `DeltaListingIncompleteError`,
+    raised when a paginated listing cannot be proved complete (a repeated row, a
+    re-issued cursor, or the page budget exhausted). It is listed here rather
+    than exempted, so a FURTHER new type still fails this test.
+
+    §O9's actual claim survives the addition, and is now asserted directly: the
+    new type is a `DeltaResponseError` subclass, so every caller that already
+    handles a malformed envelope handles an unprovable listing too. A listing
+    that cannot be shown to be complete is a bad response, not a new category of
+    failure -- and it must never be reported as a short, clean one.
+    """
     tree = ast.parse(_DELTA_CLIENT_SRC)
     exc_classes = {
         node.name
@@ -510,8 +522,14 @@ def test_f24_no_new_exception_type_was_introduced():
     assert exc_classes == {
         "DeltaClientError", "DeltaAuthError", "DeltaRateLimitError",
         "DeltaOrderRejectedError", "DeltaConnectionError", "DeltaResponseError",
-        "DeltaExecutionAuthorityError",
+        "DeltaExecutionAuthorityError", "DeltaListingIncompleteError",
     }
+
+    from quantedge.execution.delta_client import (
+        DeltaListingIncompleteError,
+        DeltaResponseError,
+    )
+    assert issubclass(DeltaListingIncompleteError, DeltaResponseError)
 
 
 def test_f25_connected_is_set_before_the_guard_and_never_reset_by_it():

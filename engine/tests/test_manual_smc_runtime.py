@@ -36,6 +36,8 @@ from quantedge.instruments.registry import delta_india_registry
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_FIRST_TOUCH,
     ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_LUXALGO_INTERNAL,
+    DETECTOR_MANUAL_SPEC,
     ENTRY_WINDOW_CANDLES,
     ManualLifecycleEventType,
 )
@@ -81,9 +83,39 @@ def ts_at(bar: int) -> datetime:
 
 
 def make_runtime(symbols=("BTCUSD",), **kw):
-    """A runtime on the provenance-verified instrument registry."""
-    kw.setdefault("account_balance", 10000.0)
-    return RT.ManualSMCRuntime(symbols=list(symbols), timeframe="1h", **kw)
+    """
+    A runtime on the provenance-verified instrument registry.
+
+    The STRATEGY is handed in, for one reason: the hand-built rows above
+    (`S_ORIGIN`/`S_BOS`/`S_TOUCH`, `B_ORIGIN`/`B_BOS`) are half-candle
+    `DETECTOR_MANUAL_SPEC` geometry, and every named number in this file --
+    entry 78000, SL 78312, "0.400%", applied leverage 87.5 -- is derived from it.
+    The runtime's own default is now `DETECTOR_LUXALGO_INTERNAL`, whose zone is
+    the whole origin candle (so the SL is the far edge and the leverage roughly
+    halves) and which needs ATR(200) plus a 50-bar swing window before it admits
+    anything at all. Everything else is copied verbatim from the production
+    construction in `manual_smc_runtime.py`: the production config, the registry
+    tick specs, first-touch activation and the shipped entry window.
+
+    Nothing here asserts what production runs. That is asserted positively, and
+    on this very class, by `TestTheShippedRuntimeDetector` below -- and the
+    runtime-vs-backtest parity class runs BOTH sides bare, so the shipped
+    detector is exercised end to end there.
+    """
+    balance = float(kw.pop("account_balance", 10000.0))
+    resolved = list(symbols)
+    config = kw.get("config") or manual_smc_production_config()
+    registry = delta_india_registry()
+    kw.setdefault("strategy", ManualSMCStrategy(
+        config=config,
+        assets=resolved,
+        account_balance=balance,
+        tick_specs={s: registry.get(s) for s in resolved},
+        activation_mode=ACTIVATION_MODE_FIRST_TOUCH,
+        entry_window_candles=ENTRY_WINDOW_CANDLES,
+        detector=DETECTOR_MANUAL_SPEC,
+    ))
+    return RT.ManualSMCRuntime(symbols=resolved, timeframe="1h", **kw)
 
 
 def feed(runtime, symbol, bar, row):
@@ -1104,4 +1136,68 @@ class TestHistoricalTransparency:
             driver.strategy.capture_state())
 
 
+# ---------------------------------------------------------------------------
+# WHICH STRUCTURE DETECTOR THE WIRING LAYER ACTUALLY RUNS.
+#
+# `make_runtime` above hands in a `DETECTOR_MANUAL_SPEC` strategy because its
+# fixtures are half-candle geometry. This class is the positive half of that
+# pin: it asserts, on the real constructor with no strategy handed in, that a
+# production runtime scans with LuxAlgo internal structure -- and that there is
+# no path by which it quietly falls back to the other detector.
+# ---------------------------------------------------------------------------
+class TestTheShippedRuntimeDetector:
+
+    def test_a_bare_production_runtime_scans_with_luxalgo(self):
+        runtime = RT.ManualSMCRuntime(symbols=["BTCUSD"], timeframe="1h",
+                                      account_balance=10000.0)
+        assert runtime.strategy.lifecycle.detector == DETECTOR_LUXALGO_INTERNAL
+
+    def test_the_scanner_object_itself_is_the_luxalgo_one(self):
+        """The declared name and the object that actually scans must agree."""
+        from quantedge.strategy.manual_smc.scanner import (
+            LuxAlgoInternalOBScanner, ManualSpecBOSScanner)
+        runtime = RT.ManualSMCRuntime(symbols=["BTCUSD", "ETHUSD"],
+                                      timeframe="1h", account_balance=10000.0)
+        scanners = runtime.strategy.lifecycle._scanners
+        assert sorted(scanners) == ["BTCUSD", "ETHUSD"]
+        for scanner in scanners.values():
+            assert isinstance(scanner, LuxAlgoInternalOBScanner)
+            assert not isinstance(scanner, ManualSpecBOSScanner)
+
+    def test_the_runtime_states_the_detector_rather_than_inheriting_it(self):
+        """
+        Safety rule #13: a default must not be the thing that answers this.
+
+        The production boundary NAMES the detector, so a change to the library
+        default cannot move live scanning silently. Proven by reading the source
+        of the constructor, not by trusting a comment.
+        """
+        import inspect
+        source = inspect.getsource(RT.ManualSMCRuntime.__init__)
+        assert "detector=DETECTOR_LUXALGO_INTERNAL" in source
+        assert "DETECTOR_MANUAL_SPEC" not in source, (
+            "the wiring layer must hold no path onto the research detector")
+
+    def test_a_restored_runtime_keeps_the_detector_it_was_saved_with(
+            self, tmp_path):
+        runtime = RT.ManualSMCRuntime(symbols=["BTCUSD"], timeframe="1h",
+                                      account_balance=10000.0,
+                                      state_path=tmp_path / "s.json")
+        path = runtime.save_state()
+        restored = RT.ManualSMCRuntime.load_state(path)
+        assert restored.strategy.lifecycle.detector == DETECTOR_LUXALGO_INTERNAL
+
+    def test_a_handed_in_strategy_is_the_only_way_to_change_it(self):
+        """
+        `make_runtime` is not a back door: the runtime has no `detector`
+        parameter to be talked into, and an unknown name cannot be smuggled in
+        through a strategy either -- the lifecycle refuses it.
+        """
+        import inspect
+        assert "detector" not in inspect.signature(
+            RT.ManualSMCRuntime.__init__).parameters
+        with pytest.raises(ValueError):
+            ManualSMCStrategy(assets=["BTCUSD"], detector="LUXALGO")
+        pinned = make_runtime()
+        assert pinned.strategy.lifecycle.detector == DETECTOR_MANUAL_SPEC
 

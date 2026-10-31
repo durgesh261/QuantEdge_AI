@@ -37,12 +37,17 @@ SS A  Entry-submission failure. `DeltaIndiaClient.request` maps exchange
 SS B  A successful Path-B trade exists only in its returned
     `UserExecutionResult` and in the lock. Pinned as intentional.
 
-SS C  Nothing in `src/` calls `reconcile_account`, `export_state`,
-    `load_state`, or the backend trade notifications. The engine is
-    library-only; runtime composition is external. Pinned, not created.
+SS C  Nothing in `src/` calls the backend trade notifications, and the
+    STRUCTURE-clock restart layer still never touches the lock. The
+    `reconcile_account`, `export_state` and `load_state` claims have since been
+    superseded by authorised work (Task M SS M4, Phase 2, and the durable
+    execution-state layer) and are inverted below rather than deleted: each
+    names its exact authorised caller set, which is at least as strict as the
+    original "zero callers" and still refuses an unauthorised one.
 
-SS D  `generate_deterministic_client_order_id` has zero production callers;
-    both paths use the random generator. Pinned as-is.
+SS D  `generate_deterministic_client_order_id` is now the ONLY generator the
+    canonical path uses, by instruction. Path B still mints random IDs; the
+    asymmetry is pinned so it cannot drift out of sight.
 
 SS E  `position_size_limit` is recorded snapshot data with no reader anywhere
     in `src/`. Pinned as an external-policy blocker, not enforced.
@@ -55,6 +60,7 @@ Zero network access: every Delta client here is a mock.
 from __future__ import annotations
 
 import asyncio
+import ast
 import hashlib
 import inspect
 import json
@@ -131,6 +137,37 @@ def _callers(needle: str, *, exclude: tuple[str, ...] = ()) -> list[str]:
         for path, text in _production_sources()
         if needle in text and path.name not in exclude
     ]
+
+
+def _imported(path: pathlib.Path) -> set[str]:
+    """Every name a module actually imports, by AST rather than by substring.
+
+    A prose mention in a docstring or comment is not an import; only this
+    distinction lets the quarantined orphan describe the deterministic
+    generator without being accused of using it.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(a.asname or a.name.rpartition(".")[2]
+                         for a in node.names)
+    return names
+
+
+def _called(path: pathlib.Path) -> set[str]:
+    """Every simple/attribute function name a module actually calls, by AST."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            names.add(func.id)
+        elif isinstance(func, ast.Attribute):
+            names.add(func.attr)
+    return names
 
 
 # -- Mock exchange -------------------------------------------------------------
@@ -381,8 +418,19 @@ def test_the_client_maps_a_400_to_a_rejection_and_a_timeout_to_a_connection_erro
 
 
 def test_path_a_splits_the_entry_outcome_into_release_retain_retain():
-    """Path A is the authority for the intended behaviour; pin it verbatim."""
-    src = inspect.getsource(TradeLifecycleManager.execute_trade_setup)
+    """Path A is the authority for the intended behaviour; pin it verbatim.
+
+    P1-4 RE-PIN. Path A is now two functions: `execute_trade_setup` admits
+    (manager lock, entry-admission contract, in-flight count) and
+    `_execute_admitted_trade_setup` submits. The three entry-outcome handlers
+    pinned below live in the submitting half. Both halves are read, in call
+    order, so the release/retain/retain decision stays pinned wherever inside
+    the path it is made -- the split moved the address, not the behaviour.
+    """
+    src = "\n".join((
+        inspect.getsource(TradeLifecycleManager.execute_trade_setup),
+        inspect.getsource(TradeLifecycleManager._execute_admitted_trade_setup),
+    ))
     _, tail = src.split("except DeltaOrderRejectedError")
     rejected, tail = tail.split("except (DeltaConnectionError, asyncio.TimeoutError)")
     connection, unexpected = tail.split("except Exception")
@@ -517,10 +565,70 @@ def test_only_the_runtime_wiring_layer_invokes_reconciliation():
     assert (SRC_ROOT / "execution" / "reconciliation.py").exists()
 
 
-def test_nothing_in_production_persists_or_restores_the_lock():
-    """`export_state`/`load_state` are the only cross-restart lock mechanism."""
-    assert _callers(".export_state()") == []
-    assert _callers(".load_state(") == []
+def test_only_the_execution_state_layer_persists_or_restores_the_lock():
+    """The lock is persisted by ONE authorised layer and nothing else. Inverted.
+
+    Formerly `test_nothing_in_production_persists_or_restores_the_lock`, which
+    asserted `_callers(".export_state()") == []`. It used that single substring
+    to prove two things at once: that the execution engine's own lock is never
+    carried across a restart, and - incidentally - that no production module
+    restored any snapshot of any kind.
+
+    Phase 2 removed the second half by adding a production call site for
+    `ManualSMCRuntime.load_state()` (LuxAlgo internal structure is
+    path-dependent from bar 0, so a restart that cannot resume its exact state
+    has to invent a warmup instead). The durable execution-state task then
+    removed the first half deliberately: an execution lock that evaporates on
+    restart is not fail-safe, because the restarted process would believe the
+    account is flat and could open a second trade alongside a live one
+    (safety rules #11, #14). It is now captured and restored through the lock
+    manager's OWN `export_state()` / `load_state()` API, by instruction.
+
+    So the pin is inverted rather than deleted, and each authorised caller is
+    named exactly - which is stricter than the substring ever was:
+
+    * `.export_state()` has exactly TWO callers: `execution_state_store.py`,
+      which captures it, and `startup_gate.py`, which only READS it to compare
+      the restored lock against the restored trades;
+    * `.load_state(` has exactly TWO: `execution_state_store.py` (the execution
+      lock) and `restart_recovery.py` (the STRUCTURE-clock runtime snapshot);
+    * the startup gate restores NOTHING - it is a boundary, not a loader;
+    * `restart_recovery.py` still never mentions the lock in any spelling, so
+      the two clocks' restart paths remain separate;
+    * no production module reconstructs an `AccountTradeLockState` record, so
+      the only way lock state can re-enter the process is through the manager's
+      own validated API. A hand-rolled restore that bypassed it is still
+      refused - including in the new persistence layer itself.
+
+    A future unauthorised caller of either kind still fails this test.
+    """
+    assert sorted(_callers(".export_state()")) == [
+        "execution/execution_state_store.py",
+        "execution/startup_gate.py",
+    ]
+    assert sorted(_callers(".load_state(")) == [
+        "execution/execution_state_store.py",
+        "runtime/restart_recovery.py",
+    ]
+
+    gate = (SRC_ROOT / "execution" / "startup_gate.py").read_text(
+        encoding="utf-8")
+    assert ".export_state()" in gate
+    assert ".load_state(" not in gate, (
+        "the startup gate must compare state, never restore it")
+
+    recovery = (SRC_ROOT / "runtime" / "restart_recovery.py").read_text(
+        encoding="utf-8")
+    assert "ManualSMCRuntime.load_state(" in recovery, (
+        "the one authorised restore must be the runtime snapshot, spelled on "
+        "the class so this pin can see what is being restored")
+    for lock_token in ("SingleTradeLockManager", "AccountTradeLockState",
+                       "single_trade_lock", "lock_manager", "export_state"):
+        assert lock_token not in recovery, (
+            f"{lock_token} must never appear in the restart/state layer")
+
+    assert _callers("AccountTradeLockState(",
+                    exclude=("single_trade_lock.py",)) == []
 
 
 def test_the_backend_trade_notifications_have_no_production_callers():
@@ -602,19 +710,63 @@ def test_the_deterministic_id_generator_is_deterministic_and_role_scoped():
     assert generate_deterministic_client_order_id("other", SETUP, "ENTRY") != a
 
 
-def test_neither_path_uses_the_deterministic_id_generator():
-    """Symmetric, so not a Path-B defect -- and not changed here.
+def test_only_the_canonical_path_uses_the_deterministic_id_generator():
+    """The canonical path is deterministic; Path B is not. Inverted pin.
 
-    Exchange-side idempotency would need Delta's own `client_order_id` replay
-    semantics to be verified, which this repository does not record. Introducing
-    deterministic IDs on that basis would be guessing exchange behaviour.
+    Formerly `test_neither_path_uses_the_deterministic_id_generator`, whose
+    reason for refusing determinism was: "Exchange-side idempotency would need
+    Delta's own `client_order_id` replay semantics to be verified, which this
+    repository does not record."
+
+    That reason is unchanged and still true - and it is NOT what determinism was
+    authorised for. The durable execution-state task requires deterministic IDs
+    for a local, verifiable purpose: after a restart the same
+    `(account_id, setup_id, role)` must name the same three orders, so
+    reconciliation can recognise its own entry, stop and target on the exchange
+    instead of guessing from side and size. No claim about Delta's replay
+    behaviour is made or relied on anywhere.
+
+    Both halves of the asymmetry are pinned so neither can drift:
+
+    * `trade_lifecycle.py` (Path A, canonical) imports ONLY the deterministic
+      generator and calls it once per bracket leg, each spelled with its role;
+    * the random generator has NO call left on that path;
+    * `multi_user_orchestrator.py` (Path B) still mints three random IDs. It is
+      outside the authorised scope, so it is recorded, not changed;
+    * the quarantined `execution_engine.py` still uses the random generator and
+      must NOT be quietly migrated: it is not the production path, and giving
+      it deterministic IDs would make it collide with Path A on the same setup.
+      It may only NAME the deterministic generator in prose.
     """
-    assert _callers("generate_deterministic_client_order_id",
-                    exclude=("delta_client.py",)) == []
-    for path in ("trade_lifecycle.py", "multi_user_orchestrator.py"):
-        text = (SRC_ROOT / "execution" / path).read_text(encoding="utf-8")
-        assert "generate_client_order_id(" in text
-        assert "generate_deterministic_client_order_id" not in text
+    lifecycle = (SRC_ROOT / "execution" / "trade_lifecycle.py").read_text(
+        encoding="utf-8")
+    assert "generate_client_order_id(" not in lifecycle, (
+        "the canonical path must have no random-ID call left")
+    for leg in (
+        "client_order_id = override_client_order_id or "
+        "generate_deterministic_client_order_id(",
+        "sl_client_id = generate_deterministic_client_order_id(",
+        "tp_client_id = generate_deterministic_client_order_id(",
+    ):
+        assert leg in lifecycle, leg
+    assert _imported(SRC_ROOT / "execution" / "trade_lifecycle.py") \
+        >= {"generate_deterministic_client_order_id"}
+    assert "generate_client_order_id" not in _imported(
+        SRC_ROOT / "execution" / "trade_lifecycle.py")
+
+    path_b = (SRC_ROOT / "execution" / "multi_user_orchestrator.py").read_text(
+        encoding="utf-8")
+    assert path_b.count("generate_client_order_id(") == 3, (
+        "Path B still mints one random ID per bracket leg; changing that was "
+        "not authorised here")
+    assert "generate_deterministic_client_order_id" not in path_b
+
+    orphan_path = SRC_ROOT / "execution" / "execution_engine.py"
+    orphan = orphan_path.read_text(encoding="utf-8")
+    assert "QUARANTINE" in orphan, "the orphan must stay marked as quarantined"
+    assert "generate_client_order_id(" in orphan
+    assert "generate_deterministic_client_order_id" not in _imported(orphan_path)
+    assert "generate_deterministic_client_order_id" not in _called(orphan_path)
 
 
 @pytest.mark.asyncio

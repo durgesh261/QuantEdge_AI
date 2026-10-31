@@ -29,12 +29,12 @@ Phase 5.7 Implementation:
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 import inspect
 import logging
 import threading
-from typing import Optional, Dict, Any, List, Set, Union, Callable, Tuple
+from typing import Optional, Dict, Any, List, Sequence, Set, Union, Callable, Tuple
 
 from quantedge.execution.models import (
     OrderSide,
@@ -56,7 +56,7 @@ from quantedge.execution.delta_client import (
     DeltaRateLimitError,
     DeltaOrderRejectedError,
     DeltaConnectionError,
-    generate_client_order_id,
+    generate_deterministic_client_order_id,
 )
 from quantedge.execution.security import mask_secret, sanitize_text
 from quantedge.execution.synchronizer import (
@@ -70,6 +70,7 @@ from quantedge.execution.validation import (
     OrderValidationGateway,
     OrderValidationRequest,
     OrderValidationResult,
+    ProductSpecification,
     UnknownProductError,
     get_product_specification,
     RiskConfiguration,
@@ -161,6 +162,279 @@ BRACKET_ADOPTION_ATTEMPTS = 3
 BRACKET_ADOPTION_DELAY_SECONDS = 1.0
 
 
+# ── Deterministic order identity ──────────────────────────────────────────────
+#
+# Every order this manager submits is named by
+# `generate_deterministic_client_order_id(account_id, setup_id, role)`. The
+# random `generate_client_order_id` is deliberately NOT imported here any more:
+# a restarted process must be able to recompute the identity of an order it
+# already sent, and a timestamp-plus-uuid name makes that impossible. With the
+# deterministic name, `get_order_by_client_id(record.entry_client_order_id)`
+# resolves the same order after a restart as before it, and a resubmission of
+# the same setup carries the same name rather than creating a second position.
+#
+# The role vocabulary is closed at three: one entry, one stop-loss, one
+# take-profit per setup.
+ORDER_ROLE_ENTRY = "ENTRY"
+ORDER_ROLE_STOP_LOSS = "SL"
+ORDER_ROLE_TAKE_PROFIT = "TP"
+
+#: A replacement bracket may not reuse the client_order_id of a bracket that
+#: was just cancelled.
+#:
+#: `_ensure_bracket_protection` resizes protection by cancelling the resting
+#: SL/TP pair and placing a correctly sized pair for the SAME setup (§M2). If
+#: both pairs were named `(account_id, setup_id, "SL")` the second placement
+#: would replay a client_order_id the exchange has already seen. Whether Delta
+#: accepts a replayed client_order_id after a cancel is UNVERIFIED -- it is not
+#: something this repository has observed, and safety rule #16 forbids assuming
+#: it. The cost of guessing wrong is not cosmetic: `place_order` would raise,
+#: the `except` tail would mark PROTECTION_FAILED, and a live position would sit
+#: unprotected.
+#:
+#: So each replacement generation gets its own role token -- SL/TP, then
+#: SL2/TP2, SL3/TP3 -- produced by the SAME generator from a counter that is
+#: part of the durable record. That keeps the name deterministic across a
+#: restart (the counter is persisted, so generation N recomputes to the same
+#: id) without depending on unverified replay semantics, and it does not
+#: introduce a second identity scheme.
+#:
+#: `generate_deterministic_client_order_id` hashes the COMPLETE (account, setup,
+#: role) triple, so no role token can truncate onto an earlier generation's name
+#: -- "SL1000" and "SL100" are now distinct ids. The cap is retained unchanged
+#: anyway, and deliberately: a setup that has resized its protection a thousand
+#: times is a runaway loop rather than a trade, and failing closed on it costs
+#: nothing. Its numeric value is unchanged so no persisted `protection_generation`
+#: changes meaning.
+MAX_PROTECTION_GENERATION = 998
+
+
+class ProtectionGenerationExhaustedError(RuntimeError):
+    """Raised when a setup has exhausted its distinct bracket role tokens."""
+
+
+def protection_role(base_role: str, generation: int) -> str:
+    """Return the role token for the `generation`-th placement of a bracket leg.
+
+    Generation 0 -- the normal case, a position protected once -- returns the
+    base role unchanged, so an ordinary trade's stop-loss really is named
+    `(account_id, setup_id, "SL")`. Generation 1 returns "SL2": the human
+    reading of "the second SL for this setup".
+
+    Fails closed past `MAX_PROTECTION_GENERATION` rather than minting an
+    unbounded number of role tokens for one setup.
+    """
+    if generation < 0:
+        raise ProtectionGenerationExhaustedError(
+            f"Protection generation cannot be negative (got {generation})"
+        )
+    if generation > MAX_PROTECTION_GENERATION:
+        raise ProtectionGenerationExhaustedError(
+            f"Protection generation {generation} exceeds the "
+            f"{MAX_PROTECTION_GENERATION} distinct role tokens available for "
+            f"role '{base_role}'; refusing to keep re-placing a bracket for one "
+            f"setup without bound"
+        )
+    if generation == 0:
+        return base_role
+    return f"{base_role}{generation + 1}"
+
+
+# ── Protection provenance (P2-2) ──────────────────────────────────────────────
+#
+# Two mechanisms can be holding a position's protective legs, and the engine
+# behaves differently depending on which:
+#
+#   * the reduce-only STOP_MARKET + LIMIT pair this module places itself, whose
+#     client_order_ids it minted deterministically and whose generation it
+#     advances on every resize, and
+#   * the legs Delta itself built from `bracket_stop_loss_price` /
+#     `bracket_take_profit_price` on the entry, which this module ADOPTS (Task O
+#     §O13) and whose client_order_ids belong to the exchange.
+#
+# Both end with real exchange order ids in `sl_order_id`/`tp_order_id`, which is
+# why every consumer works on either -- but a record restored from disk that has
+# forgotten WHICH it holds cannot answer "would placing a pair now duplicate
+# protection?". Persisting the answer is cheaper and safer than re-deriving it,
+# and re-deriving it is not always possible: an adopted leg's client_order_id
+# does not match the name this engine would have minted.
+PROTECTION_SOURCE_ENGINE = "ENGINE_PLACED"
+PROTECTION_SOURCE_EXCHANGE_ADOPTED = "EXCHANGE_ADOPTED_BRACKET"
+
+#: The complete vocabulary. Anything else in a persisted record is corrupt.
+PROTECTION_SOURCES = (PROTECTION_SOURCE_ENGINE, PROTECTION_SOURCE_EXCHANGE_ADOPTED)
+
+
+# ── Absent authoritative inputs fail closed ───────────────────────────────────
+#
+# `execute_trade_setup` used to substitute a number when the decision did not
+# carry one: quantity became 1 contract, leverage became 100x, and the entry
+# price became whatever `None` did downstream. None of those is a strategy
+# output; each is this module answering a question only the strategy can answer,
+# and each substitution sizes or prices a REAL order. A missing authoritative
+# value is now a refusal, and no replacement value is chosen.
+#
+# These are plain string codes because `RejectionReasonCode` has no member for
+# an absent input and this module already passes bare strings for conditions
+# outside that vocabulary ("RECONCILIATION_REQUIRED", "SETUP_NOT_READY",
+# "EXCHANGE_ERROR", "FRONTEND_*_TAMPERING").
+REFUSAL_MISSING_ENTRY_PRICE = "MISSING_ENTRY_PRICE"
+REFUSAL_MISSING_QUANTITY = "MISSING_QUANTITY"
+REFUSAL_MISSING_LEVERAGE = "MISSING_CALCULATED_LEVERAGE"
+
+#: An entry refused because the setup or the account cannot be NAMED. Plain
+#: strings for the same reason as the three above: `RejectionReasonCode` has no
+#: member for an absent input (`SETUP_NOT_FOUND` means a setup that was looked
+#: up and is not there, which is a different fact).
+REFUSAL_MISSING_SETUP_IDENTITY = "MISSING_SETUP_IDENTITY"
+REFUSAL_MISSING_ACCOUNT_IDENTITY = "MISSING_ACCOUNT_IDENTITY"
+
+#: An entry refused because the startup reconciliation boundary has not
+#: reported clean. Set by an installed admission gate (see
+#: `quantedge.execution.startup_gate`); with no gate installed this manager
+#: behaves exactly as before, which keeps it usable as a library.
+REFUSAL_STARTUP_GATE = "STARTUP_RECONCILIATION_REQUIRED"
+
+
+def _is_authoritative_positive(value: Any) -> bool:
+    """Is `value` a present, numeric, strictly positive quantity or price?
+
+    Deliberately unanimous, like `_is_adoptable_bracket_leg`: `None`, a bool
+    (`True` would otherwise pass as 1), a non-numeric string and a
+    non-positive number all answer False, and the caller refuses. Nothing is
+    coerced or repaired -- the answer is only ever "usable as given" or "not".
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        return Decimal(str(value)) > Decimal("0")
+    except (InvalidOperation, ValueError, TypeError, ArithmeticError):
+        return False
+
+
+def _is_authoritative_identity(value: Any) -> bool:
+    """Is `value` an identity that can NAME a real order?
+
+    `generate_deterministic_client_order_id` stringifies whatever it is handed,
+    so `None` becomes the literal `"None"`: every setup arriving without an id
+    would submit under ONE shared client order id, and an exchange that treats
+    that name as idempotent would tie two unrelated entries together. That is the
+    duplicate-identity class the deterministic naming exists to remove, re-entered
+    through an unguarded input instead of through a random suffix. A blank or
+    whitespace-only id is refused for the same reason, and a bool for the reason
+    `_is_authoritative_positive` refuses it: `True` stringifies to a
+    stable-looking name that no strategy chose. Nothing is coerced or repaired.
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        return bool(str(value).strip())
+    except Exception:                       # a __str__ that raises names nothing
+        return False
+
+
+def _is_comparable_price(value: Any) -> bool:
+    """Can `value` take part in the TP/SL geometry comparison at all?
+
+    Only the CRASH class is answered here. `None` -- and any non-numeric value --
+    made `stop_loss < entry_price < take_profit` raise TypeError outside every
+    handler, which returned no record to the caller and stranded the single-trade
+    lock acquired at step 0, so the account could not trade again until the
+    process restarted.
+
+    Every NUMERIC value still passes through to the established geometry and
+    risk-distance rules (`INVALID_TP_SL_GEOMETRY`,
+    `ZERO_OR_NEGATIVE_RISK_DISTANCE`), including zero and negative ones: those
+    are strategy outputs judged by a closed policy this check must not duplicate
+    or tighten.
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        Decimal(str(value))
+        return True
+    except (InvalidOperation, ValueError, TypeError, ArithmeticError):
+        return False
+
+
+# ── P2-1: acting on an EXISTING order uses the product it was submitted on ─────
+#
+# Submission captures `record.product_id` (line ~958), so the record knows which
+# exchange product holds its position. Every LATER action on that same
+# position -- resizing the bracket, cancelling an expired entry, closing out,
+# tripping the kill switch -- re-derived the product id from the CURRENT registry
+# instead of reading it back, and a registry that changed in between silently
+# repointed the cancel at a different instrument.
+#
+# The registry can change: `get_product_specification` resolves through
+# `DEFAULT_DELTA_INDIA_PRODUCTS` and `product_specification_from_instrument`, so a
+# re-listed contract, a corrected id, or a symbol pointed at a different
+# instrument all move the answer for an unchanged symbol string. Cancelling order
+# 12345 "on product 14969" when the position lives on the old product does not
+# fail loudly -- it can succeed against an unrelated product, or report a
+# not-found that reads like "already terminal".
+#
+# So a disagreement raises. Deliberately an exception rather than a return code:
+# all four call sites already treat a raise from product resolution as a
+# fail-closed condition (unverified cancel -> trade retained -> reconciliation
+# alert), which is exactly the required behaviour, and no new control flow has to
+# be invented to get it. Behaviour is byte-identical whenever `product_id` is
+# `None` (every record written before P2-1) or the registry agrees -- the guard
+# can only ever turn a silent wrong-product action into a refusal.
+#
+# Reconciliation keeps its own, richer version of this check (a persisted alert
+# plus RECONCILIATION_REQUIRED) because it is a sweep over every record and must
+# report all of them rather than abort on the first.
+
+
+class ProductIdentityMismatchError(RuntimeError):
+    """A record's persisted product id disagrees with the current registry.
+
+    Raised INSTEAD of acting on the record's existing exchange orders. Never
+    raised to mean "unknown symbol" -- that is `UnknownProductError`, and the
+    difference matters: one says the product cannot be resolved, this one says it
+    resolves to something OTHER than the product the position is on.
+    """
+
+
+def _not_yet_unresolved(
+    summary: Dict[str, Any], setup_ids: Sequence[str]
+) -> List[str]:
+    """The setup ids from `setup_ids` that `summary["unresolved"]` does not list.
+
+    A setup can be reached by two independent findings in one run -- P1-5's
+    "this record's exchange state is still ambiguous" and step 4's "a position
+    exists that this zero-fill record cannot own" -- and both are correct. What
+    must not happen is the same setup id appearing twice in `unresolved`, because
+    an operator reading the summary would count two problems where there is one
+    record with one unanswered question. Nothing is dropped: the alerts for both
+    findings are still raised separately.
+    """
+    listed = set(summary["unresolved"])
+    return [setup_id for setup_id in setup_ids if setup_id not in listed]
+
+
+def _authoritative_product_specification(
+    record: "TradeLifecycleRecord",
+) -> ProductSpecification:
+    """The product specification for `record`'s EXISTING exchange orders.
+
+    Returns the registry's specification, having proved that its product id is
+    the one this record was actually submitted against. The persisted id is the
+    authority; the registry supplies the rest of the specification (symbol, tick
+    size, contract value) that only it can provide.
+    """
+    spec = get_product_specification(record.symbol)
+    if record.product_id is not None and record.product_id != spec.product_id:
+        raise ProductIdentityMismatchError(
+            f"setup {record.setup_id} was submitted against product "
+            f"{record.product_id} but the product registry now resolves "
+            f"{record.symbol} to product {spec.product_id}; refusing to act on "
+            f"this record's orders under a different exchange product"
+        )
+    return spec
+
+
 # ── Authoritative Lifecycle Record ────────────────────────────────────────────
 
 
@@ -185,13 +459,42 @@ class TradeLifecycleRecord:
     entry_client_order_id: Optional[str] = None
     filled_quantity: Decimal = Decimal("0")
     average_fill_price: Optional[Decimal] = None
-    
+    #: P2-1: the exchange product this record's orders were actually submitted
+    #: against, captured from `get_product_specification` at submission time and
+    #: persisted as part of the execution identity. `None` means nothing was ever
+    #: submitted for this record (a refusal, or a record still being built).
+    #:
+    #: Without this, a restart re-derived the product id from the CURRENT product
+    #: registry, so a registry edit -- a re-listed contract, a corrected id, a
+    #: symbol pointed at a different instrument -- would silently repoint a
+    #: persisted record's cancels, bracket placements and reconciliation lookups
+    #: at a DIFFERENT exchange product than the one holding the position. The id
+    #: is now compared, and a mismatch blocks instead of rebinding.
+    product_id: Optional[int] = None
+
     # Protective bracket orders
     sl_order_id: Optional[str] = None
     sl_client_order_id: Optional[str] = None
     tp_order_id: Optional[str] = None
     tp_client_order_id: Optional[str] = None
     protected_quantity: Decimal = Decimal("0")
+    #: P2-2: WHERE the live protection came from --
+    #: `PROTECTION_SOURCE_ENGINE` for the reduce-only pair this engine placed,
+    #: `PROTECTION_SOURCE_EXCHANGE_ADOPTED` for legs Delta built from the entry's
+    #: attached bracket and this engine adopted, `None` for "no protection is
+    #: recorded". Persisted, because a restart that forgets which of the two it
+    #: is holding cannot tell whether placing a pair would ADD protection or
+    #: DUPLICATE it -- and two live reduce-only stops on one position is exactly
+    #: the duplicate protection §M2 forbids.
+    protection_source: Optional[str] = None
+    #: How many times this setup's protective bracket has been REPLACED. 0 for
+    #: a position protected once, which is the normal case. Incremented only
+    #: when a resize successfully cancels the resting pair, and used to derive
+    #: the role token of the replacement legs so a replacement never replays a
+    #: cancelled client_order_id (see `protection_role`). Durable: a restart
+    #: must recompute the same names, so this field is part of the persisted
+    #: execution state.
+    protection_generation: int = 0
     
     # State & Outcome
     state: TradeLifecycleState = TradeLifecycleState.ENTRY_PENDING
@@ -279,7 +582,21 @@ class TradeLifecycleManager:
 
         self._active_trades: Dict[str, TradeLifecycleRecord] = {}  # setup_id -> record
         self._trade_history: List[TradeLifecycleRecord] = []
-        self._lock = threading.Lock()
+        # P1-4: RE-ENTRANT, deliberately. The entry admission critical section
+        # asks an installed safety gate whether it still admits, and a gate that
+        # proves its verdict is still current (see
+        # `ExecutionStartupGate.admission_reason`) does so by serializing this
+        # manager's own execution state -- which takes this same lock. A plain
+        # `threading.Lock` deadlocks on that nesting. Re-entrancy changes nothing
+        # about mutual exclusion BETWEEN threads; it only permits the one thread
+        # already inside a section to enter a nested one.
+        self._lock = threading.RLock()
+        # P1-4: how many admitted entries are between "admitted" and "returned".
+        # Non-durable: it describes THIS process's in-flight work, and a restart
+        # has no in-flight work by definition. Read by reconciliation, which
+        # refuses to call a world clean while a submission it cannot see is in
+        # flight.
+        self._submissions_in_flight: int = 0
 
         # Realized daily loss cache
         self._realized_daily_losses: Dict[date, Decimal] = {}
@@ -315,6 +632,13 @@ class TradeLifecycleManager:
         # Set by the orchestrator so an exchange-side closure can run the
         # existing closure/rescan flow without this module importing it.
         self._closure_handler: Optional[Callable[..., Any]] = None
+        # The startup reconciliation boundary, once installed. A zero-argument
+        # callable returning `None` to admit a new entry, or a reason string to
+        # refuse it. `None` here means NO gate is installed, which is this
+        # manager's long-standing library behaviour and what the ~100 existing
+        # `execute_trade_setup` tests exercise; a production composition is
+        # expected to install `ExecutionStartupGate`, which starts BLOCKED.
+        self._entry_admission_gate: Optional[Callable[[], Optional[str]]] = None
 
     def get_realized_daily_loss(self, query_date: Optional[date] = None) -> Decimal:
         """Calculate total realized trading loss for the specified day."""
@@ -335,6 +659,26 @@ class TradeLifecycleManager:
     def get_trade_history(self) -> List[TradeLifecycleRecord]:
         return list(self._trade_history)
 
+    def _entry_admission_reason(self) -> Optional[str]:
+        """Why a new entry is refused right now, or `None` if it is admitted.
+
+        Fail-closed in both directions: with no gate installed there is nothing
+        to refuse (library behaviour, unchanged), and with a gate installed an
+        EXCEPTION from the gate is a refusal rather than an admission -- a
+        broken boundary must not open the door.
+        """
+        gate = self._entry_admission_gate
+        if gate is None:
+            return None
+        try:
+            reason = gate()
+        except Exception as exc:                                   # noqa: BLE001
+            logger.critical("ENTRY_ADMISSION_GATE_RAISED error=%s", exc)
+            return f"entry admission gate failed: {exc}"
+        if reason is None:
+            return None
+        return str(reason)
+
     # ── Signal-to-Execution Bridge Entry Point ────────────────────────────────
 
     async def execute_trade_setup(
@@ -345,10 +689,65 @@ class TradeLifecycleManager:
         override_client_order_id: Optional[str] = None,
         frontend_params: Optional[Dict[str, Any]] = None,
     ) -> TradeLifecycleRecord:
-        """Execute a qualified strategy decision through the authoritative validation and execution bridge."""
+        """Execute a qualified strategy decision through the authoritative validation and execution bridge.
+
+        P1-4/P2-6: this method is the ONE canonical entry admission point, and
+        the four questions that decide admission -- is this setup already live,
+        does the installed safety gate admit it, are there unresolved
+        reconciliation alerts, and can the account's single-trade lock be taken
+        -- are answered inside a SINGLE critical section holding `self._lock`.
+        They used to be answered one after another with the lock released
+        between them, which is the TOCTOU the audit found: reconciliation could
+        see a clean world, an entry could be admitted against it, and the entry
+        could then proceed on a verdict that no longer described the account.
+        The section takes no network round trip; the exchange is only contacted
+        after it has been left.
+
+        `_submissions_in_flight` is raised inside the same section and lowered in
+        `finally`, so `reconcile_active_trades_with_exchange` can refuse to
+        declare a world clean while a submission it cannot see is in flight.
+        """
         setup_id = decision.setup_id
         symbol = decision.symbol
 
+        # P2-5: the two identities that NAME this order and SCOPE its lock are
+        # checked before the critical section, so an unusable one takes no lock
+        # and occupies no duplicate-setup slot. Both are hashed into the
+        # deterministic client order id, and `str(None)` is a perfectly valid
+        # string: an absent setup id used to produce one shared order name for
+        # every such setup, and a blank account id would take the account lock
+        # under a blank key that every other blank-account caller also matches.
+        # `_create_rejected_record` is safe to use here even though no lock is
+        # held: `release_lock` clears state only when that exact setup holds it,
+        # so it is a no-op rather than a lock this call could steal.
+        if not _is_authoritative_identity(setup_id):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_SETUP_IDENTITY symbol=%s value=%r",
+                symbol, setup_id,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                REFUSAL_MISSING_SETUP_IDENTITY,
+                f"Strategy decision carried no usable setup id (got {setup_id!r}); "
+                f"refusing to name a real order from a substituted identity",
+            )
+
+        if not _is_authoritative_identity(account_id):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_ACCOUNT_IDENTITY setup=%s symbol=%s value=%r",
+                setup_id, symbol, account_id,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                REFUSAL_MISSING_ACCOUNT_IDENTITY,
+                f"No usable account id was supplied (got {account_id!r}); refusing "
+                f"to submit and lock an order against a substituted account",
+            )
+
+        # ── Admission: one critical section, no I/O ───────────────────────────
+        refusal: Optional[Tuple[str, str]] = None
         with self._lock:
             if setup_id in self._active_trades:
                 rec = self._active_trades[setup_id]
@@ -356,55 +755,196 @@ class TradeLifecycleManager:
                 rec.error_message = f"Setup {setup_id} is already in active execution"
                 return rec
 
-        # Task M §M11/§M15: an unresolved reconciliation condition means the
-        # exchange and local state provably disagree somewhere -- a possibly live
-        # order, a possibly unprotected position, or accounting that could not be
-        # verified. Trading on top of that is exactly what fail-closed forbids, so
-        # no new entry is admitted until it is cleared.
-        if self._reconciliation_alerts:
-            codes = sorted({a["code"] for a in self._reconciliation_alerts})
-            logger.critical(
-                "ENTRY_BLOCKED_RECONCILIATION_REQUIRED setup=%s symbol=%s alerts=%s",
-                setup_id, symbol, codes,
-            )
+            # The startup reconciliation boundary. Persisted execution state must
+            # be loaded and reconciliation must have completed clean before ANY
+            # new entry is admitted; an installed gate that has not armed, or
+            # whose clean verdict no longer describes current execution state,
+            # refuses here. Deliberately checked AFTER the duplicate-setup guard
+            # so an already-live trade is still returned as itself (never
+            # re-reported as rejected, and never at risk of having its lock
+            # released), and BEFORE the alert check so a manager whose state was
+            # never loaded cannot be trusted to have meaningful alerts yet.
+            gate_reason = self._entry_admission_reason()
+            if gate_reason is not None:
+                logger.critical(
+                    "ENTRY_BLOCKED_STARTUP_GATE setup=%s symbol=%s reason=%s",
+                    setup_id, symbol, gate_reason,
+                )
+                refusal = (REFUSAL_STARTUP_GATE, gate_reason)
+
+            # Task M §M11/§M15: an unresolved reconciliation condition means the
+            # exchange and local state provably disagree somewhere -- a possibly
+            # live order, a possibly unprotected position, or accounting that
+            # could not be verified. Trading on top of that is exactly what
+            # fail-closed forbids, so no new entry is admitted until it is
+            # cleared.
+            elif self._reconciliation_alerts:
+                codes = sorted({a["code"] for a in self._reconciliation_alerts})
+                logger.critical(
+                    "ENTRY_BLOCKED_RECONCILIATION_REQUIRED setup=%s symbol=%s alerts=%s",
+                    setup_id, symbol, codes,
+                )
+                refusal = (
+                    "RECONCILIATION_REQUIRED",
+                    "Unresolved reconciliation conditions block new entries: "
+                    f"{', '.join(codes)}",
+                )
+
+            else:
+                # Step 0: Single-Trade Account Lock. Inside the same section as
+                # the checks above, so nothing can be admitted between passing
+                # them and owning the account.
+                effective_user_id = (
+                    user_id or self.state_store.account.user_id or "default_user"
+                )
+                try:
+                    self.single_trade_lock.acquire_lock(
+                        user_id=effective_user_id,
+                        account_id=account_id,
+                        setup_id=setup_id,
+                        symbol=symbol,
+                    )
+                except SingleTradeLockError as e:
+                    refusal = (
+                        RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value, str(e)
+                    )
+                else:
+                    self._submissions_in_flight += 1
+
+        if refusal is not None:
+            code, message = refusal
+            # P2-5: a refused entry fabricates NO execution-critical value. The
+            # previous `Decimal("1.0")` quantity and `Decimal("2.0")` R:R here
+            # were this module answering questions only the strategy can answer,
+            # and `_create_rejected_record` multiplies the quantity into the
+            # persisted `risk_amount`/`reward_amount` -- so a refusal invented
+            # the risk figures of a trade that never existed. Absent values are
+            # reported as absent, exactly as the MISSING_* refusals below do.
             return self._create_rejected_record(
-                setup_id, account_id, user_id, symbol, decision.direction, Decimal("1.0"),
-                getattr(decision, "entry", Decimal("0")) or Decimal("0"),
-                decision.stop_loss or Decimal("0"),
-                decision.take_profit or Decimal("0"),
-                getattr(decision, "risk_reward", Decimal("2.0")),
-                "RECONCILIATION_REQUIRED",
-                f"Unresolved reconciliation conditions block new entries: {', '.join(codes)}",
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                code, message,
             )
 
-        # Step 0: Single-Trade Account Lock
-        effective_user_id = user_id or self.state_store.account.user_id or "default_user"
         try:
-            self.single_trade_lock.acquire_lock(
-                user_id=effective_user_id,
-                account_id=account_id,
-                setup_id=setup_id,
-                symbol=symbol,
+            return await self._execute_admitted_trade_setup(
+                decision,
+                account_id,
+                user_id=user_id,
+                override_client_order_id=override_client_order_id,
+                frontend_params=frontend_params,
             )
-        except SingleTradeLockError as e:
-            return self._create_rejected_record(
-                setup_id, account_id, user_id, symbol, decision.direction, Decimal("1.0"),
-                getattr(decision, "entry", Decimal("0")) or Decimal("0"),
-                decision.stop_loss or Decimal("0"),
-                decision.take_profit or Decimal("0"),
-                getattr(decision, "risk_reward", Decimal("2.0")),
-                RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value,
-                str(e),
-            )
+        finally:
+            with self._lock:
+                if self._submissions_in_flight > 0:
+                    self._submissions_in_flight -= 1
 
-        # Extract attributes with fallback
+    async def _execute_admitted_trade_setup(
+        self,
+        decision: StrategyDecision,
+        account_id: str,
+        user_id: Optional[str] = None,
+        override_client_order_id: Optional[str] = None,
+        frontend_params: Optional[Dict[str, Any]] = None,
+    ) -> TradeLifecycleRecord:
+        """Validate and submit an entry that `execute_trade_setup` has ADMITTED.
+
+        Never call this directly: admission (duplicate guard, safety gate,
+        reconciliation alerts, single-trade lock) happens in
+        `execute_trade_setup` and this half assumes it has already succeeded.
+        Split out only so the admission checks can share one critical section;
+        the body below is otherwise unchanged.
+        """
+        setup_id = decision.setup_id
+        symbol = decision.symbol
+
+        # Extract authoritative attributes. Read exactly as before; what changed
+        # is that an absent or unusable value is no longer replaced with a
+        # number of this module's choosing.
         setup_state = getattr(decision, "setup_state", None) or getattr(decision, "status", None)
         entry_price = getattr(decision, "entry", None) or getattr(decision, "entry_price", None)
         stop_loss = decision.stop_loss
         take_profit = decision.take_profit
         risk_reward = getattr(decision, "risk_reward", None) or getattr(decision, "risk_reward_ratio", Decimal("2.0"))
-        raw_qty = getattr(decision, "quantity", None)
-        quantity = raw_qty if raw_qty is not None else Decimal("1.0")
+        quantity = getattr(decision, "quantity", None)
+
+        # The entry price is the price a real order rests at and the basis of
+        # every sizing and margin figure computed from this record. There is no
+        # safe substitute for it.
+        #
+        # This also removes a latent crash: with `entry_price = None` the step-4
+        # geometry comparison `stop_loss < entry_price < take_profit` raised
+        # TypeError outside every handler, so the single-trade lock acquired at
+        # step 0 above was stranded and the account could not trade again until
+        # the process restarted. `_create_rejected_record` releases it.
+        if not _is_authoritative_positive(entry_price):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_ENTRY_PRICE setup=%s symbol=%s value=%r",
+                setup_id, symbol, entry_price,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                REFUSAL_MISSING_ENTRY_PRICE,
+                f"Strategy decision carried no usable entry price (got {entry_price!r}); "
+                f"refusing to price an order on a substituted value",
+            )
+
+        # The quantity is the size of a real position. The previous default of
+        # one contract was not a strategy output.
+        if not _is_authoritative_positive(quantity):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_QUANTITY setup=%s symbol=%s value=%r",
+                setup_id, symbol, quantity,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                REFUSAL_MISSING_QUANTITY,
+                f"Strategy decision carried no usable quantity (got {quantity!r}); "
+                f"refusing to size an order on a substituted value",
+            )
+
+        # The stop is the only thing bounding this position's loss and the target
+        # is the only thing closing it in profit; step 4 below compares both
+        # against the entry price. An absent or non-numeric value made that
+        # comparison raise TypeError outside every handler -- no record was
+        # returned to the caller and the step-0 single-trade lock was stranded,
+        # so the account could not trade again until the process restarted. This
+        # refuses ONLY that class; every numeric value still reaches the
+        # established geometry and risk-distance rules unchanged.
+        #
+        # The codes are the repository's existing vocabulary for this exact
+        # condition -- `OrderValidationGateway` already emits MISSING_STOP_LOSS /
+        # MISSING_TAKE_PROFIT from `CHECK_MISSING_SL` / `CHECK_MISSING_TP` -- so
+        # an operator sees one code whichever layer refuses first, and no new
+        # constant is minted for a condition that already had one.
+        if not _is_comparable_price(stop_loss):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_STOP_LOSS setup=%s symbol=%s value=%r",
+                setup_id, symbol, stop_loss,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                RejectionReasonCode.MISSING_STOP_LOSS.value,
+                f"Strategy decision carried no usable stop loss (got {stop_loss!r}); "
+                f"refusing to submit an entry whose loss is unbounded",
+            )
+
+        if not _is_comparable_price(take_profit):
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_TAKE_PROFIT setup=%s symbol=%s value=%r",
+                setup_id, symbol, take_profit,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                RejectionReasonCode.MISSING_TAKE_PROFIT.value,
+                f"Strategy decision carried no usable take profit (got {take_profit!r}); "
+                f"refusing to submit an entry with no target",
+            )
+
         raw_risk = getattr(decision, "risk_amount", None)
         risk_amount = raw_risk if raw_risk is not None else (abs(entry_price - stop_loss) * quantity if entry_price and stop_loss else Decimal("0"))
         raw_reward = getattr(decision, "reward_amount", None)
@@ -548,7 +1088,30 @@ class TradeLifecycleManager:
             setup_id=setup_id,
         )
 
-        effective_leverage = getattr(decision, "calculated_leverage", None) or 100
+        # The leverage this order is validated against must come from the
+        # strategy's own sizing. The previous `or 100` silently substituted the
+        # TOP of the authorised band -- the one substitution guaranteed to pass
+        # the band check downstream while multiplying the position's real margin
+        # exposure by up to 100.
+        #
+        # Only ABSENCE is refused here. A present-but-out-of-band value is left
+        # to the authorised band enforcement in `OrderValidationGateway`
+        # (`CHECK_LEVERAGE_CAP`: 0x and 101x are rejected, never clamped), which
+        # is a closed policy this change does not touch or duplicate. No
+        # leverage field is added to any Delta payload.
+        effective_leverage = getattr(decision, "calculated_leverage", None)
+        if effective_leverage is None:
+            logger.critical(
+                "ENTRY_BLOCKED_MISSING_CALCULATED_LEVERAGE setup=%s symbol=%s",
+                setup_id, symbol,
+            )
+            return self._create_rejected_record(
+                setup_id, account_id, user_id, symbol, decision.direction,
+                Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"), Decimal("0"),
+                REFUSAL_MISSING_LEVERAGE,
+                "Strategy decision carried no calculated leverage; refusing to "
+                "validate an order against a substituted leverage",
+            )
 
         record = TradeLifecycleRecord(
             setup_id=setup_id,
@@ -594,7 +1157,24 @@ class TradeLifecycleManager:
             self._release_setup_lock(user_id, account_id, setup_id)
             return record
 
-        client_order_id = override_client_order_id or generate_client_order_id(f"QE_{symbol}_ENTRY")
+        # P2-1: the product this record's orders are about to be submitted
+        # against becomes part of its persisted identity, BEFORE anything is
+        # sent. A later run compares the persisted id against what the registry
+        # resolves then, and blocks on disagreement rather than silently acting
+        # on a different exchange product than the one holding the position.
+        record.product_id = product_spec.product_id
+        # Deterministic identity. The same (account_id, setup_id, ENTRY) triple
+        # always names the same order, so a process that restarts between
+        # submitting this entry and observing its fill can recover the order by
+        # recomputing its name (`_find_entry_order` already looks it up with
+        # `get_order_by_client_id`) instead of inferring which of the account's
+        # resting orders was its own. It also means a replayed setup carries the
+        # name the exchange has already seen rather than opening a second
+        # position under a fresh random name. The `override_client_order_id`
+        # escape is preserved unchanged for callers that supply their own.
+        client_order_id = override_client_order_id or generate_deterministic_client_order_id(
+            account_id, setup_id, ORDER_ROLE_ENTRY
+        )
         record.entry_client_order_id = client_order_id
 
         side = OrderSide.BUY if record.direction == TradeDirection.LONG else OrderSide.SELL
@@ -632,8 +1212,15 @@ class TradeLifecycleManager:
 
         eff_risk_pct = snapshot.risk_per_trade_pct if (snapshot.risk_per_trade_pct and snapshot.risk_per_trade_pct > Decimal("1.00")) else Decimal("35.0")
         risk_cfg = RiskConfiguration(
+            # P2-5: the ceiling this order is validated against is read, never
+            # substituted. The previous `or 100` named the TOP of the authorised
+            # band as a fallback -- the one value certain to pass the band check
+            # below it. `AlgoConfigurationSnapshot.max_leverage` is a non-optional
+            # int already band-checked in `__post_init__`, so there is nothing for
+            # a fallback to answer; the authorised 1x-100x policy itself is
+            # unchanged and still enforced by `CHECK_LEVERAGE_CAP`.
+            max_leverage=snapshot.max_leverage,
             risk_per_trade_pct=eff_risk_pct,
-            max_leverage=snapshot.max_leverage or 100,
         )
 
         context = ValidationContext(
@@ -642,8 +1229,22 @@ class TradeLifecycleManager:
             algo_enabled=self.state_store.account.algo_enabled,
             kill_switch_active=self.state_store.account.kill_switch_active,
             connection=self.state_store.connection,
-            api_key=getattr(self.client, "_api_key", "MOCKED_API_KEY"),
-            api_secret=getattr(self.client, "_api_secret", "MOCKED_API_SECRET"),
+            # A client that exposes no credential attribute is a client that
+            # cannot prove it is authenticated, and the honest way to say so is
+            # `None` -- which `ValidationContext` already declares as the field's
+            # own default and which `CHECK_API_CREDENTIALS` refuses before the
+            # exchange is ever contacted.
+            #
+            # The previous fallbacks were the literals "MOCKED_API_KEY" /
+            # "MOCKED_API_SECRET". At 15 and 18 characters they cleared that
+            # check's length floor, so a client with no credential at all
+            # validated as credentialled: a default answering a safety question
+            # (rule #13). Nothing legitimate depended on them -- the real
+            # production and test clients both set `_api_key` / `_api_secret` --
+            # so removing them narrows the accepted world without substituting a
+            # new value for a missing one.
+            api_key=getattr(self.client, "_api_key", None),
+            api_secret=getattr(self.client, "_api_secret", None),
             open_positions=self.state_store.get_open_positions(),
             open_orders=self.state_store.get_open_orders(),
             active_setup_ids=set(k for k in self._active_trades.keys() if k != setup_id),
@@ -710,6 +1311,38 @@ class TradeLifecycleManager:
             # a position may exist. Releasing here would allow a second trade
             # alongside a possibly-live, possibly-unprotected one (safety rules
             # #11, #14). The lock is released by close_position/reconciliation.
+            #
+            # P1-5: the retained lock and the record state were the ONLY traces
+            # of this condition, and neither is a first-class alert -- so nothing
+            # blocked on it explicitly, nothing survived into the operator-facing
+            # alert list, and a later reconciliation run could quietly move on.
+            # The ambiguity is now recorded through the existing alert model, with
+            # the identity needed to go and ask the exchange what happened: the
+            # setup, the deterministic client order id of the attempt, and the
+            # requested size. It is NOT assumed to have failed, it is NOT retried
+            # here, and it can only be cleared by an authoritative reconciliation
+            # (which the post-loop sweep in
+            # `reconcile_active_trades_with_exchange` now prevents from being a
+            # coincidentally-empty listing).
+            self._raise_reconciliation_alert(
+                "AMBIGUOUS_ENTRY_SUBMISSION", symbol,
+                f"setup {setup_id}: entry submission of {record.requested_quantity} "
+                f"({record.direction.value}) neither confirmed nor refused by the "
+                f"exchange ({type(e).__name__}: {e}); the order may be live. No "
+                f"retry is attempted and the portfolio lock is retained until "
+                f"authoritative reconciliation resolves it",
+                context={
+                    "setup_id": setup_id,
+                    "symbol": symbol,
+                    "direction": record.direction.value,
+                    "client_order_id": client_order_id,
+                    "requested_quantity": str(record.requested_quantity),
+                    "entry_price": str(record.entry_price),
+                    "product_id": product_spec.product_id,
+                    "account_id": account_id,
+                    "error_type": type(e).__name__,
+                },
+            )
             return record
         except Exception as e:
             record.record_transition(TradeLifecycleState.ENTRY_REJECTED, f"Unexpected error during entry: {str(e)}")
@@ -840,7 +1473,10 @@ class TradeLifecycleManager:
         )
 
         close_side = OrderSide.SELL if record.direction == TradeDirection.LONG else OrderSide.BUY
-        product_spec = get_product_specification(record.symbol)
+        # P2-1: the product the ENTRY was submitted against, not whatever the
+        # registry resolves for the symbol now. A bracket placed on a different
+        # product would leave the real position naked.
+        product_spec = _authoritative_product_specification(record)
 
         # Task M §M2: a partial fill that grows (30 -> 70 -> 100) must end with
         # protection for exactly the filled quantity and NOT with one bracket
@@ -856,6 +1492,13 @@ class TradeLifecycleManager:
             try:
                 await self._cancel_existing_brackets(record, product_spec.product_id)
                 stale_bracket_cancelled = True
+                # The cancelled pair's client_order_ids are now spent. Advance
+                # the generation so the replacement legs are named
+                # deterministically but distinctly (SL -> SL2 -> SL3), rather
+                # than replaying a name the exchange has already seen -- whose
+                # acceptance is UNVERIFIED and whose refusal would leave this
+                # position unprotected.
+                record.protection_generation += 1
             except Exception as e:
                 logger.critical(
                     "CRITICAL: could not cancel stale bracket orders for setup %s before "
@@ -923,7 +1566,10 @@ class TradeLifecycleManager:
             # `mark_price` would arm the stop off a different series than the
             # one the level was computed on, which is a change in exit
             # semantics rather than a formatting choice.
-            sl_client_id = generate_client_order_id(f"QE_{record.symbol}_SL")
+            sl_client_id = generate_deterministic_client_order_id(
+                record.account_id, record.setup_id,
+                protection_role(ORDER_ROLE_STOP_LOSS, record.protection_generation),
+            )
             sl_req = DeltaOrderRequest(
                 product_id=product_spec.product_id,
                 product_symbol=product_spec.symbol,
@@ -941,7 +1587,10 @@ class TradeLifecycleManager:
             record.sl_client_order_id = sl_client_id
 
             # 2. Submit Take Profit Order (Limit with reduce_only)
-            tp_client_id = generate_client_order_id(f"QE_{record.symbol}_TP")
+            tp_client_id = generate_deterministic_client_order_id(
+                record.account_id, record.setup_id,
+                protection_role(ORDER_ROLE_TAKE_PROFIT, record.protection_generation),
+            )
             tp_req = DeltaOrderRequest(
                 product_id=product_spec.product_id,
                 product_symbol=product_spec.symbol,
@@ -960,6 +1609,7 @@ class TradeLifecycleManager:
                 raise RuntimeError("Exchange failed to confirm SL/TP bracket order IDs")
 
             record.protected_quantity = target_protected_size
+            record.protection_source = PROTECTION_SOURCE_ENGINE
             record.record_transition(
                 TradeLifecycleState.PROTECTED_POSITION,
                 f"Bracket protection active: SL={record.stop_loss_price} (ID {record.sl_order_id}), TP={record.take_profit_price} (ID {record.tp_order_id})"
@@ -1208,6 +1858,7 @@ class TradeLifecycleManager:
             record.tp_order_id = str(tp_leg.id)
             record.tp_client_order_id = tp_leg.client_order_id
             record.protected_quantity = target_protected_size
+            record.protection_source = PROTECTION_SOURCE_EXCHANGE_ADOPTED
             record.record_transition(
                 TradeLifecycleState.PROTECTED_POSITION,
                 f"Exchange-attached bracket adopted for size {target_protected_size}: "
@@ -1289,6 +1940,10 @@ class TradeLifecycleManager:
             setattr(record, f"{label}_order_id", None)
             setattr(record, f"{label}_client_order_id", None)
         record.protected_quantity = Decimal("0")
+        # P2-2: provenance describes a protection contract that exists. With both
+        # legs gone there is no contract, and a stale "ENGINE_PLACED" would let a
+        # restored record believe protection it no longer has.
+        record.protection_source = None
 
     async def _classify_refused_cancel(
         self, order_id: Union[str, int]
@@ -1339,14 +1994,30 @@ class TradeLifecycleManager:
         # code expects. Unclassified fails closed.
         return CANCEL_OUTCOME_UNKNOWN, state_name, None
 
-    def _raise_reconciliation_alert(self, code: str, symbol: str, details: str) -> None:
-        """Record a critical condition that must block further entries (§M11/§M15)."""
+    def _raise_reconciliation_alert(
+        self,
+        code: str,
+        symbol: str,
+        details: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Record a critical condition that must block further entries (§M11/§M15).
+
+        `context` carries machine-readable identifying data for conditions where
+        prose is not enough to act on -- the affected setup id, the submission
+        attempt's client order id (P1-5). It is nested under a single "context"
+        key so it can never collide with the four fields every alert has, and the
+        persisted alert list is free-form by design, so it survives a restart
+        with no schema change and no second alert subsystem.
+        """
         alert = {
             "code": code,
             "symbol": symbol,
             "details": details,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if context:
+            alert["context"] = dict(context)
         self._reconciliation_alerts.append(alert)
         logger.critical("RECONCILIATION_ALERT %s symbol=%s %s", code, symbol, details)
         self.state_store.record_audit(action=f"RECONCILIATION_ALERT_{code}", details=alert)
@@ -1946,7 +2617,8 @@ class TradeLifecycleManager:
                 "state": record.state.value, "cancelled": False,
             }
 
-        product_spec = get_product_specification(record.symbol)
+        # P2-1: cancel the resting entry on the product it was submitted against.
+        product_spec = _authoritative_product_specification(record)
         logger.info(
             "ENTRY_EXPIRY_CANCEL_REQUESTED setup=%s symbol=%s order=%s reason=%s",
             setup_id, record.symbol, record.entry_order_id, reason,
@@ -2278,6 +2950,16 @@ class TradeLifecycleManager:
             "exchange_unreachable": False,
         }
 
+        # P1-4: whether an entry submission was already in flight when the
+        # authoritative listings below were read. An admitted submission holds no
+        # lock while it awaits the exchange, and its record does not exist yet, so
+        # a reconciliation run overlapping it can see NEITHER the local record nor
+        # the order the exchange may already be holding -- and would then compute a
+        # clean world and clear the alerts protecting the account. Read before the
+        # listings on purpose: it is the listings' completeness that is in doubt.
+        with self._lock:
+            submission_in_flight = self._submissions_in_flight > 0
+
         try:
             exchange_positions = await self.client.get_positions()
             exchange_orders = await self.client.get_open_orders()
@@ -2304,6 +2986,16 @@ class TradeLifecycleManager:
         }
         claimed_products: Set[int] = set()
         claimed_order_ids: Set[str] = set()
+        #: product id -> setup ids of active records that do NOT account for an
+        #: open position on that product, because nothing of theirs has filled.
+        #: This is emphatically NOT a claim. It exists so a position found on
+        #: such a product can be reported against the setup that at least names
+        #: the product, rather than as a wholly anonymous orphan.
+        unfilled_products: Dict[int, List[str]] = {}
+        #: product id -> setup ids whose recorded DIRECTION contradicts the open
+        #: position on that product (P1-1). Also not a claim: a local LONG cannot
+        #: own an exchange SHORT, whatever the sizes are.
+        contradicted_products: Dict[int, List[str]] = {}
 
         for record in list(self._active_trades.values()):
             summary["checked"] += 1
@@ -2318,7 +3010,46 @@ class TradeLifecycleManager:
                 )
                 continue
 
-            claimed_products.add(spec.product_id)
+            # P2-1: the product this record's orders were actually submitted
+            # against, versus what the registry resolves for its symbol NOW. A
+            # disagreement means the persisted execution identity and the current
+            # registry describe two different exchange products, so every
+            # subsequent lookup, cancel and bracket placement for this record
+            # would act on the wrong instrument. It is reported and blocked; the
+            # record is never silently rebound to the new id.
+            if record.product_id is not None and record.product_id != spec.product_id:
+                logger.critical(
+                    "RECONCILIATION_PRODUCT_IDENTITY_MISMATCH setup=%s symbol=%s "
+                    "persisted_product_id=%s registry_product_id=%s",
+                    record.setup_id, record.symbol, record.product_id, spec.product_id,
+                )
+                if record.state != TradeLifecycleState.RECONCILIATION_REQUIRED:
+                    record.record_transition(
+                        TradeLifecycleState.RECONCILIATION_REQUIRED,
+                        f"Persisted execution product id {record.product_id} does not "
+                        f"match the product registry's current id {spec.product_id} for "
+                        f"{record.symbol}; refusing to rebind this record to a "
+                        f"different exchange product",
+                    )
+                summary["unresolved"].append(record.setup_id)
+                self._raise_reconciliation_alert(
+                    "PRODUCT_IDENTITY_MISMATCH", record.symbol,
+                    f"setup {record.setup_id}: submitted against product "
+                    f"{record.product_id} but the registry now resolves "
+                    f"{record.symbol} to {spec.product_id}",
+                )
+                continue
+
+            # Order ids are claimed unconditionally: a resting entry order is
+            # this setup's order whether or not it has filled yet. A POSITION is
+            # deliberately NOT claimed here. It used to be, and that was the
+            # masking defect: the claim was recorded before step 1 refreshed the
+            # fill state, and regardless of whether the record accounted for any
+            # position at all. A record holding `filled_quantity == 0` -- the
+            # state an ambiguous submission leaves behind -- therefore hid a real
+            # exchange position from the orphan sweep in step 4, and the run
+            # reported CLEAN over a live unprotected position. The claim now
+            # happens in step 2, from an observed fill, after step 1 has spoken.
             for role in ("entry", "sl", "tp"):
                 oid = getattr(record, f"{role}_order_id")
                 if oid:
@@ -2367,6 +3098,68 @@ class TradeLifecycleManager:
                     )
                     continue
 
+                # P1-1: a position's identity is the product AND the direction.
+                # Matching on product alone meant a local LONG "found" an exchange
+                # SHORT of the same absolute size and reported the pair as
+                # reconciled -- the one case where the two sides are maximally
+                # wrong and look maximally right, because `DeltaPosition.size` is
+                # always non-negative and `side` carries the sign. The engine
+                # would then have gone on to "protect" a short with a sell stop
+                # below it: an OPENING order that doubles the position.
+                #
+                # Nothing is reversed, closed, adopted or repaired here. The
+                # contradiction is recorded, the product is left UNCLAIMED so
+                # step 4 reports the position, and the run cannot be clean.
+                expected_side = (
+                    PositionSide.LONG if record.direction == TradeDirection.LONG
+                    else PositionSide.SHORT
+                )
+                if position.side != expected_side:
+                    logger.critical(
+                        "RECONCILIATION_POSITION_SIDE_MISMATCH setup=%s symbol=%s "
+                        "local_direction=%s local_filled=%s exchange_side=%s "
+                        "exchange_size=%s",
+                        record.setup_id, record.symbol, record.direction.value,
+                        record.filled_quantity, position.side.value, position.size,
+                    )
+                    self.state_store.record_audit(
+                        action="RECONCILIATION_POSITION_SIDE_MISMATCH",
+                        details={
+                            "setup_id": record.setup_id, "symbol": record.symbol,
+                            "product_id": spec.product_id,
+                            "local_direction": record.direction.value,
+                            "local_filled_quantity": str(record.filled_quantity),
+                            "exchange_side": position.side.value,
+                            "exchange_size": str(position.size),
+                        },
+                    )
+                    if record.state != TradeLifecycleState.RECONCILIATION_REQUIRED:
+                        record.record_transition(
+                            TradeLifecycleState.RECONCILIATION_REQUIRED,
+                            f"Exchange holds a {position.side.value} position of "
+                            f"{position.size} on {record.symbol} while this record is "
+                            f"{record.direction.value} with {record.filled_quantity} "
+                            f"filled; the position cannot belong to this setup and no "
+                            f"reversal, closure or adoption is attempted",
+                        )
+                    contradicted_products.setdefault(spec.product_id, []).append(
+                        record.setup_id
+                    )
+                    summary["unresolved"].append(record.setup_id)
+                    self._raise_reconciliation_alert(
+                        "POSITION_SIDE_MISMATCH", record.symbol,
+                        f"setup {record.setup_id} is {record.direction.value} but the "
+                        f"exchange holds {position.side.value} {position.size} on "
+                        f"{record.symbol}; protective orders for the recorded direction "
+                        f"would INCREASE this position, so none are placed",
+                    )
+                    continue
+
+                # Only now, with a position this record actually accounts for --
+                # same product, same direction -- does the product stop being
+                # unattributed for step 4's purposes.
+                claimed_products.add(spec.product_id)
+
                 # 3. Protection must exist on the exchange for the real size.
                 exchange_size = abs(position.size)
                 sl_live = bool(record.sl_order_id) and str(record.sl_order_id) in open_order_ids
@@ -2398,6 +3191,7 @@ class TradeLifecycleManager:
                         record.tp_client_order_id = None
                     if not sl_live and not tp_live:
                         record.protected_quantity = Decimal("0")
+                        record.protection_source = None
                     record.filled_quantity = max(record.filled_quantity, exchange_size)
                     await self._ensure_bracket_protection(record, exchange_size)
                     if record.state == TradeLifecycleState.PROTECTED_POSITION:
@@ -2409,33 +3203,131 @@ class TradeLifecycleManager:
                             f"setup {record.setup_id}: exchange position of {exchange_size} "
                             f"could not be protected",
                         )
+            else:
+                # Nothing filled, so this record cannot be the owner of anything
+                # open on the product. Remember that it named the product -- so
+                # step 4 can say which setup is implicated -- and leave the
+                # product unclaimed so step 4 actually looks at it.
+                unfilled_products.setdefault(spec.product_id, []).append(record.setup_id)
 
-        # 4. Exchange positions with no local trade at all (§M11 case C).
+        # 3b. P1-5: a record still saying "I do not know what the exchange did"
+        #     is itself an unresolved finding, evaluated only AFTER every record
+        #     has had its chance to converge above.
+        #
+        #     This closes the masking route that made the ambiguous-submission
+        #     alert self-clearing: an ambiguous submission leaves the record in
+        #     RECONCILIATION_REQUIRED with `filled_quantity == 0`, so it took the
+        #     unfilled branch, and if the exchange listings then happened to look
+        #     flat -- because the order had not yet appeared, or appeared and was
+        #     cancelled -- nothing landed in `unresolved`, `clean` computed True,
+        #     and the run CLEARED the very alert that was protecting the account.
+        #
+        #     Reading two listings that are momentarily empty does not prove the
+        #     submission failed (§M15 / safety rule #15), and the mandate is
+        #     explicit that the ambiguity may not be cleared until authoritative
+        #     reconciliation proves the state safe. The routes that legitimately
+        #     resolve it already exist and all run before this point: protection
+        #     restored on a real position transitions the record to
+        #     PROTECTED_POSITION, and an authoritative close removes it from
+        #     `_active_trades` entirely. Neither is a silent clear.
+        #
+        #     No new alert is raised here: the alert raised at the point of
+        #     ambiguity is persisted and, because this makes the run unresolved,
+        #     can no longer be auto-cleared. Re-raising per run would only spam an
+        #     unbounded list with a condition already recorded.
+        for record in list(self._active_trades.values()):
+            if record.state != TradeLifecycleState.RECONCILIATION_REQUIRED:
+                continue
+            if record.setup_id in summary["unresolved"]:
+                continue
+            logger.critical(
+                "RECONCILIATION_STATE_UNRESOLVED setup=%s symbol=%s state=%s "
+                "filled=%s: exchange state for this setup is still ambiguous",
+                record.setup_id, record.symbol, record.state.value,
+                record.filled_quantity,
+            )
+            summary["unresolved"].append(record.setup_id)
+
+        # 4. Exchange positions no local record accounts for (§M11 case C).
+        #    "Accounts for" means a local fill on the SAME side, not a local
+        #    mention: a record that named the product but filled nothing, or
+        #    filled the opposite direction, leaves the position unexplained, and
+        #    an unexplained position is reported here.
         for product_id, position in positions_by_product.items():
             if product_id in claimed_products:
                 continue
             symbol = position.product_symbol
+            implicated = sorted(unfilled_products.get(product_id, []))
+            contradicted = sorted(contradicted_products.get(product_id, []))
             logger.critical(
-                "ORPHAN_EXCHANGE_POSITION product_id=%s symbol=%s size=%s entry=%s",
-                product_id, symbol, position.size, position.entry_price,
+                "ORPHAN_EXCHANGE_POSITION product_id=%s symbol=%s side=%s size=%s "
+                "entry=%s zero_fill_local_setups=%s opposite_side_local_setups=%s",
+                product_id, symbol, position.side.value, position.size,
+                position.entry_price, implicated, contradicted,
             )
+            details: Dict[str, Any] = {
+                "product_id": product_id, "symbol": symbol,
+                "side": position.side.value,
+                "size": str(position.size), "entry_price": str(position.entry_price),
+            }
+            if implicated:
+                details["zero_fill_local_setups"] = implicated
+            if contradicted:
+                details["opposite_side_local_setups"] = contradicted
             self.state_store.record_audit(
                 action="RECONCILIATION_ORPHAN_POSITION",
-                details={
-                    "product_id": product_id, "symbol": symbol,
-                    "size": str(position.size), "entry_price": str(position.entry_price),
-                },
+                details=details,
             )
             summary["orphan_positions"].append(symbol)
-            # Protecting this would require authoritative SL/TP levels, and the
-            # strategy intent behind an unknown position is not available, so
-            # inventing levels is forbidden. Fail closed instead: no new entries
-            # until an operator resolves it.
-            self._raise_reconciliation_alert(
-                "ORPHAN_EXCHANGE_POSITION", symbol,
-                f"exchange holds {position.size} on {symbol} with no local trade; "
-                f"protective levels are unknown so no bracket can be derived",
-            )
+            if contradicted:
+                # P1-1: a local record claims the opposite direction on this
+                # product. Step 2 already marked those setups unresolved and
+                # raised POSITION_SIDE_MISMATCH; what step 4 adds is that the
+                # exchange position itself remains UNATTRIBUTED. Reporting both
+                # is the point: neither the record nor the position may be
+                # quietly reinterpreted into the other.
+                self._raise_reconciliation_alert(
+                    "ORPHAN_EXCHANGE_POSITION", symbol,
+                    f"exchange holds {position.side.value} {position.size} on {symbol} "
+                    f"while local setup(s) {contradicted} record the opposite "
+                    f"direction; the position is not attributed to them and no "
+                    f"reversal, closure or protection is derived",
+                )
+                if implicated:
+                    summary["unresolved"].extend(
+                        _not_yet_unresolved(summary, implicated))
+                    self._raise_reconciliation_alert(
+                        "POSITION_ON_ZERO_FILL_SETUP", symbol,
+                        f"exchange holds {position.size} on {symbol} while local setup(s) "
+                        f"{implicated} record no fill; the position cannot be attributed "
+                        f"to them and no fill is assumed",
+                    )
+            elif implicated:
+
+                # A local record names this product but has no fill, so it cannot
+                # be the owner of what is open. Both facts are reported: the
+                # position is unattributed, AND the setup that may have caused it
+                # is unresolved. Adopting the position into that record would be
+                # inventing a fill, and an invented fill is how an unprotected
+                # position becomes an unnoticed one. No repair is attempted.
+                summary["unresolved"].extend(
+                    _not_yet_unresolved(summary, implicated))
+                self._raise_reconciliation_alert(
+                    "POSITION_ON_ZERO_FILL_SETUP", symbol,
+                    f"exchange holds {position.size} on {symbol} while local setup(s) "
+                    f"{implicated} record no fill; the position cannot be attributed "
+                    f"to them and no fill is assumed",
+                )
+            else:
+                # Protecting this would require authoritative SL/TP levels, and
+                # the strategy intent behind an unknown position is not
+                # available, so inventing levels is forbidden. Fail closed
+                # instead: no new entries until an operator resolves it.
+                self._raise_reconciliation_alert(
+                    "ORPHAN_EXCHANGE_POSITION", symbol,
+                    f"exchange holds {position.size} on {symbol} with no local trade; "
+                    f"protective levels are unknown so no bracket can be derived",
+                )
 
         # 5. Exchange orders belonging to no local trade (§M11 case A).
         for order in exchange_orders:
@@ -2460,6 +3352,30 @@ class TradeLifecycleManager:
                 f"exchange order {order.id} ({order.side.value} {order.size}) is not "
                 f"tracked locally and is reported, not cancelled",
             )
+
+        # 6. P1-4: a run that overlapped an entry submission cannot speak for the
+        #    account. The counter is re-read here as well as before the listings,
+        #    so a submission admitted DURING the run is caught too; either way the
+        #    run is unresolved, which is what stops `clean` below from clearing
+        #    alerts on evidence that was incomplete when it was gathered.
+        #
+        #    Deliberately NOT a persisted alert. The condition is transient -- it
+        #    ends when the submission returns -- and a blocking alert for it would
+        #    have to be cleared by an operator after every ordinary concurrent
+        #    entry. Marking the run unresolved is the fail-closed half that
+        #    matters: nothing is declared clean, no alert is cleared, and the
+        #    startup gate refuses to admit on this verdict. Re-running
+        #    reconciliation once the submission has returned resolves it.
+        with self._lock:
+            submission_in_flight = submission_in_flight or self._submissions_in_flight > 0
+        if submission_in_flight:
+            logger.critical(
+                "RECONCILIATION_SUBMISSION_IN_FLIGHT account=%s: an entry submission "
+                "overlapped this run, so the exchange listings it read cannot be "
+                "treated as the complete account state",
+                account_id or self.state_store.account_id,
+            )
+            summary["unresolved"].append("SUBMISSION_IN_FLIGHT")
 
         clean = (
             not summary["unresolved"]
@@ -2511,7 +3427,7 @@ class TradeLifecycleManager:
             if not record:
                 raise ValueError(f"No active trade found for setup {setup_id}")
 
-            product_spec = get_product_specification(record.symbol)
+            product_spec = _authoritative_product_specification(record)
 
             # 1. Cancel remaining open bracket orders to avoid stale executions
             #
@@ -2713,7 +3629,7 @@ class TradeLifecycleManager:
                     if trade.entry_order_id:
                         cancel_error: Optional[str] = None
                         try:
-                            spec = get_product_specification(trade.symbol)
+                            spec = _authoritative_product_specification(trade)
                             await self.client.cancel_order(int(trade.entry_order_id), spec.product_id)
                         except Exception as e:
                             cancel_error = str(e)
@@ -2877,7 +3793,14 @@ class TradeLifecycleManager:
         # Release single trade lock if it was acquired for this rejected attempt.
         # SINGLE_TRADE_LIMIT_EXCEEDED is the one code where acquisition failed
         # because another setup owns the lock, so it must not be released here.
-        if code != RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value:
+        # REFUSAL_STARTUP_GATE is refused BEFORE this attempt acquires anything,
+        # so a release here could only drop a lock that a restored session (or
+        # another attempt) still holds -- and retaining a lock is the fail-safe
+        # direction. The pre-existing "RECONCILIATION_REQUIRED" refusal has the
+        # same pre-lock property; it is left unchanged here deliberately (minimal
+        # change), since its own gate already blocks every entry while it stands.
+        if code not in (RejectionReasonCode.SINGLE_TRADE_LIMIT_EXCEEDED.value,
+                        REFUSAL_STARTUP_GATE):
             self._release_setup_lock(user_id, account_id, setup_id)
 
         dir_enum = direction if isinstance(direction, TradeDirection) else TradeDirection.LONG

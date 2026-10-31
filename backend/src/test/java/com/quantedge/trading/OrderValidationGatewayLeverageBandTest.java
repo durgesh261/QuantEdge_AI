@@ -52,7 +52,6 @@ class OrderValidationGatewayLeverageBandTest {
                 1,                          // maxConcurrentTrades
                 maxLeverage,
                 new BigDecimal("35.0"),     // riskPerTradePct
-                new BigDecimal("1.5"),      // minRiskReward
                 null,                       // activeClientOrderIds
                 null,                       // activeSetupIds
                 null                        // productSpecs -> DEFAULT_PRODUCTS

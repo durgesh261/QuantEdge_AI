@@ -136,6 +136,8 @@ def bullish_decision():
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
 
@@ -323,6 +325,8 @@ async def test_10_existing_trade_preserves_version_1_snapshot_immutability(lifec
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("100000.00"),
         risk_reward=Decimal("2.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     trade2 = await lifecycle_manager.execute_trade_setup(
         decision=decision2,
@@ -437,6 +441,8 @@ async def test_15_frontend_cannot_override_authoritative_tp_sl(lifecycle_manager
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     tampered_sl_params = {
         "stop_loss": "1.00",
@@ -536,6 +542,8 @@ async def test_19_trade_preserves_strategy_version_across_engine_updates(lifecyc
         strategy_name="SMC_FVG",
         strategy_version="2.2",
         metadata={"fvg_confirmed": True, "ob_confirmed": True},
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     # 3. Trade 2 executed under Strategy v2.2
@@ -568,6 +576,8 @@ def test_20_strategy_contract_preserves_backend_authority():
         risk_reward=Decimal("2.0"),
         strategy_name="SMC",
         strategy_version="2.1",
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     # Short geometry: TP < Entry < SL
     assert decision.take_profit < decision.entry < decision.stop_loss
@@ -658,6 +668,8 @@ async def test_22_cross_restart_trade_lifecycle_retrieval(lifecycle_manager, alg
         stop_loss=Decimal("94000.00"),
         take_profit=Decimal("98000.00"),
         risk_reward=Decimal("3.0"),
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     trade2 = await lifecycle_manager.execute_trade_setup(
         decision=decision2,

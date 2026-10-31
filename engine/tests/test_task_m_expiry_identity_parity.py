@@ -33,7 +33,12 @@ from quantedge.execution.trade_lifecycle import (
 )
 from quantedge.execution.validation import OrderValidationGateway
 from quantedge.runtime import manual_smc_runtime as RT
-from quantedge.strategy.manual_smc.lifecycle import ManualLifecycleEventType
+from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_FIRST_TOUCH,
+    DETECTOR_MANUAL_SPEC,
+    ENTRY_WINDOW_CANDLES,
+    ManualLifecycleEventType,
+)
 
 BASE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
@@ -140,11 +145,34 @@ async def _feed(runtime, bar, row):
 
 @pytest.fixture
 def wired():
-    """A runtime driving the real execution stack for one pair."""
+    """
+    A runtime driving the real execution stack for one pair.
+
+    The strategy is handed in so the detector is `DETECTOR_MANUAL_SPEC`: the
+    three-candle sequence above is half-candle geometry (`OB = [low, close] =
+    [99000, 99400]`, resting LIMIT 99100), and the runtime's shipped default is
+    `DETECTOR_LUXALGO_INTERNAL`, which reads the whole origin candle and needs a
+    200-bar ATR warm-up before admitting anything. Everything else is the
+    production construction. What this file measures -- that an expiry
+    cancellation and a fill reconciliation address the SAME exchange order
+    identity -- is downstream of the detector and unchanged by it.
+    """
     stack = _Stack()
+    registry = RT.delta_india_registry()
+    strategy = RT.ManualSMCStrategy(
+        config=RT.manual_smc_production_config(),
+        assets=["BTCUSD"],
+        account_id=ACCOUNT,
+        account_balance=100000.0,
+        tick_specs={"BTCUSD": registry.get("BTCUSD")},
+        activation_mode=ACTIVATION_MODE_FIRST_TOUCH,
+        entry_window_candles=ENTRY_WINDOW_CANDLES,
+        detector=DETECTOR_MANUAL_SPEC,
+    )
     runtime = RT.ManualSMCRuntime(
         symbols=["BTCUSD"], timeframe="1h", account_balance=100000.0,
-        orchestrator=stack.orchestrator, account_id=ACCOUNT)
+        orchestrator=stack.orchestrator, account_id=ACCOUNT,
+        strategy=strategy)
     return runtime, stack
 
 

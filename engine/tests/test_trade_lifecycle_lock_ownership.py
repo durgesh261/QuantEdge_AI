@@ -145,6 +145,7 @@ def _decision(symbol: str, setup_id: str,
         take_profit=Decimal("79000.0"),
         risk_reward=Decimal("2.0"),
         quantity=quantity,
+        calculated_leverage=100,
     )
 
 

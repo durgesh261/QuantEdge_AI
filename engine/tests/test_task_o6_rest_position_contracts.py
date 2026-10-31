@@ -1131,17 +1131,38 @@ def test_s03_no_executable_404_branch_remains():
     assert "status_code" not in code
 
 
+def _listing_code(func) -> str:
+    """`func`'s code plus the code of the listing helper it delegates to.
+
+    P1-2 RE-PIN. `get_positions` and `get_open_orders` used to fetch one page
+    and validate the envelope inline. The pagination fix moved the fetch loop
+    into `DeltaIndiaClient._fetch_complete_listing`, which is where the
+    malformed-envelope refusal now lives; the callers keep the endpoint, the
+    params and the row mapping.
+
+    So the §O6 C3 rule -- a malformed envelope must RAISE, never degrade to an
+    empty list -- is asserted across the caller and the helper together, and the
+    delegation itself is asserted separately below. Reading the caller alone
+    would make the assertion vacuous; reading the helper alone would let a
+    caller stop using it without failing anything.
+    """
+    return "\n".join((
+        _code(func),
+        _code(DeltaIndiaClient._fetch_complete_listing),
+    ))
+
+
 def test_s04_a_malformed_positions_envelope_cannot_return_an_empty_list():
-    code = _code(DeltaIndiaClient.get_positions)
-    assert "return []" not in code
-    assert "raise DeltaResponseError" in code
+    assert "return []" not in _code(DeltaIndiaClient.get_positions)
+    assert "_fetch_complete_listing" in _code(DeltaIndiaClient.get_positions)
+    assert "raise DeltaResponseError" in _listing_code(DeltaIndiaClient.get_positions)
 
 
 def test_s04b_a_malformed_orders_envelope_cannot_return_an_empty_list():
     """The orders half of the same rule (C3), implemented in this pass."""
-    code = _code(DeltaIndiaClient.get_open_orders)
-    assert "return []" not in code
-    assert "raise DeltaResponseError" in code
+    assert "return []" not in _code(DeltaIndiaClient.get_open_orders)
+    assert "_fetch_complete_listing" in _code(DeltaIndiaClient.get_open_orders)
+    assert "raise DeltaResponseError" in _listing_code(DeltaIndiaClient.get_open_orders)
 
 
 def test_s19_the_ws_path_still_has_no_size_refusal():

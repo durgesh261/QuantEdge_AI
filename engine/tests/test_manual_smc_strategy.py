@@ -45,6 +45,7 @@ import pytest
 
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_MANUAL_SPEC,
     OUTCOME_SL,
     OUTCOME_TP,
     REASON_DUAL_TOUCH,
@@ -148,9 +149,26 @@ def _specs(*assets: str):
 # ORACLE_KW above pins the ACTIVATION MODE and not the TP) is what
 # `ManualSMCStrategy()` does by default, and it
 # is covered by `test_manual_smc_first_touch_window.py`.
+#
+# ORACLE_KW also pins the DETECTOR, for the same reason and by the same
+# reasoning. `SHORT_ROWS`/`LONG_ROWS` below are six hand-built candles whose
+# zone arithmetic is `ob_top = origin.close` / `ob_bottom = origin.low` — the
+# `DETECTOR_MANUAL_SPEC` half-candle zone. The shipped default is now
+# `DETECTOR_LUXALGO_INTERNAL`, whose zone is the whole origin candle and which
+# needs ATR(200) plus a 50-bar swing window before it admits anything at all, so
+# these six-candle sequences would produce no order block and nothing to
+# orchestrate. Naming the detector keeps every assertion in this file measuring
+# what it was written to measure — the ORCHESTRATION layer, which is
+# detector-agnostic. It asserts nothing about which detector production runs;
+# `TestProductionPolicyDefaults` in `test_manual_smc_first_touch_window.py` and
+# `TestDefaultDetectorRegression` in `test_manual_smc_luxalgo_parity.py` assert
+# that positively. The one construction below that is deliberately left bare is
+# the subprocess probe in `TestModuleIndependence`, which measures the SHIPPED
+# default path's import closure and its capture/restore round trip.
 ORACLE_KW = {
     "activation_mode": ACTIVATION_MODE_ORACLE_C,
     "config": ManualSpecConfig(),
+    "detector": DETECTOR_MANUAL_SPEC,
 }
 
 
@@ -1183,13 +1201,14 @@ class TestStateRestore:
 # No application / exchange imports (requirements 7, 8, 9)
 # ---------------------------------------------------------------------------
 class TestModuleIndependence:
-    """`strategy.py` may import the eight approved modules and stdlib. Nothing else."""
+    """`strategy.py` may import the ten approved modules and stdlib. Nothing else."""
 
     def test_the_import_list_is_exactly_the_approved_set(self):
         assert _imported_modules() == [
             "__future__",
             "dataclasses",
             "datetime",
+            "quantedge.strategy.manual_smc.invalidation",
             "quantedge.strategy.manual_smc.lifecycle",
             "quantedge.strategy.manual_smc.models",
             "quantedge.strategy.manual_smc.portfolio",
@@ -1381,11 +1400,15 @@ class TestNonAtomicPersistence:
         unpersisted = strategy.unpersisted_strategy_state()
         assert set(unpersisted) == {
             "account_balance", "open_sizing_present", "lock_token",
-            "last_global_ts", "persistence_is_atomic", "note"}
+            "last_global_ts", "last_update_ts", "persistence_is_atomic",
+            "note"}
         assert unpersisted["account_balance"] == 10.0
         assert unpersisted["open_sizing_present"] is True
         assert unpersisted["lock_token"] == strategy.lock.active_trade.token
         assert unpersisted["last_global_ts"] == _ts(4)
+        # The CANDLE clock never writes the EXECUTION clock's marker: this drive
+        # fed closed candles only, so the live-update marker stays empty.
+        assert unpersisted["last_update_ts"] == {}
         assert unpersisted["persistence_is_atomic"] is False
         assert unpersisted["note"] == ATOMICITY_NOTE
 
@@ -1463,14 +1486,52 @@ class TestOrchestrationOnly:
             io.StringIO(MODULE_SRC).readline) if tok.type == tokenize.NUMBER}
         assert numbers == {"0.0", "1", "1e-9"}
 
+    #: Methods whose NAME contains a rule word but which contain no rule.
+    #: Task N's operator-invalidation ledger lives on `ManualSMCLifecycle`,
+    #: because that is where every admission decision is made. These three are
+    #: pure passthroughs to it, and the next test proves that structurally
+    #: rather than taking the name on trust — so the pin below stays a pin on
+    #: LOGIC and not merely on spelling.
+    PASSTHROUGH_ONLY = ("invalidate_ob", "invalidated_obs",
+                        "is_operator_invalidated")
+
     def test_no_rule_predicate_is_redefined_here(self):
         defined = {node.name for node in ast.walk(ast.parse(MODULE_SRC))
                    if isinstance(node, ast.FunctionDef)}
+        defined -= set(self.PASSTHROUGH_ONLY)
         for word in ("bos", "displacement", "probe", "touch", "invalidat",
                      "leverage", "size", "settle", "horizon", "dual",
                      "acquire", "release"):
             offenders = [n for n in defined if word in n.lower()]
             assert not offenders, f"{word!r} logic redefined: {offenders}"
+
+    def test_the_allowlisted_methods_really_are_pure_passthroughs(self):
+        """
+        Each allowlisted method must be a docstring plus ONE `return` whose
+        value is a call reached through `self.lifecycle`. No branch, no loop, no
+        comparison, no arithmetic, no assignment — so nothing about when an
+        order block may trade can be decided in this module.
+        """
+        bodies = {node.name: node.body
+                  for node in ast.walk(ast.parse(MODULE_SRC))
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name in self.PASSTHROUGH_ONLY}
+        assert set(bodies) == set(self.PASSTHROUGH_ONLY), sorted(bodies)
+        for name, body in bodies.items():
+            statements = [s for s in body
+                          if not (isinstance(s, ast.Expr)
+                                  and isinstance(s.value, ast.Constant))]
+            assert len(statements) == 1, f"{name}: {len(statements)} statements"
+            stmt = statements[0]
+            assert isinstance(stmt, ast.Return), f"{name} does not return"
+            assert isinstance(stmt.value, ast.Call), f"{name} returns no call"
+            source = ast.dump(stmt.value)
+            assert "'lifecycle'" in source, f"{name} bypasses the lifecycle"
+            for banned in (ast.If, ast.For, ast.While, ast.Compare,
+                           ast.BinOp, ast.BoolOp, ast.Assign, ast.Try):
+                offenders = [n for n in ast.walk(stmt)
+                             if isinstance(n, banned)]
+                assert not offenders, f"{name} contains {banned.__name__}"
 
     def test_the_lifecycle_is_driven_only_through_its_public_surface(self):
         """No poking at the lifecycle's internals to re-order its sweep."""

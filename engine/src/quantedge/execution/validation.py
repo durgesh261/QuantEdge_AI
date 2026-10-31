@@ -76,6 +76,10 @@ class RejectionReasonCode(str, Enum):
     MISSING_TAKE_PROFIT = "MISSING_TAKE_PROFIT"
     INVALID_TP_SL_GEOMETRY = "INVALID_TP_SL_GEOMETRY"
     ZERO_OR_NEGATIVE_RISK_DISTANCE = "ZERO_OR_NEGATIVE_RISK_DISTANCE"
+    #: RETIRED VOCABULARY — NO CODE PATH EMITS THIS. The minimum-reward:risk
+    #: admission rule it named has been removed: reward:risk is reported, never
+    #: enforced. The member is retained ONLY so rejection records persisted
+    #: before the removal still deserialize; a test pins that nothing emits it.
     INVALID_RISK_REWARD = "INVALID_RISK_REWARD"
     DUPLICATE_CLIENT_ORDER_ID = "DUPLICATE_CLIENT_ORDER_ID"
     DUPLICATE_SETUP_ID = "DUPLICATE_SETUP_ID"
@@ -260,12 +264,17 @@ class RiskConfiguration:
 
     Only `max_leverage` is validated here. The other fields are left exactly as
     they were: this change is scoped to the leverage band.
+
+    THERE IS NO `minimum_risk_reward` FIELD. A minimum reward:risk is not a risk
+    control this gateway applies: it would veto setups the authorised strategy
+    legitimately produced, and reward:risk is a reported consequence of an
+    entry/stop/target, not an admission input. The gateway still publishes the
+    computed ratio as `ValidationResult.calculated_risk_reward`.
     """
     risk_per_trade_pct: Decimal = Decimal("35.0")
     target_reward_pct: Decimal = Decimal("60.0")
     max_leverage: int = MAX_LEVERAGE
     max_concurrent_trades: int = 1
-    minimum_risk_reward: Decimal = Decimal("1.5")
     max_daily_loss_pct: Optional[Decimal] = None
     supported_symbols: List[str] = field(default_factory=lambda: [
         "BTCUSD", "BTCUSD.P", "ETHUSD", "ETHUSD.P", "SOLUSD", "SOLUSD.P", "XRPUSD", "XRPUSD.P"
@@ -603,14 +612,12 @@ class OrderValidationGateway:
                     now,
                 )
 
+            # Reward:risk is COMPUTED AND REPORTED, never enforced. There is no
+            # minimum-R:R rejection: the authorised strategies decide admission
+            # on their own structural rules, and a gateway threshold here would
+            # veto setups the strategy legitimately produced. Published below as
+            # `calculated_risk_reward` for ledgers and diagnostics only.
             rr = reward_dist / risk_dist
-            if rr < context.risk_config.minimum_risk_reward:
-                return self._reject(
-                    RejectionReasonCode.INVALID_RISK_REWARD,
-                    f"Risk/Reward ratio {rr:.2f} is below minimum required {context.risk_config.minimum_risk_reward}.",
-                    "CHECK_MINIMUM_RR",
-                    now,
-                )
 
             # Risk exposure check
             contract_val = getattr(spec, "contract_value", Decimal("1.0"))

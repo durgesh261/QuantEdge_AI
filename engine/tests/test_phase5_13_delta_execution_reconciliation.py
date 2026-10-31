@@ -37,6 +37,7 @@ Constraints:
 import asyncio
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
+import hashlib
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -192,6 +193,7 @@ def make_decision(setup_id: str, direction=StrategyDirection.LONG, entry=Decimal
         take_profit=tp,
         risk_reward=Decimal("1.71"),
         quantity=qty,
+        calculated_leverage=100,
     )
 
 
@@ -583,7 +585,22 @@ def test_scenario_x_backend_restart_recovery():
     id1 = generate_deterministic_client_order_id("acct-001", "setup-123", "ENTRY")
     id2 = generate_deterministic_client_order_id("acct-001", "setup-123", "ENTRY")
     assert id1 == id2
-    assert id1 == "QE-acct001-setup123-ENTRY"
+
+    # Re-pinned after the P0-1 fix. This used to assert
+    # `id1 == "QE-acct001-setup123-ENTRY"`: a name built from truncated
+    # account/setup prefixes, the scheme under which two different setups could
+    # share one order name. The expected value is recomputed here from the
+    # documented construction -- SHA-256 over the length-prefixed complete
+    # triple, first 20 hex characters upper-cased, then the readable role --
+    # rather than copied back from the generator, so reintroducing any truncation
+    # of the identity fails this test instead of silently re-pinning to it.
+    digest = hashlib.sha256(b"8:acct-001|9:setup-123|5:ENTRY").hexdigest()[:20].upper()
+    assert id1 == f"QE-{digest}-ENTRY"
+    assert len(id1) <= 32
+    # The complete identity decides the name: a setup id that shares the old
+    # 12-character prefix is a different order.
+    assert id1 != generate_deterministic_client_order_id(
+        "acct-001", "setup-123-second", "ENTRY")
 
 
 # Y. Exchange / network disconnection handling

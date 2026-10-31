@@ -116,12 +116,20 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from quantedge.strategy.manual_smc.lifecycle import (
     ACTIVATION_MODE_FIRST_TOUCH,
+    DETECTOR_LUXALGO_INTERNAL,
     ENTRY_WINDOW_CANDLES,
+    LifecycleClockError,
     ManualActiveTrade,
     ManualLifecycleEvent,
     ManualLifecycleEventType,
+    ManualOBInvalidationOutcome,
     ManualSMCLifecycle,
     ManualTradeExit,
+)
+from quantedge.strategy.manual_smc.invalidation import (
+    DEFAULT_REASON,
+    DEFAULT_REQUESTED_BY,
+    ManualOBInvalidation,
 )
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
@@ -208,6 +216,29 @@ class GlobalOrderError(CandleOrderError):
     The single trade slot and the lifecycle's close-timestamp guard couple the
     assets, so feeding assets out of global order changes which setup wins the
     slot. Equal timestamps on different assets are fine.
+    """
+
+
+class MarketUpdateError(StrategyError):
+    """A live market update cannot be processed on the execution clock."""
+
+
+class StaleMarketUpdateError(MarketUpdateError):
+    """
+    A live market update predates information already processed.
+
+    Two distinct forms, both refused rather than skipped:
+
+      * the update falls inside a bar whose CLOSED candle has already run. That
+        candle carried the whole bar's high/low, which is a superset of any
+        single price inside it, so the update is at best redundant and at worst
+        a replay of a level the closed candle already decided;
+      * the update is not strictly newer than the last update processed for the
+        asset. A repeated or reordered tick would re-run the OB update sweep,
+        and that sweep is not idempotent.
+
+    De-duplication belongs UPSTREAM (the aggregator drops a frame that carries
+    no new trade); this is the fail-closed backstop, not the filter.
     """
 
 
@@ -309,6 +340,46 @@ def validate_candle(
             f"low <= open,close <= high, got o={o_f} h={h_f} l={l_f} c={c_f}")
     return a, idx, when, o_f, h_f, l_f, c_f
 
+
+def validate_market_update(
+    asset: object,
+    bar_idx: object,
+    ts: object,
+    price: object,
+    high: object = None,
+    low: object = None,
+) -> Tuple[str, int, datetime, float, float, float]:
+    """
+    Validate ONE live market update and return it normalised.
+
+    A live update is a price at an instant, not a bar. `high`/`low` are optional
+    and describe the range the update itself spans — a single trade print spans
+    nothing, so both default to `price` and the update becomes the degenerate
+    pair `high == low == price`. That is what lets the authorised lifecycle
+    predicates, all of which are functions of `(high, low)`, apply to a tick
+    without being restated or relaxed.
+
+    `InvalidCandleError` is reused for a bad field on purpose: validating a
+    price is the same job whether it arrived in a bar or a tick, and a second
+    exception type for one failure would fragment the fail-closed surface that
+    callers already catch.
+    """
+    a = _require_str(asset, "asset")
+    idx = _require_int(bar_idx, "bar_idx")
+    when = _require_dt(ts, "ts")
+    p_f = _require_price(price, "price")
+    h_f = p_f if high is None else _require_price(high, "high")
+    l_f = p_f if low is None else _require_price(low, "low")
+    if h_f < l_f:
+        raise InvalidCandleError(
+            f"{a} update {idx}: high {h_f} is below low {l_f}")
+    if not (l_f <= p_f <= h_f):
+        raise InvalidCandleError(
+            f"{a} update {idx}: price {p_f} lies outside its own range "
+            f"[{l_f}, {h_f}]")
+    return a, idx, when, p_f, h_f, l_f
+
+
 # ---------------------------------------------------------------------------
 # Result types. Strategy-level only — the application's `StrategyDecision` and
 # `SetupState` are deliberately NOT imported (that translation is Step 7).
@@ -360,7 +431,13 @@ class ManualSMCSetup:
 
     @property
     def risk_reward(self) -> float:
-        """Dimensionless. 0.0 on a degenerate risk distance, never a divide."""
+        """
+        INFORMATIONAL ONLY. Dimensionless; 0.0 on a degenerate risk distance.
+
+        Reported for ledgers and diagnostics. NOTHING gates on this number: no
+        threshold is applied to it anywhere on the Manual SMC path, so its value
+        cannot admit or refuse a setup.
+        """
         return (self.reward_dist / self.risk_dist
                 if self.risk_dist > 1e-9 else 0.0)
 
@@ -436,7 +513,20 @@ class ManualSMCClose:
 
 @dataclass(frozen=True)
 class ManualSMCBlocked:
-    """An entry the lifecycle refused because the one trade slot was taken."""
+    """
+    An entry the lifecycle refused, with the reason it refused it.
+
+    ONE refusal reaches this record, and `rejection_code` names it:
+
+      * `ACTIVE_TRADE_OPEN` — the ONE trade slot was taken. `lock_rejection`
+        carries the holder.
+
+    There is deliberately no reward:risk refusal: the authorised specification
+    contains no such rule, so a ratio can never put a setup in this record.
+
+    The order block is left resting and nothing is cancelled: this is a
+    diagnostic record, never an instruction.
+    """
     asset: str
     ob_id: str
     direction: str
@@ -444,6 +534,7 @@ class ManualSMCBlocked:
     ts: datetime
     detail: str
     lock_rejection: Optional[LockRejection]
+    rejection_code: str
 
 @dataclass(frozen=True)
 class ManualSMCEvaluation:
@@ -509,6 +600,9 @@ class ManualSMCStrategy:
                         because USD sizing does not need one.
         lock            an existing `PortfolioLock`, for a caller that owns it.
 
+    NO REWARD:RISK THRESHOLD IS ACCEPTED OR APPLIED. The authorised Manual SMC
+    rules decide admission on their own; a ratio is reported, never enforced.
+
     NOT thread-safe, exactly like `PortfolioLock`: the authoritative
     cross-process lock is the Postgres lock of a later phase, and a local mutex
     here would imply a distributed guarantee that does not exist.
@@ -527,6 +621,7 @@ class ManualSMCStrategy:
         watermark: Optional[CandleWatermark] = None,
         activation_mode: str = ACTIVATION_MODE_FIRST_TOUCH,
         entry_window_candles: int = ENTRY_WINDOW_CANDLES,
+        detector: str = DETECTOR_LUXALGO_INTERNAL,
     ) -> None:
         # PRODUCTION DEFAULT: `manual_smc_production_config()`, whose take profit
         # is the authorized 0.60% — the same value a bare `ManualSpecConfig()`
@@ -534,11 +629,20 @@ class ManualSMCStrategy:
         # through the production factory rather than constructing the research
         # config directly, so the two can never drift by accident — see
         # `models.manual_smc_production_config`.
+        #
+        # `detector` names the STRUCTURE DETECTOR only and defaults to
+        # `DETECTOR_LUXALGO_INTERNAL`, the authorised production detector: the
+        # LuxAlgo internal-structure reconstruction the operator's own
+        # TradingView chart runs. `DETECTOR_MANUAL_SPEC` remains selectable by
+        # name. Like `activation_mode` and `entry_window_candles` it is IGNORED
+        # when a `lifecycle` is supplied, because that lifecycle already resolved
+        # its own detector and two answers to one question would be a silent
+        # contradiction.
         self.cfg: ManualSpecConfig = (
             config if config is not None else manual_smc_production_config())
         self.lifecycle: ManualSMCLifecycle = lifecycle or ManualSMCLifecycle(
             config=self.cfg, assets=assets, activation_mode=activation_mode,
-            entry_window_candles=entry_window_candles)
+            entry_window_candles=entry_window_candles, detector=detector)
         if self.lifecycle.cfg is not self.cfg:
             # A lifecycle built elsewhere must not silently run under a
             # different config than the one this strategy reports.
@@ -561,6 +665,15 @@ class ManualSMCStrategy:
         #: NOT part of the Step 5 snapshot — see `unpersisted_strategy_state`.
         self._open_sizing: Optional[PositionSizing] = None
         self._last_global_ts: Optional[datetime] = None
+        #: Last live market update processed per asset — the EXECUTION clock's
+        #: own monotonic marker. Deliberately SEPARATE from `_last_global_ts`:
+        #: writing a mid-hour tick into the global candle marker would make the
+        #: closed candle for that same hour, which necessarily carries an
+        #: earlier open timestamp, fail `_precheck_candle_order`'s global check
+        #: and be refused. The structure clock must never be starved by the
+        #: execution clock. Not part of the Step 5 snapshot — see
+        #: `unpersisted_strategy_state`.
+        self._last_update_ts: Dict[str, datetime] = {}
 
     # -- introspection ----------------------------------------------------
     @property
@@ -601,6 +714,7 @@ class ManualSMCStrategy:
             "open_sizing_present": self._open_sizing is not None,
             "lock_token": None if holder is None else holder.token,
             "last_global_ts": self._last_global_ts,
+            "last_update_ts": dict(self._last_update_ts),
             "persistence_is_atomic": PERSISTENCE_IS_ATOMIC,
             "note": ATOMICITY_NOTE,
         }
@@ -791,6 +905,137 @@ class ManualSMCStrategy:
             watermark_advanced=watermark_advanced,
         )
 
+    # -- the EXECUTION-CLOCK entry point -----------------------------------
+    def _precheck_market_update_order(
+        self, asset: str, bar_idx: int, ts: datetime
+    ) -> None:
+        """
+        Refuse a stale or replayed live update without mutating anything.
+
+        Mirrors `_precheck_candle_order` in shape, but answers to a different
+        authority. A live update belongs to the bar currently FORMING, which is
+        strictly after every bar whose closed candle has been processed, so:
+
+          * `bar_idx <= watermark.bar_idx` means the update falls inside an hour
+            already closed and processed. That closed candle carried the whole
+            hour's high and low — a superset of this one price — so every touch,
+            fill and exit this update could reach has already been decided;
+          * `ts <= _last_update_ts[asset]` means a repeated or reordered tick.
+
+        Both raise `StaleMarketUpdateError`. Neither is skipped, because the OB
+        update sweep is not idempotent.
+        """
+        mark = self.watermark.last(asset)
+        if mark is not None and bar_idx <= mark.bar_idx:
+            raise StaleMarketUpdateError(
+                f"{asset} live update in bar {bar_idx} at {ts.isoformat()} is "
+                f"not after the processed candle watermark {mark.bar_idx}; that "
+                f"hour is closed and its high/low already decided every level "
+                f"this price could reach")
+        previous = self._last_update_ts.get(asset)
+        if previous is not None:
+            try:
+                stale = ts <= previous
+            except TypeError as exc:            # naive vs tz-aware feed mix
+                raise InvalidCandleError(
+                    f"{asset}: cannot compare update timestamp {ts!r} with the "
+                    f"last update {previous!r}") from exc
+            if stale:
+                raise StaleMarketUpdateError(
+                    f"{asset} live update at {ts.isoformat()} is not after the "
+                    f"last update processed at {previous.isoformat()}; "
+                    f"re-running the OB sweep could fill an entry twice")
+
+    def evaluate_market_update(
+        self,
+        asset: str,
+        bar_idx: int,
+        ts: datetime,
+        price: float,
+        high: Optional[float] = None,
+        low: Optional[float] = None,
+    ) -> ManualSMCEvaluation:
+        """
+        Evaluate ONE live market update inside the currently-forming candle.
+
+        THE TWO CLOCKS. `evaluate_closed_candle` is the STRUCTURE clock: it runs
+        the full lifecycle including the BOS/CHoCH scan, so LuxAlgo structure and
+        order-block creation stay on closed 1h candles, unchanged. This is the
+        EXECUTION clock: it resolves an open trade's exit and updates the live
+        OBs — invalidation, first touch, resting-limit fill — on every market
+        update the exchange delivers, so an OB touched at 14:23:17 and an entry
+        reached at 14:24:02 are acted on then, not at 15:00.
+
+        Sequence, and nothing in it may be reordered:
+
+            1. validate the update (types, finiteness, price within its range);
+            2. refuse a stale or replayed update;
+            3. `lifecycle.process_market_update()` — steps 1 and 2 only, exactly
+               once. Step 3 (the structural scan) is NOT called;
+            4. reconcile the `PortfolioLock`, size the fill, settle the close —
+               the SAME three handlers the closed-candle path uses, unmodified,
+               so a fill from a tick is sized, locked and quantized identically;
+            5. project the live pool into an immutable report.
+
+        WHAT THIS DELIBERATELY DOES NOT DO:
+
+          * it does not advance the candle watermark, and reports
+            `watermark_advanced=False`. The watermark records processed CLOSED
+            candles; moving it on a tick would make the closed candle for the
+            same hour look like a replay and be refused;
+          * it does not write `_last_global_ts`, for the same reason — see
+            `_last_update_ts`;
+          * it creates no order block, expires no entry window, and resolves no
+            holding-horizon exit. Those are decisions of the structure clock —
+            see `ManualSMCLifecycle.process_market_update`.
+
+        Raises for anything that would make an order unsafe, identically to the
+        closed-candle path. `LifecycleClockError` propagates when this lifecycle
+        runs an activation mode whose gate is decided by candle closes.
+        """
+        asset, bar_idx, ts, price, h, l = validate_market_update(
+            asset, bar_idx, ts, price, high, low)
+        self._precheck_market_update_order(asset, bar_idx, ts)
+
+        events = tuple(self.lifecycle.process_market_update(
+            asset, bar_idx, ts, price, h, l))
+
+        filled: Optional[ManualSMCFill] = None
+        closed: Optional[ManualSMCClose] = None
+        blocked: List[ManualSMCBlocked] = []
+        invalidated: List[str] = []
+
+        for event in events:
+            kind = event.event_type
+            if kind is ManualLifecycleEventType.TRADE_CLOSED:
+                closed = self._on_trade_closed(event, asset, bar_idx, ts)
+            elif kind is ManualLifecycleEventType.ENTRY_FILLED:
+                filled = self._on_entry_filled(event, asset, bar_idx, ts)
+            elif kind is ManualLifecycleEventType.ENTRY_BLOCKED_BY_ACTIVE_TRADE:
+                blocked.append(self._on_entry_blocked(event, bar_idx, ts))
+            elif kind is ManualLifecycleEventType.INVALIDATED:
+                invalidated.append(event.ob_id)
+
+        self._last_update_ts[asset] = ts
+
+        setups = tuple(self._setup_from_ob(ob)
+                       for ob in self.lifecycle.candidate_obs(asset))
+        return ManualSMCEvaluation(
+            asset=asset,
+            bar_idx=bar_idx,
+            ts=ts,
+            events=events,
+            setups=setups,
+            filled=filled,
+            closed=closed,
+            blocked=tuple(blocked),
+            invalidated=tuple(invalidated),
+            active_trade=self.lifecycle.active_trade,
+            lock_holder=self.lock.active_trade,
+            account_balance=self._balance,
+            watermark_advanced=False,
+        )
+
     # -- per-event reconciliation ------------------------------------------
     def _on_trade_closed(
         self,
@@ -928,6 +1173,7 @@ class ManualSMCStrategy:
             ts=ts,
             detail=event.detail,
             lock_rejection=rejection,
+            rejection_code=rejection.code.value,
         )
 
     def _advance_watermark(
@@ -951,6 +1197,53 @@ class ManualSMCStrategy:
                 f"ahead of the watermark; a snapshot taken here is torn and "
                 f"state.py will refuse it. {ATOMICITY_NOTE}") from exc
         return True
+
+    # -- operator invalidation (Task N) ------------------------------------
+    def invalidate_ob(
+        self,
+        ob: Optional[ManualOBRecord] = None,
+        *,
+        fingerprint: Optional[str] = None,
+        asset: Optional[str] = None,
+        direction: Optional[str] = None,
+        origin_dt: Optional[datetime] = None,
+        bos_dt: Optional[datetime] = None,
+        requested_at: Optional[datetime] = None,
+        requested_by: str = DEFAULT_REQUESTED_BY,
+        reason: str = DEFAULT_REASON,
+    ) -> ManualOBInvalidationOutcome:
+        """
+        Make ONE order block permanently untradable. Idempotent.
+
+        A thin passthrough to `ManualSMCLifecycle.invalidate_ob` — the ledger
+        lives on the lifecycle because that is where every admission decision is
+        made, and duplicating it here would create two answers to "may this
+        order block trade".
+
+        The lock is NOT touched. An operator invalidation either evicts a
+        not-yet-filled order block (which never held the lock) or leaves an open
+        position alone (which must keep it until the position is proven closed).
+        """
+        return self.lifecycle.invalidate_ob(
+            ob,
+            fingerprint=fingerprint,
+            asset=asset,
+            direction=direction,
+            origin_dt=origin_dt,
+            bos_dt=bos_dt,
+            requested_at=requested_at,
+            requested_by=requested_by,
+            reason=reason,
+        )
+
+    def invalidated_obs(self, asset: Optional[str] = None
+                        ) -> Tuple[ManualOBInvalidation, ...]:
+        """Every operator invalidation, canonically ordered. For display."""
+        return self.lifecycle.invalidations.records(asset)
+
+    def is_operator_invalidated(self, ob: ManualOBRecord) -> bool:
+        """Has the operator permanently invalidated this order block?"""
+        return self.lifecycle.is_operator_invalidated(ob)
 
     # -- snapshot / resume -------------------------------------------------
     def capture_state(self) -> Dict[str, Any]:
@@ -995,6 +1288,10 @@ class ManualSMCStrategy:
         occupied from the first candle after resume (safety rule #13). The new
         token differs from the pre-crash one: tokens are process-local, and the
         authoritative cross-process lock is a later phase's Postgres lock.
+
+        Nothing about reward:risk is restored, because nothing about reward:risk
+        is enforced: the resumed strategy admits entries on the authorised
+        structural rules alone, exactly as a freshly built one does.
         """
         restored: RestoredState = restore_state(
             payload, expected_config=expected_config)
@@ -1052,10 +1349,14 @@ __all__ = [
     "DuplicateCandleError",
     "OutOfOrderCandleError",
     "GlobalOrderError",
+    "MarketUpdateError",
+    "StaleMarketUpdateError",
+    "LifecycleClockError",
     "PortfolioLockDesyncError",
     "TornStateError",
     "StrategyStateError",
     "validate_candle",
+    "validate_market_update",
     "ManualSMCSetup",
     "ManualSMCFill",
     "ManualSMCClose",

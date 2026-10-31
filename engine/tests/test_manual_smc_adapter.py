@@ -73,7 +73,10 @@ from quantedge.strategy.manual_smc.adapter import (
     require_manual_smc_identity,
     to_strategy_decisions,
 )
-from quantedge.strategy.manual_smc.lifecycle import ACTIVATION_MODE_ORACLE_C
+from quantedge.strategy.manual_smc.lifecycle import (
+    ACTIVATION_MODE_ORACLE_C,
+    DETECTOR_MANUAL_SPEC,
+)
 from quantedge.strategy.manual_smc.models import (
     MANUAL_SMC_STRATEGY_NAME,
     MANUAL_SMC_STRATEGY_VERSION,
@@ -188,7 +191,7 @@ ETH_OB_ID = "MANUAL_ETHUSD_SHORT_2_3"
 
 
 # ---------------------------------------------------------------------------
-# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE — deliberately.
+# THIS FILE PINS THE ORACLE (RESEARCH) ACTIVATION MODE AND DETECTOR — deliberately.
 # ---------------------------------------------------------------------------
 # Every row block above is a Mode-C script (probe candle, pullback candle, then
 # the fill) with the oracle's 0.60% take profit baked into `SHORT_RAW` /
@@ -196,14 +199,22 @@ ETH_OB_ID = "MANUAL_ETHUSD_SHORT_2_3"
 # production first-touch rule those same rows fill two bars earlier, so the
 # fixtures would no longer describe the transitions each test names.
 #
+# The DETECTOR is named for the same reason. The shipped default is now
+# `DETECTOR_LUXALGO_INTERNAL`, whose zone is the FULL origin candle; every OB
+# boundary, entry, stop and take profit above was computed from the HALF-candle
+# zone `DETECTOR_MANUAL_SPEC` produces, and these fixtures are far too short for
+# LuxAlgo's swing window to admit anything at all. Naming it keeps each golden
+# attached to the algorithm that generated it.
+#
 # The adapter's job — state -> `SetupState`, bracket -> Decimal legs, leverage
-# floor, refusal strings, identity — is activation-mode agnostic, so these tests
-# keep their assertions verbatim and simply name the mode their fixtures were
-# built for. Production first-touch adaptation is covered end-to-end in
-# `test_manual_smc_first_touch_window.py`.
+# floor, refusal strings, identity — is activation-mode AND detector agnostic, so
+# these tests keep their assertions verbatim and simply name what their fixtures
+# were built for. Production first-touch adaptation on the shipped detector is
+# covered end-to-end in `test_manual_smc_first_touch_window.py`.
 ORACLE_KW = {
     "activation_mode": ACTIVATION_MODE_ORACLE_C,
     "config": ManualSpecConfig(),
+    "detector": DETECTOR_MANUAL_SPEC,
 }
 
 
@@ -1184,13 +1195,21 @@ SIBLINGS = ("__init__.py", "geometry.py", "lifecycle.py", "models.py",
 STEP_7_MODULES = tuple(sorted(SIBLINGS + ("adapter.py",)))
 
 # Step 8 added `backtest.py`; Phase 2's quantization half added
-# `executable.py`. The adapter's own scope claim below is therefore expressed as
-# "adapter.py plus the Step 7 siblings, and NOTHING application-facing beyond
-# it" rather than as an inventory of the whole package, which is pinned once in
+# `executable.py`; Task N added `invalidation.py`; the LuxAlgo parity work added
+# `luxalgo_structure.py`, a pure indicator reconstruction reached only through
+# `scanner.py`. (`admission.py` was added by the R:R work and removed again with
+# the rule it carried, which is not part of the authorised strategy.) The
+# adapter's own scope claim below is therefore expressed as "adapter.py plus the
+# Step 7 siblings, and NOTHING application-facing beyond it" rather than as an
+# inventory of the whole package, which is pinned once in
 # `test_manual_smc_executable.py::TestPackageInventory`.
 STEP_8_ADDITIONS = ("backtest.py",)
 PHASE_2_ADDITIONS = ("executable.py",)
-NON_APPLICATION_ADDITIONS = tuple(sorted(STEP_8_ADDITIONS + PHASE_2_ADDITIONS))
+TASK_N_ADDITIONS = ("invalidation.py",)
+LUXALGO_PARITY_ADDITIONS = ("luxalgo_structure.py",)
+NON_APPLICATION_ADDITIONS = tuple(sorted(
+    STEP_8_ADDITIONS + PHASE_2_ADDITIONS + TASK_N_ADDITIONS
+    + LUXALGO_PARITY_ADDITIONS))
 
 
 class TestImportBoundary:

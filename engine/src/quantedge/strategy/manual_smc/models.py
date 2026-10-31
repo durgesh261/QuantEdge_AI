@@ -64,7 +64,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import ClassVar, Optional
 
 # ---------------------------------------------------------------------------
 # Strategy identity (approved policy — see module docstring)
@@ -147,6 +147,31 @@ class ManualOBRecord:
     ob_age_at_entry_hours:      float          = 0.0
     retest_number:              int            = 0
     mfe_from_proximal:          float          = 0.0
+
+    # Structure classification, carried for reporting only.
+    #
+    # DELIBERATELY A ClassVar AND NOT A DATACLASS FIELD. `dataclasses.fields()`
+    # excludes ClassVars, so this leaves untouched:
+    #   * test_manual_smc_oracle_equivalence.py, which asserts this record's
+    #     field NAMES, ORDER and TYPES are identical to the frozen oracle's;
+    #   * state.py's `expected_keys()` / `encode_dataclass()` /
+    #     `require_exact_keys()`, which refuse both missing AND unknown keys, so
+    #     an extra field would make every existing snapshot un-restorable.
+    #
+    # The oracle-extracted detector (`ManualSpecBOSScanner`) does not classify
+    # structure at all -- it has no pivot, no trend bias and no BOS/CHoCH
+    # concept -- so its records keep the "" default, which is exactly the BLANK
+    # the parity diagnostic already writes. The PRODUCTION detector
+    # (`LuxAlgoInternalOBScanner`) does set it, per instance, after
+    # construction.
+    #
+    # IT *IS* PERSISTED, but not through this record. `state.py` carries the
+    # label in a top-level `ob_structure_tags` side map keyed by `ob_id`, which
+    # is what lets a restored LuxAlgo block report `BOS`/`CHoCH` again without
+    # moving either gate above. Only `{BOS, CHoCH}` are accepted there; an
+    # unlabelled block is represented by absence, so "" never becomes a third
+    # legal value. No trading decision reads this field either way.
+    bos_or_choch:               ClassVar[str]  = ""
 
 
 @dataclass

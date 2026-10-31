@@ -160,6 +160,8 @@ def valid_bullish_decision():
         reward_distance=Decimal("3000.00"),
         risk_reward=Decimal("3.0"),
         confidence=85.0,
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
 
@@ -179,6 +181,8 @@ def valid_bearish_decision():
         reward_distance=Decimal("3000.00"),
         risk_reward=Decimal("3.0"),
         confidence=88.0,
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
 
@@ -222,6 +226,8 @@ async def test_02_invalid_setup_status_rejection(lifecycle_manager, valid_bullis
         reward_distance=Decimal("3000.00"),
         risk_reward=Decimal("3.0"),
         confidence=50.0,
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     record = await lifecycle_manager.execute_trade_setup(
@@ -294,6 +300,8 @@ async def test_06_long_tp_sl_geometry_invalid(lifecycle_manager, mock_delta_clie
         reward_distance=Decimal("3000.00"),
         risk_reward=Decimal("3.0"),
         confidence=85.0,
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
 
     record = await lifecycle_manager.execute_trade_setup(bad_long, "acc_live_5_7")
@@ -327,6 +335,8 @@ async def test_07_short_tp_sl_geometry_valid_and_invalid(lifecycle_manager, vali
         reward_distance=Decimal("3000.00"),
         risk_reward=Decimal("3.0"),
         confidence=85.0,
+        quantity=Decimal("1.0"),
+        calculated_leverage=100,
     )
     rec_invalid = await lifecycle_manager.execute_trade_setup(bad_short, "acc_live_5_7")
     assert rec_invalid.state == TradeLifecycleState.ENTRY_REJECTED
