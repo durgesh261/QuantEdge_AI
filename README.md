@@ -1,81 +1,234 @@
 # QuantEdge AI
 
-**Automated Cryptocurrency Trading Platform for Delta Exchange India**
+<div align="center">
 
-QuantEdge AI is an automated, institutional-grade trading system designed to trade cryptocurrency perpetuals on Delta Exchange India (BTCUSD, ETHUSD, SOLUSD, XRPUSD) using the verified **Manual TradingView SMC Strategy**.
+**Institutional-Grade Distributed Algorithmic Trading Platform for Cryptocurrency Perpetuals**
+
+[![Tests](https://img.shields.io/badge/Test_Suite-845%2B_Passing-success?style=for-the-badge&logo=pytest&logoColor=white)](engine/tests)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Java](https://img.shields.io/badge/Java-21_LTS-orange?style=for-the-badge&logo=openjdk&logoColor=white)](https://openjdk.org)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.2-brightgreen?style=for-the-badge&logo=springboot&logoColor=white)](https://spring.io)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?style=for-the-badge&logo=postgresql&logoColor=white)](https://postgresql.org)
+[![Docker](https://img.shields.io/badge/Docker-Compose_Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker-compose.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+
+</div>
 
 ---
 
-## 1. System Architecture
+## 1. Executive Summary
+
+**QuantEdge AI** is a production-grade, distributed quantitative trading system engineered for high-reliability algorithmic execution of cryptocurrency perpetual futures (BTCUSD, ETHUSD, SOLUSD, XRPUSD) on **Delta Exchange India**. 
+
+The system implements a proven, causal **Smart Money Concepts (SMC)** market-structure strategy, backed by a microservices architecture that decouples low-latency WebSocket market-data ingestion from an authoritative, multi-layered risk validation gateway. It eliminates discretionary bias through deterministic geometry, strict causality (zero lookahead bias), atomic restart recovery, and mathematical position sizing.
+
+---
+
+## 2. High-Level System Architecture
 
 ```
-QuantEdge AI
-├── backend/           # Java 21 + Spring Boot 3.2 REST API & Gateway (Port 8080)
-├── engine/            # Python 3.11+ Market Data & Trading Engine (Port 8000)
-├── user-app/          # React 18 + TypeScript + Vite Trader Terminal (Port 3100)
-├── developer-app/     # React 18 + TypeScript + Vite Diagnostic Console (Port 3101)
-├── data/canonical/    # Canonical Delta Exchange India historical datasets
-├── docker/            # Docker container configurations
-└── docs/              # Specifications and architectural blueprints
+                                  [ Delta Exchange India ]
+                                     ▲                │
+                   Private REST API  │                │ Public WebSocket Feed
+                   (Orders, Fills)   │                │ (1s Ticks, 1h Candles)
+                                     │                ▼
+                             ┌─────────────────────────────────┐
+                             │    Python Execution Engine      │
+                             │        (Port: 8000)             │
+                             │  • Two-Clock Market Pipeline    │
+                             │  • Causal SMC Structure Scanner │
+                             │  • Deterministic State Machine  │
+                             │  • Stale Feed Watchdog + Backfill│
+                             └────────────────┬────────────────┘
+                                              │
+                      Authoritative REST IPC  │ Order Execution Requests
+                      (HMAC / Key Authorized) │ & Risk Handshake
+                                              ▼
+                             ┌─────────────────────────────────┐
+                             │    Java 21 Spring Boot Gateway  │
+                             │        (Port: 8080)             │
+                             │  • Pre-Trade Validation Engine  │
+                             │  • 1x–100x Leverage Band Policy │
+                             │  • Single-Trade Portfolio Lock  │
+                             │  • AES-256 Credential Vault     │
+                             └────────────────┬────────────────┘
+                                              │
+                         JDBC Connection Pool │ PostgreSQL 16
+                         (Flyway Migrations)  ▼
+                             ┌─────────────────────────────────┐
+                             │    PostgreSQL Database (5432)   │
+                             │  • Trade & Position Ledger      │
+                             │  • Encrypted User Credentials   │
+                             │  • Atomic Recovery Snapshots    │
+                             └─────────────────────────────────┘
+                                              ▲
+                                              │ REST / WebSocket
+                             ┌────────────────┴────────────────┐
+                             │                                 │
+                             ▼                                 ▼
+              ┌─────────────────────────────┐   ┌─────────────────────────────┐
+              │   Trader Web Terminal       │   │  Diagnostic Admin Console   │
+              │ React 18 + Vite (Port 3100) │   │ React 18 + Vite (Port 3101) │
+              │ • Real-Time PnL & Charts    │   │ • Health & Latency Telemetry│
+              │ • Trade Lifecycle Control   │   │ • Risk Overrides & Auditing │
+              └─────────────────────────────┘   └─────────────────────────────┘
 ```
 
 ---
 
-## 2. Core Trading Strategy
+## 3. Core Architectural Highlights
 
-The active trading strategy is the **Manual TradingView SMC Strategy** proven against live reference trades:
-- **OB Boundaries**: Direction-specific (`origin.CLOSE` for SHORT top & LONG bottom).
-- **BOS Detection**: Causal close beyond opposing origin candle over sliding lookback window ($N=10$).
-- **Displacement**: Mode C (Probe $\rightarrow$ Pullback confirmation) with Break $+ 1$ admission.
-- **Invalidation**: Wick-based at the distal boundary.
-- **Risk & Geometry**: 25% depth entry, $+0.60\%$ fixed TP, $35\%$ SL account risk, $100\times$ cap, portfolio-wide **single-trade lock**.
+### ⚡ Two-Clock Market Data Processing Model
+Financial time-series demand separation between macro market context and micro execution pricing:
+1. **1-Hour Structure Clock**: Ingests finalized hourly candlestick frames to evaluate swing highs, swing lows, and Order Block (OB) formation. Incomplete forming candles are strictly prevented from corrupting structural state.
+2. **Sub-Minute Live Execution Clock**: Listens to streaming live tick updates over WebSockets to evaluate sub-minute price touches against active limit orders, maintaining sub-millisecond execution reaction times.
 
-👉 **Authoritative Specification**: [docs/MANUAL_SMC_STRATEGY.md](docs/MANUAL_SMC_STRATEGY.md)  
-👉 **Golden Acceptance Test**: `engine/tests/test_manual_smc_btc_acceptance.py` (**21/21 Passing**)
+### 🛡️ Two-Tier Authoritative Risk Gate
+Trading execution is governed by a fail-closed architecture where risk enforcement is physically separated from strategy generation:
+- **Python Engine**: Proposes target orders and calculates theoretical sizing.
+- **Java Spring Boot Gateway (Authoritative)**: Intercepts all order intents prior to exchange dispatch. Enforces strict invariants:
+  - **Dynamic Leverage Band (1x–100x)**: Rejects any order violating the asset-specific leverage constraints.
+  - **Single-Trade Portfolio Lock**: Ensures only **one active trade** exists across the entire cryptocurrency portfolio at any given time, preventing margin cascades.
+  - **Symbol Policy Contracts**: Rejects malformed symbols or unauthorized trading pairs.
+
+### 🔄 Fault-Tolerant Restart Recovery & Idempotency
+- **Atomic State Persistence**: Structure state and order lifecycles are persisted atomically with write-ahead verification.
+- **Startup Reconciliation Gate**: On restart, the engine queries exchange REST endpoints, compares local state against live exchange positions, and resolves discrepancies before arming the trading loop.
+- **Deterministic Order Identity Triples**: Every entry, stop-loss, and take-profit order is tagged with a deterministic hash:
+  $$\text{ClientOrderID} = \text{Hash}(\text{setup\_id}, \text{role}, \text{account\_id})$$
+  This guarantees idempotency across network reconnects and eliminates duplicate order executions.
 
 ---
 
-## 3. Quick Start & Local Execution
+## 4. Algorithmic Strategy: Manual TradingView SMC
+
+The active trading model replicates verified institutional **Smart Money Concepts (SMC)** with candle-by-candle mathematical precision:
+
+```
+  BEARISH SETUP (SHORT)                       BULLISH SETUP (LONG)
+  
+       [origin.HIGH]                               [ob_top: Proximal] (origin.HIGH)
+   ─── [ob_top: Distal / Stop Loss] (origin.CLOSE)  ───────────────────────────────
+         ▲                                                │
+         │  OB Width                                      ▼  OB Width (25% Depth Entry)
+         │                                          ───── [Entry Price]
+   ─── [ob_bottom: Proximal] (origin.LOW)                 │
+         │                                                ▲
+         ▼  (25% Depth Entry)                             │
+   ───── [Entry Price]                      ─── [ob_bottom: Distal / Stop Loss] (origin.CLOSE)
+         │                                         [origin.LOW]
+         ▼  Take Profit (+0.60% fixed)                    ▼  Take Profit (+0.60% fixed)
+```
+
+### Mathematical Formulation
+* **Order Block Identification**: Triggered upon a verified **Break of Structure (BOS)** across a sliding lookback window of $N=10$ bars.
+* **Direction-Specific Distal Boundary**: 
+  - For Short: $\text{ob\_top} = \text{origin.CLOSE}$ *(Wick extreme is ignored)*
+  - For Long: $\text{ob\_bottom} = \text{origin.CLOSE}$
+* **Entry Level (25% Depth)**:
+  $$\text{Entry}_{\text{Short}} = \text{ob\_bottom} + 0.25 \times (\text{ob\_top} - \text{ob\_bottom})$$
+  $$\text{Entry}_{\text{Long}} = \text{ob\_top} - 0.25 \times (\text{ob\_top} - \text{ob\_bottom})$$
+* **Take Profit (TP)**: Fixed $+0.60\%$ price movement from entry.
+* **Pre-Entry Invalidation**: Any wick touch beyond the distal boundary prior to order fill invalidates the setup immediately.
+* **Admission Timing**: New Order Blocks are admitted into the active monitoring pool at **Break $+ 1$** (first bar open after BOS confirmation), eliminating lookahead bias.
+
+---
+
+## 5. Technology Stack
+
+| Component | Technology | Version | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Execution Engine** | Python | 3.11+ | Real-time WebSocket ingestion, SMC scanner, state lifecycle |
+| **Risk & Gateway** | Java (Spring Boot) | Java 21 / Spring 3.2 | Authoritative order validation, trade persistence, JWT auth |
+| **Database** | PostgreSQL | 16-alpine | ACID trade ledger, encrypted credentials, Flyway migrations |
+| **Trader UI** | React / TypeScript | React 18 / Vite | Live trading terminal, TradingView charts, position management |
+| **Operator UI** | React / TypeScript | React 18 / Vite | Health telemetry, latency monitors, system diagnostics |
+| **Containerization**| Docker Compose | v2+ | Unified local & cloud container orchestration |
+| **Testing** | PyTest / JUnit 5 | Latest | 845+ unit, integration, parity, and golden acceptance tests |
+
+---
+
+## 6. Project Structure
+
+```
+QuantEdge AI/
+├── backend/                   # Java 21 Spring Boot Enterprise Gateway
+│   ├── src/main/java/         # Controllers, Services, Security, JPA Repositories
+│   ├── src/main/resources/    # Application configs, Flyway database migrations
+│   └── pom.xml                # Maven configuration with Surefire & test dependencies
+├── engine/                    # Python Asynchronous Market & Execution Engine
+│   ├── src/quantedge/         # Core application package
+│   │   ├── execution/         # Order lifecycle, Delta client, admission gates
+│   │   ├── market_data/       # WebSocket feeds, live aggregator, backfill logic
+│   │   ├── runtime/           # Startup gate, restart recovery, credential provider
+│   │   └── strategy/          # Manual SMC scanner, geometry, sizing, backtest
+│   ├── tests/                 # 845+ automated tests (unit, audit, parity, acceptance)
+│   └── pyproject.toml         # Python build specification
+├── user-app/                  # React 18 Trader Dashboard (Port 3100)
+├── developer-app/             # React 18 Operator & Diagnostic Console (Port 3101)
+├── docker/                    # Specialized Dockerfiles (Engine, Backend, Frontends)
+├── docs/                      # Authoritative specifications and architecture manuals
+├── docker-compose.yml         # Unified orchestration manifest
+└── LICENSE                    # MIT License
+```
+
+---
+
+## 7. Quick Start & Local Execution
 
 ### Prerequisites
-- **Java**: 21+
-- **Python**: 3.11+
-- **Node.js**: 20+
-- **PostgreSQL**: 16+ (or use Docker)
-- **Docker & Docker Compose**
+- **Docker & Docker Compose** (recommended)
+- *Or bare-metal*: Java 21+, Python 3.11+, Node.js 20+, PostgreSQL 16+
 
-### Running with Docker Compose
+### Option A: Running with Docker Compose (Recommended)
+
+1. **Clone the repository and initialize environment**:
+   ```bash
+   git clone https://github.com/durgesh261/QuantEdge_AI.git
+   cd QuantEdge_AI
+   cp .env.example .env
+   ```
+
+2. **Configure your `.env`**:
+   Populate credentials, secrets, and database settings as outlined in `.env.example`.
+
+3. **Start all services**:
+   ```bash
+   docker compose up -d
+   ```
+   * **PostgreSQL**: `localhost:5432`
+   * **Spring Boot API**: `http://localhost:8080`
+   * **Python Engine**: `http://localhost:8000`
+   * **Trader Terminal**: `http://localhost:3100`
+   * **Operator Console**: `http://localhost:3101`
+
+---
+
+### Option B: Running Individual Services Locally
+
 ```bash
-# 1. Configure environment
-cp .env.example .env
-
-# 2. Start all services (Postgres, Backend, Engine, User App, Developer App)
-docker compose up -d
-```
-
-### Running Components Individually
-```bash
-# 1. Start database
+# 1. Start the PostgreSQL container
 docker compose up -d postgres
 
-# 2. Start Java Spring Boot Backend (Port 8080)
-cd backend && ./mvnw spring-boot:run
+# 2. Launch the Java Backend Gateway
+cd backend
+./mvnw spring-boot:run
 
-# 3. Start Python Engine (Port 8000)
-cd engine
+# 3. Launch the Python Engine
+cd ../engine
 pip install -e .
 python -m quantedge
 
-# 4. Start Trader Dashboard (Port 3100)
-cd user-app && npm ci && npm run dev
-
-# 5. Start Developer Console (Port 3101)
-cd developer-app && npm ci && npm run dev
+# 4. Launch Frontends
+cd ../user-app && npm ci && npm run dev
+cd ../developer-app && npm ci && npm run dev
 ```
 
 ---
 
-## 4. Running the Tests
+## 8. Verification & Test Suite
+
+The system includes an exhaustive test harness covering structural invariants, race conditions, leverage policies, and live order reconciliation.
 
 ```bash
 # Run the complete Python test suite (845 tests, 100% passing)
@@ -84,47 +237,24 @@ python -m pytest engine/tests -v
 # Run the Golden BTC Reference Acceptance Test
 python -m pytest engine/tests/test_manual_smc_btc_acceptance.py -v
 
-# Run backend unit tests
+# Run Backend Spring Boot Integration Tests
 cd backend && ./mvnw test
 ```
 
 ---
 
-## 5. Authoritative Documentation
+## 9. Authoritative Specifications
 
-- [Manual SMC Strategy Specification](docs/MANUAL_SMC_STRATEGY.md)
-- [System Architecture](docs/ARCHITECTURE.md)
-- [Backend REST API Specification](docs/API_SPECIFICATION.md)
-- [Database & Entity Specification](docs/DATABASE_SPECIFICATION.md)
-- [Risk & Account Limits Specification](docs/RISK_SPECIFICATION.md)
-- [Security & Encryption Standards](docs/SECURITY.md)
+Comprehensive architectural blueprints and mathematical specifications are documented in [`docs/`](docs/):
+* [System Architecture Blueprint](docs/ARCHITECTURE.md)
+* [Manual SMC Strategy Specification](docs/MANUAL_SMC_STRATEGY.md)
+* [Backend REST API Specification](docs/API_SPECIFICATION.md)
+* [Database Schema & Entity Models](docs/DATABASE_SPECIFICATION.md)
+* [Pre-Trade Risk & Sizing Specification](docs/RISK_SPECIFICATION.md)
+* [Security & Credential Vault Standards](docs/SECURITY.md)
 
 ---
 
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
-
-```text
-MIT License
-
-Copyright (c) 2026 Durgesh
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
