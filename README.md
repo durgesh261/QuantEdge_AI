@@ -95,7 +95,9 @@ Trading execution is governed by a fail-closed architecture where risk enforceme
 - **Atomic State Persistence**: Structure state and order lifecycles are persisted atomically with write-ahead verification.
 - **Startup Reconciliation Gate**: On restart, the engine queries exchange REST endpoints, compares local state against live exchange positions, and resolves discrepancies before arming the trading loop.
 - **Deterministic Order Identity Triples**: Every entry, stop-loss, and take-profit order is tagged with a deterministic hash:
-  $$\text{ClientOrderID} = \text{Hash}(\text{setup\_id}, \text{role}, \text{account\_id})$$
+  ```
+  ClientOrderID = Hash(setup_id, role, account_id)
+  ```
   This guarantees idempotency across network reconnects and eliminates duplicate order executions.
 
 ---
@@ -121,16 +123,16 @@ The active trading model replicates verified institutional **Smart Money Concept
 ```
 
 ### Mathematical Formulation
-* **Order Block Identification**: Triggered upon a verified **Break of Structure (BOS)** across a sliding lookback window of $N=10$ bars.
+* **Order Block Identification**: Triggered upon a verified **Break of Structure (BOS)** across a sliding lookback window of `N = 10` bars.
 * **Direction-Specific Distal Boundary**: 
-  - For Short: $\text{ob\_top} = \text{origin.CLOSE}$ *(Wick extreme is ignored)*
-  - For Long: $\text{ob\_bottom} = \text{origin.CLOSE}$
-* **Entry Level (25% Depth)**:
-  $$\text{Entry}_{\text{Short}} = \text{ob\_bottom} + 0.25 \times (\text{ob\_top} - \text{ob\_bottom})$$
-  $$\text{Entry}_{\text{Long}} = \text{ob\_top} - 0.25 \times (\text{ob\_top} - \text{ob\_bottom})$$
-* **Take Profit (TP)**: Fixed $+0.60\%$ price movement from entry.
+  - For Short: `ob_top = origin.CLOSE` *(Wick extreme is ignored)*
+  - For Long: `ob_bottom = origin.CLOSE`
+* **Entry Level (25% Depth into Order Block)**:
+  - Short Entry: `ob_bottom + 0.25 * (ob_top - ob_bottom)`
+  - Long Entry: `ob_top - 0.25 * (ob_top - ob_bottom)`
+* **Take Profit (TP)**: Fixed `+0.60%` price movement from entry.
 * **Pre-Entry Invalidation**: Any wick touch beyond the distal boundary prior to order fill invalidates the setup immediately.
-* **Admission Timing**: New Order Blocks are admitted into the active monitoring pool at **Break $+ 1$** (first bar open after BOS confirmation), eliminating lookahead bias.
+* **Admission Timing**: New Order Blocks are admitted into the active monitoring pool at **Break + 1** (first bar open after BOS confirmation), eliminating lookahead bias.
 
 ---
 
